@@ -1,6 +1,6 @@
-#include "src/ex_finger.h"
-#include "util/System.hpp"
-#include "util/random.h"
+#include "ex_finger.h"
+#include "../util/System.hpp"
+#include "../util/random.h"
 #include <sstream>
 #include <cstring>
 #include <assert.h>

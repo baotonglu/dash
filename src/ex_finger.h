@@ -11,9 +11,9 @@
 #include <bitset>
 #include <cassert>
 #include <unordered_map>
-#include "util/hash.h"
-#include "util/pair.h"
-#include "util/persist.h"
+#include "../util/hash.h"
+#include "../util/pair.h"
+#include "../util/persist.h"
 #include <immintrin.h>
 #define _INVALID 0 /* we use 0 as the invalid key*/ 
 #define SINGLE 1
