@@ -1,6 +1,6 @@
-#include "ex_finger.h"
-#include "../util/System.hpp"
-#include "../util/random.h"
+#include "src/ex_finger.h"
+#include "util/random.h"
+#include "util/System.hpp"
 #include <sstream>
 #include <cstring>
 #include <assert.h>
@@ -154,6 +154,27 @@ int main(int argc, char const *argv[])
 	         (double) (tv2.tv_sec - tv1.tv_sec), insert_num/duration);
 	//});
 	LOG("Concurrent positive get end!---------------------------------------------------------------");
+
+	/*-----------------------------------------------Concurrent Delete Test--------------------------------------------------------------------*/
+/*
+	LOG("Concurrent deletion begin-----------------------------------------------------------------");
+		gettimeofday(&tv1, NULL);
+		for (int i = 0; i < thread_num; ++i)
+		{
+			thread_array[i] = new std::thread(concurr_delete, &rarray[i]);
+		}
+		for (int i = 0; i < thread_num; ++i)
+		{
+			thread_array[i]->join();
+			delete thread_array[i];
+		}
+		gettimeofday(&tv2, NULL);
+		duration = (double) (tv2.tv_usec - tv1.tv_usec) / 1000000 + (double) (tv2.tv_sec - tv1.tv_sec);
+		printf ("For %d threads, Delete Total time = %f seconds, the throughput is %f options/s\n", thread_num,
+	         (double) (tv2.tv_usec - tv1.tv_usec) / 1000000 +
+	         (double) (tv2.tv_sec - tv1.tv_sec), insert_num/duration);
+	LOG("Concurrent deletion end-------------------------------------------------------------------");
+	//eh->FindAnyway(1);*/
 
 	LOG("Concurrent negative get begin!-------------------------------------------------------------");
 	for (int i = 0; i < thread_num; ++i)

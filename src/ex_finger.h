@@ -11,9 +11,9 @@
 #include <bitset>
 #include <cassert>
 #include <unordered_map>
-#include "../util/hash.h"
-#include "../util/pair.h"
-#include "../util/persist.h"
+#include "util/hash.h"
+#include "util/pair.h"
+#include "util/persist.h"
 #include <immintrin.h>
 #define _INVALID 0 /* we use 0 as the invalid key*/ 
 #define SINGLE 1
@@ -40,23 +40,10 @@
 
 #define CHECK_BIT(var, pos) ((((var) & (1<<pos)) > 0) ? (1) : (0))
 
-const uint8_t fingerSet = (uint8_t)(1 << 7);
-const uint8_t fingerMask = (uint8_t)((1 << 7) - 1); /*LSB 8 bits as the finger hash*/
-const uint8_t allocSet = (uint8_t)(1 << 7);
-const uint8_t pointerSet = (uint8_t)(1 << 6);
-const uint64_t lockSet = ((uint64_t)1 << 31); /*locking information*/
-const uint64_t lockMask = ((uint64_t)1 << 31) - 1; /*locking mask*/
-const unsigned fpMask = ((unsigned)1 << 28) - 1; /* the least significant bits are 1s*/
-const uint8_t indicatorMask = (uint8_t)((1 << 4) - 1); /*the least 4 bits are 1*/
-const uint8_t indicatorSet = (uint8_t)(1 << 7); /*the least 4 bits are 1*/
-const uint8_t otherMask = ((uint8_t)255 & (~indicatorMask));
+const uint32_t lockSet = ((uint64_t)1 << 31); /*locking information*/
+const uint32_t lockMask = ((uint64_t)1 << 31) - 1; /*locking mask*/
 const int overflowSet = 1 << 15;
-const uint8_t lowCountMask = indicatorMask; /*count of kv pair in this bucket*/
-const uint8_t highCountMask = otherMask; /*count of overflowed items*/
 const int countMask = (1 << 4) - 1;
-const int highMask = ~countMask;
-
-uint64_t clflushCount;
 
 struct _Pair{
   Key_t key;
@@ -71,6 +58,8 @@ constexpr size_t kNumBucket = 64;
 constexpr size_t stashBucket = 4;
 constexpr int allocMask = (1 << kNumPairPerBucket) - 1;
 constexpr size_t bucketMask = ((1 << (int)log2(kNumBucket)) - 1);
+constexpr size_t stashMask = (1 << (int)log2(stashBucket)) -1;
+constexpr uint8_t stashHighMask = ~((uint8_t)stashMask);
 #define BUCKET_INDEX(hash) ((hash >> kFingerBits) % kNumBucket)
 #define GET_COUNT(var) ((var) & countMask)
 #define GET_BITMAP(var) (((var) >> 4) & allocMask)
@@ -102,43 +91,46 @@ struct Bucket {
 		*((int *)membership) = (*((int *)membership)) & (~overflowSet);
 	}
 
-	inline void set_indicator(uint8_t meta_hash, Bucket *neighbor){
+	inline void set_indicator(uint8_t meta_hash, Bucket *neighbor, uint8_t pos){
 		int mask = finger_array[14];
 		mask = ~mask;
 		auto index = __builtin_ctz(mask);
 
-		if (index < 5)
+		if (index < 4)
 		{
 			finger_array[15+index] = meta_hash;
-			finger_array[14] = ((uint8_t)(1 << index) | finger_array[14]);/*may be optimized*/			
+			finger_array[14] = ((uint8_t)(1 << index) | finger_array[14]);/*may be optimized*/
+			finger_array[19] = (finger_array[19] & (~(3 << (index*2))))| (pos << (index * 2));			
 		}else{
 			mask = neighbor->finger_array[14];
 			mask = ~mask;
 			index = __builtin_ctz(mask);
-			if (index < 5)
+			if (index < 4)
 			{
 				neighbor->finger_array[15+index] = meta_hash;
 				neighbor->finger_array[14] = ((uint8_t)(1 << index) | neighbor->finger_array[14]);
 				neighbor->overflowMember = ((uint8_t)(1 << index) | neighbor->overflowMember);
+				neighbor->finger_array[19] = (neighbor->finger_array[19] & (~(3 << (index*2)))) | (pos << (index * 2));
 			}else{/*overflow, increase count*/
 				overflowCount++;
-				assert(overflowCount <= kNumPairPerBucket*2);
 			}
 		}
 		*((int *)membership) = (*((int *)membership)) | overflowSet;
 	}
 
 	/*both clear this bucket and its neighbor bucket*/
-	inline void unset_indicator(uint8_t meta_hash, Bucket *neighbor, Key_t key){
+	inline void unset_indicator(uint8_t meta_hash, Bucket *neighbor, Key_t key, uint64_t pos){
 		/*also needs to ensure that this meta_hash must belongs to other bucket*/
 		bool clear_success = false;
 		int mask1 = finger_array[14];
-		for (int i = 0; i < 5; ++i)
+		for (int i = 0; i < 4; ++i)
 		{
-			if (CHECK_BIT(mask1, i) && (finger_array[15 + i] == meta_hash) && (((1 << i) & overflowMember) == 0))
+			if (CHECK_BIT(mask1, i) && (finger_array[15 + i] == meta_hash) && (((1 << i) & overflowMember) == 0) && (((finger_array[19] >> (2*i)) & stashMask) == pos))
 			{
 				//printf("clear the indicator 1\n");
 				finger_array[14] = finger_array[14] & ((uint8_t)(~(1 << i)));
+				finger_array[19] = finger_array[19] & (~(3 << (i*2)));
+				assert(((finger_array[19] >> (i*2)) & stashMask) == 0);
 				clear_success = true;
 				break;
 			}
@@ -147,13 +139,15 @@ struct Bucket {
 		int mask2 = neighbor->finger_array[14];
 		if (!clear_success)
 		{
-			for (int i = 0; i < 5; ++i)
+			for (int i = 0; i < 4; ++i)
 			{
-				if  (CHECK_BIT(mask2, i) && (neighbor->finger_array[15 + i] == meta_hash) && (((1 << i) & neighbor->overflowMember) != 0))
+				if  (CHECK_BIT(mask2, i) && (neighbor->finger_array[15 + i] == meta_hash) && (((1 << i) & neighbor->overflowMember) != 0) && (((neighbor->finger_array[19] >> (2*i)) & stashMask) == pos))
 				{
 					//printf("clear the indicator 2\n");
 					neighbor->finger_array[14] = neighbor->finger_array[14] & ((uint8_t)(~(1 << i)));
 					neighbor->overflowMember = neighbor->overflowMember & ((uint8_t)(~(1 << i)));
+				 	neighbor->finger_array[19] = neighbor->finger_array[19] & (~(3 << (i*2)));
+				 	assert(((neighbor->finger_array[19] >> (i*2)) & stashMask) == 0);
 					clear_success = true;
 					break;
 				}
@@ -196,7 +190,7 @@ struct Bucket {
 
 				if (finger_array[14] != 0)
 				{
-					for (int i = 0; i < 5; ++i)
+					for (int i = 0; i < 4; ++i)
 					{
 						if (CHECK_BIT(mask, i) && (finger_array[15+i] == meta_hash) && (((1 << i) & overflowMember) == 0))
 						{
@@ -209,7 +203,7 @@ struct Bucket {
 				if (neighbor->finger_array[14] != 0)
 				{
 					mask = neighbor->finger_array[14];
-					for (int i = 0; i < 5; ++i)
+					for (int i = 0; i < 4; ++i)
 						{
 							if (CHECK_BIT(mask, i) && (neighbor->finger_array[15+i] == meta_hash) && (((1 << i) & neighbor->overflowMember) != 0))
 							{
@@ -649,15 +643,15 @@ struct Table {
 	return -1;
   }
 
-  int Stash_insert(Bucket* target, Bucket* neighbor, Key_t key, Value_t value, uint8_t meta_hash){
+  int Stash_insert(Bucket* target, Bucket* neighbor, Key_t key, Value_t value, uint8_t meta_hash, int stash_pos){
   	for (int i = 0; i < stashBucket; ++i)
 	{
-		Bucket *curr_bucket = bucket + kNumBucket + i;
+		Bucket *curr_bucket = bucket + kNumBucket + ((stash_pos + i) & stashMask);
 		if (GET_COUNT(curr_bucket->bitmap) < kNumPairPerBucket)
 		{
 			//printf("insertion in the stash for key %lld\n", key);
 			curr_bucket->Insert(key, value, meta_hash, false);
-			target->set_indicator(meta_hash, neighbor);
+			target->set_indicator(meta_hash, neighbor, (stash_pos + i) & stashMask);
 #ifdef COUNTING
 			__sync_fetch_and_add(&number, 1);
 #endif
@@ -671,9 +665,9 @@ struct Table {
   size_t local_depth;
   size_t pattern;
   int number;
-  int state;/*-1 means this bucket is merging, -2 means this bucket is splitting, so we cannot count the depth_count on it during scanning operation*/
-  Table *next;
   int displace_num;
+  Table *next;
+  int state;/*-1 means this bucket is merging, -2 means this bucket is splitting, so we cannot count the depth_count on it during scanning operation*/
 };
 
 /* it needs to verify whether this bucket has been deleted...*/
@@ -709,63 +703,132 @@ RETRY:
 	
 	if (((GET_COUNT(target->bitmap)) == kNumPairPerBucket) && ((GET_COUNT(neighbor->bitmap)) == kNumPairPerBucket))
 	{
-		Bucket *next_neighbor = bucket + ((y+2) & bucketMask);
-		//Next displacement
-		if(!next_neighbor->try_get_lock()){
-			neighbor->release_lock();
-			target->release_lock();
-			return -2;
-		}
-		auto ret = Next_displace(neighbor, next_neighbor, key, value, meta_hash);
-		if (ret == 0)
+		if (displace_num >= -2)
 		{
+			Bucket *next_neighbor = bucket + ((y+2) & bucketMask);
+			//Next displacement
+			if(!next_neighbor->try_get_lock()){
+				neighbor->release_lock();
+				target->release_lock();
+				return -2;
+			}
+			auto ret = Next_displace(neighbor, next_neighbor, key, value, meta_hash);
+			if (ret == 0)
+			{
+				displace_num++;
+				next_neighbor->release_lock();
+				neighbor->release_lock();
+				target->release_lock();
+				return 0;
+			}		
 			next_neighbor->release_lock();
+
+			Bucket *prev_neighbor;
+			int prev_index;
+			if (y == 0)
+			{
+				prev_neighbor = bucket + kNumBucket - 1;
+				prev_index = kNumBucket - 1;
+			}else{
+				prev_neighbor = bucket + y - 1;
+				prev_index = y - 1;
+			}
+			if(!prev_neighbor->try_get_lock()){
+				target->release_lock();
+				neighbor->release_lock();
+				return -2;
+			}
+
+			ret = Prev_displace(target, prev_neighbor, key, value, meta_hash);
+			if (ret == 0)
+			{
+				displace_num++;
+				neighbor->release_lock();
+				target->release_lock();
+				prev_neighbor->release_lock();
+				return 0;
+			}
+
+			displace_num--;
+			Bucket *stash = bucket + kNumBucket;
+			if (!stash->try_get_lock())
+			{
+				neighbor->release_lock();
+				target->release_lock();
+				prev_neighbor->release_lock();
+				return -2;
+			}
+			ret = Stash_insert(target, neighbor, key, value, meta_hash, y & stashMask);
+
+			stash->release_lock();
 			neighbor->release_lock();
 			target->release_lock();
-			return 0;
-		}		
-		next_neighbor->release_lock();
-
-		Bucket *prev_neighbor;
-		int prev_index;
-		if (y == 0)
-		{
-			prev_neighbor = bucket + kNumBucket - 1;
-			prev_index = kNumBucket - 1;
+			prev_neighbor->release_lock();
+			return ret;
 		}else{
-			prev_neighbor = bucket + y - 1;
-			prev_index = y - 1;
-		}
-		if(!prev_neighbor->try_get_lock()){
-			target->release_lock();
-			neighbor->release_lock();
-			return -2;
-		}
+			Bucket *stash = bucket + kNumBucket;
+			if (!stash->try_get_lock())
+			{
+				neighbor->release_lock();
+				target->release_lock();
+				return -2;
+			}
+			ret = Stash_insert(target, neighbor, key, value, meta_hash, y & stashMask);
+			if (ret == 0)
+			{
+				//displace_num--;
+				stash->release_lock();
+				neighbor->release_lock();
+				target->release_lock();
+				return 0;
+			}
+			stash->release_lock();
 
-		ret = Prev_displace(target, prev_neighbor, key, value, meta_hash);
-		if (ret == 0)
-		{
+			Bucket *next_neighbor = bucket + ((y+2) & bucketMask);
+			//Next displacement
+			if(!next_neighbor->try_get_lock()){
+				neighbor->release_lock();
+				target->release_lock();
+				return -2;
+			}
+			auto ret = Next_displace(neighbor, next_neighbor, key, value, meta_hash);
+			if (ret == 0)
+			{
+				displace_num++;
+				next_neighbor->release_lock();
+				neighbor->release_lock();
+				target->release_lock();
+				return 0;
+			}		
+			next_neighbor->release_lock();
+
+			Bucket *prev_neighbor;
+			int prev_index;
+			if (y == 0)
+			{
+				prev_neighbor = bucket + kNumBucket - 1;
+				prev_index = kNumBucket - 1;
+			}else{
+				prev_neighbor = bucket + y - 1;
+				prev_index = y - 1;
+			}
+
+			if(!prev_neighbor->try_get_lock()){
+				target->release_lock();
+				neighbor->release_lock();
+				return -2;
+			}
+
+			ret = Prev_displace(target, prev_neighbor, key, value, meta_hash);
+			if (ret == 0)
+			{
+				displace_num++;
+			}
 			neighbor->release_lock();
 			target->release_lock();
 			prev_neighbor->release_lock();
-			return 0;
+			return ret;
 		}
-
-		Bucket *stash = bucket + kNumBucket;
-		if (!stash->try_get_lock())
-		{
-			neighbor->release_lock();
-			target->release_lock();
-			prev_neighbor->release_lock();
-			return -2;
-		}
-		ret = Stash_insert(target, neighbor, key, value, meta_hash);
-
-		stash->release_lock();
-		neighbor->release_lock();
-		target->release_lock();
-		prev_neighbor->release_lock();
-		return ret;
 	}
 	
 	if (GET_COUNT(target->bitmap) <= GET_COUNT(neighbor->bitmap))
@@ -847,7 +910,8 @@ void Table::Insert4split(Key_t key, Value_t value, size_t key_hash, uint8_t meta
 #endif
 			return;
 		}
-		Stash_insert(target, neighbor, key, value, meta_hash);
+
+		Stash_insert(target, neighbor, key, value, meta_hash, y & stashMask);
 	}	
 }
 
@@ -906,7 +970,7 @@ Table* Table::Split(size_t _key_hash){
 					auto bucket_ix = BUCKET_INDEX(key_hash);
 					auto org_bucket = bucket + bucket_ix;
 					auto neighbor_bucket = bucket + ((bucket_ix + 1) & bucketMask);
-					org_bucket->unset_indicator(curr_bucket->finger_array[j], neighbor_bucket, curr_bucket->_[j].key);
+					org_bucket->unset_indicator(curr_bucket->finger_array[j], neighbor_bucket, curr_bucket->_[j].key, i);
 					curr_bucket->unset_hash(j);
 	#ifdef COUNTING
 					number--;
@@ -1002,7 +1066,7 @@ int Table::Delete(Key_t key, size_t key_hash, uint8_t meta_hash, Directory **_di
 
 			if (mask != 0)
 			{
-				for (int i = 0; i < 5; ++i)
+				for (int i = 0; i < 4; ++i)
 				{
 					if (CHECK_BIT(mask, i) && (target->finger_array[15+i] == meta_hash) && (((1 << i) & target->overflowMember) == 0))
 					{
@@ -1015,7 +1079,7 @@ int Table::Delete(Key_t key, size_t key_hash, uint8_t meta_hash, Directory **_di
 			mask = neighbor->finger_array[14];
 			if (mask != 0)
 			{
-				for (int i = 0; i < 5; ++i)
+				for (int i = 0; i < 4; ++i)
 				{
 					if (CHECK_BIT(mask, i) && (neighbor->finger_array[15+i] == meta_hash) && (((1 << i) & neighbor->overflowMember) != 0))
 					{
@@ -1032,12 +1096,12 @@ int Table::Delete(Key_t key, size_t key_hash, uint8_t meta_hash, Directory **_di
 			stash->get_lock();
 			for (int i = 0; i < stashBucket; ++i)
 			{
-				curr_bucket = stash + i;
+				curr_bucket = stash + ((i + (y & stashMask)) & stashMask);
 				ret = curr_bucket->Delete(key, meta_hash, false);
 				if (ret == 0)
 				{
 					/*needs to clear the indicator*/
-					target->unset_indicator(meta_hash, neighbor, key);
+					target->unset_indicator(meta_hash, neighbor, key, i);
 					stash->release_lock();
 					neighbor->release_lock();
 					target->release_lock();
@@ -1393,12 +1457,23 @@ RETRY:
 			int mask = target_bucket->finger_array[14];
 			if (mask != 0)
 			{
-				for (int i = 0; i < 5; ++i)
+				for (int i = 0; i < 4; ++i)
 				{
 					if (CHECK_BIT(mask, i) && (target_bucket->finger_array[15+i] == meta_hash) && (((1 << i) & target_bucket->overflowMember) == 0))
 					{
-						test_stash = true;
-						goto TEST_STASH;
+						//test_stash = true;
+						//goto TEST_STASH;
+						/*directly check stash*/
+						Bucket* stash = target->bucket + kNumBucket + ((target_bucket->finger_array[19] >> (i*2)) & stashMask);
+						auto ret = stash->check_and_get(meta_hash, key, false);
+						if (ret != NONE)
+						{
+							if (target_bucket->test_lock_version_change(old_version))
+							{
+							  goto RETRY;
+							}
+							return ret;
+						}
 					}
 				}
 			}
@@ -1406,12 +1481,22 @@ RETRY:
 			mask = neighbor_bucket->finger_array[14];
 			if (mask != 0)
 			{
-				for (int i = 0; i < 5; ++i)
+				for (int i = 0; i < 4; ++i)
 				{
 					if (CHECK_BIT(mask, i) && (neighbor_bucket->finger_array[15+i] == meta_hash) && (((1 << i) & neighbor_bucket->overflowMember) != 0))
 					{
-						test_stash = true;
-						break;
+						//test_stash = true;
+						//break;
+						Bucket* stash = target->bucket + kNumBucket + ((neighbor_bucket->finger_array[19] >> (i*2)) & stashMask);
+						auto ret = stash->check_and_get(meta_hash, key, false);
+						if (ret != NONE)
+						{
+							if (target_bucket->test_lock_version_change(old_version))
+							{
+							  goto RETRY;
+							}
+							return ret;
+						}
 					}
 				}	
 			}
@@ -1421,7 +1506,7 @@ TEST_STASH:
 		{
 			for (int i = 0; i < stashBucket; ++i)
 			{
-				Bucket *stash = target->bucket + kNumBucket + i;
+				Bucket *stash = target->bucket + kNumBucket + ((i + (y & stashMask))&stashMask);
 				auto ret =  stash->check_and_get(meta_hash, key, false);
 				if (ret != NONE)
 				{
@@ -1726,19 +1811,19 @@ int Finger_EH::FindAnyway(Key_t key){
 				printf("the segment number is %d, the bucket_ix is %d\n", x, bucket_ix);
 
 				printf("the image of org_bucket\n");
-				printf("the stash check is %d\n", org_bucket->test_stash_check());
+				//printf("the stash check is %d\n", org_bucket->test_stash_check());
 				int mask = org_bucket->finger_array[14];
-				for (int i = 0; i < 5; ++i)
+				for (int j = 0; j < 4; ++j)
 				{
-					printf("the hash is %d, the pos bit is %d, the alloc bit is %d\n", org_bucket->finger_array[15 + i], (org_bucket->overflowMember >> (i)) & 1, (org_bucket->finger_array[14] >> i) & 1);
+					printf("the hash is %d, the pos bit is %d, the alloc bit is %d, the stash bucket info is %d, the real stash bucket info is %d\n", org_bucket->finger_array[15 + j], (org_bucket->overflowMember >> (j)) & 1, (org_bucket->finger_array[14] >> j) & 1, (org_bucket->finger_array[19] >> (j*2)) & stashMask, i);
 				}
 
 				printf("the image of the neighbor bucket\n");
 				printf("the stash check is %d\n", neighbor_bucket->test_stash_check());
 				mask = neighbor_bucket->finger_array[14];
-				for (int i = 0; i < 5; ++i)
+				for (int j = 0; j < 4; ++j)
 				{
-					printf("the hash is %d, the pos bit is %d, the alloc bit is %d\n", neighbor_bucket->finger_array[15 + i], (neighbor_bucket->overflowMember >> (i)) & 1, (neighbor_bucket->finger_array[14] >> i) & 1);
+					printf("the hash is %d, the pos bit is %d, the alloc bit is %d, the stash bucket info is %d, the real stash bucket info is %d\n", neighbor_bucket->finger_array[15 + j], (neighbor_bucket->overflowMember >> (j)) & 1, (neighbor_bucket->finger_array[14] >> j) & 1, (neighbor_bucket->finger_array[19] >> (j*2)) & stashMask, i);
 				}
 
 				if (org_bucket->test_overflow())
