@@ -15,6 +15,11 @@
 #include "../util/pair.h"
 #include "../util/persist.h"
 #include <immintrin.h>
+
+#ifdef PMEM
+#include <libpmemobj.h>
+#endif
+
 #define _INVALID 0 /* we use 0 as the invalid key*/ 
 #define SINGLE 1
 #define COUNTING 1
@@ -518,29 +523,31 @@ struct Directory{
 
 /* the meta hash-table referenced by the directory*/
 struct Table {
-  Table(void)
-  : local_depth{0}, number{0}, next{nullptr}, displace_num{0}
-  { 
-    memset((void*)&bucket[0],0,sizeof(struct Bucket)*(kNumBucket+1)); 
-  }
+	Table(void)
+		: local_depth{0}, number{0}, next{nullptr}, displace_num{0}
+	{
+		memset((void *)&bucket[0], 0, sizeof(struct Bucket) * (kNumBucket + 1));
+	}
 
-  Table(size_t depth, Table *pp)
-  :local_depth{depth}, number{0}, next{pp}, displace_num{0}
-  {
-    memset((void*)&bucket[0],0,sizeof(struct Bucket)*(kNumBucket+1)); 
-  }
-  ~Table(void) {}
+	Table(size_t depth, Table *pp)
+		: local_depth{depth}, number{0}, next{pp}, displace_num{0}
+	{
+		memset((void *)&bucket[0], 0, sizeof(struct Bucket) * (kNumBucket + 1));
+	}
+	~Table(void) {}
 
-  void* operator new(size_t size) {
-    void* ret;
-    posix_memalign(&ret, 64, size);
-    return ret;
-  }
+	void *operator new(size_t size)
+	{
+		void *ret;
+		posix_memalign(&ret, 64, size);
+		return ret;
+	}
 
-  void* operator new[](size_t size) {
-    void* ret;
-    posix_memalign(&ret, 64, size);
-    return ret;
+	void *operator new[](size_t size)
+	{
+		void *ret;
+		posix_memalign(&ret, 64, size);
+		return ret;
   }                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                        
 
   int Insert(Key_t key, Value_t value, size_t key_hash, uint8_t meta_hash, Directory**);
