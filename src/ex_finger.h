@@ -72,7 +72,7 @@ constexpr size_t k_PairSize = sizeof(_Pair); //a k-v _Pair with a bit
 constexpr size_t kNumPairPerBucket = 14; /* it is determined by the usage of the fingerprint*/
 constexpr size_t kFingerBits = 8;
 constexpr size_t kMask = (1 << kFingerBits) -1;
-constexpr size_t kNumBucket = 64;
+const constexpr size_t kNumBucket = 64;
 constexpr size_t stashBucket = 4;
 constexpr int allocMask = (1 << kNumPairPerBucket) - 1;
 constexpr size_t bucketMask = ((1 << (int)log2(kNumBucket)) - 1);
@@ -516,8 +516,15 @@ struct Directory{
 	Directory(size_t capacity, size_t _version){
 		version = _version;
 		global_depth = static_cast<size_t>(log2(capacity));
-		_ = new Table*[capacity];
+		posix_memalign((void **)&_, 64, capacity * sizeof(uint64_t));
 		depth_count = 0;
+	}
+
+	static Directory *New(size_t capacity, size_t version)
+	{
+		auto dir_ptr = reinterpret_cast<Directory *>(malloc(sizeof(Directory)));
+		new (dir_ptr) Directory(capacity, version);
+		return dir_ptr;
 	}
 };
 
@@ -534,42 +541,47 @@ struct Table {
 	{
 		memset((void *)&bucket[0], 0, sizeof(struct Bucket) * (kNumBucket + 1));
 	}
-	~Table(void) {}
 
-	void *operator new(size_t size)
+	static Table *New()
 	{
-		void *ret;
-		posix_memalign(&ret, 64, size);
-		return ret;
+		auto ptr = reinterpret_cast<Table *>(malloc(sizeof(Table)));
+		new (ptr) Table();
+		return ptr;
 	}
 
-	void *operator new[](size_t size)
+	static Table *New(size_t depth, Table *pp)
 	{
-		void *ret;
-		posix_memalign(&ret, 64, size);
-		return ret;
-  }                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                        
+		auto ptr = reinterpret_cast<Table *>(malloc(sizeof(Table)));
+		new (ptr) Table(depth, pp);
+		return ptr;
+	}
 
-  int Insert(Key_t key, Value_t value, size_t key_hash, uint8_t meta_hash, Directory**);
-  void Insert4split(Key_t key, Value_t value, size_t key_hash, uint8_t meta_hash);
-  Table* Split(size_t);
-  int Delete(Key_t key, size_t key_hash, uint8_t meta_hash, Directory **_dir);
-  bool Acquire_and_verify(size_t _pattern){
-  	if (bucket->try_get_lock())
-  	{
-  		if (pattern == _pattern)
-  		{
-  			return true;
-  		}else{
-  			bucket->release_lock();
-  			return false;
-  		}
-  	}
-  	return false;
-  }
+	~Table(void) {}
 
-  bool All_acquire_and_verify(){
-  	Bucket *curr_bucket;
+	int Insert(Key_t key, Value_t value, size_t key_hash, uint8_t meta_hash, Directory **);
+	void Insert4split(Key_t key, Value_t value, size_t key_hash, uint8_t meta_hash);
+	Table *Split(size_t);
+	int Delete(Key_t key, size_t key_hash, uint8_t meta_hash, Directory **_dir);
+	bool Acquire_and_verify(size_t _pattern)
+	{
+		if (bucket->try_get_lock())
+		{
+			if (pattern == _pattern)
+			{
+				return true;
+			}
+			else
+			{
+				bucket->release_lock();
+				return false;
+			}
+		}
+		return false;
+	}
+
+	bool All_acquire_and_verify()
+	{
+		Bucket *curr_bucket;
 #ifndef COUNTING
   	if (GET_COUNT(bucket->bitmap) != 0)
   	{
@@ -871,7 +883,8 @@ Table* Table::Split(size_t _key_hash){
 	//printf("my pattern is %lld, my load factor is %f\n", pattern, ((double)number)/(kNumBucket*kNumPairPerBucket+kNumPairPerBucket));
 	state = -2;
 
-	next = new Table(local_depth + 1, next);
+	next = Table::New(local_depth + 1, next);
+
 	next->state = -2;
 	next->bucket->get_lock();/* get the first lock of the new bucket to avoid it is operated(split or merge) by other threads*/
 	clflush((char*)&next, sizeof(next));
@@ -1136,16 +1149,17 @@ Finger_EH::Finger_EH(void){
 
 }
 
-Finger_EH::Finger_EH(size_t initCap){
-	dir = new Directory(initCap, 0);
+Finger_EH::Finger_EH(size_t initCap)
+{
+	dir = Directory::New(initCap, 0);
 	lock = 0;
 
-	dir->_[initCap - 1] = new Table(dir->global_depth, nullptr);
+	dir->_[initCap - 1] = Table::New(dir->global_depth, nullptr);
 	dir->_[initCap - 1]->pattern = initCap - 1;
 	/* Initilize the Directory*/
 	for (int i = initCap - 2; i >= 0; --i)
 	{
-		dir->_[i] = new Table(dir->global_depth, dir->_[i+1]);
+		dir->_[i] = Table::New(dir->global_depth, dir->_[i + 1]);
 		dir->_[i]->pattern = i;
 	}
 	dir->depth_count = initCap;
