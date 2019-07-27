@@ -16,6 +16,19 @@ if (${CMAKE_BUILD_TYPE} STREQUAL "Release")
 endif ()
 
 
+option(USE_PMEM "enable persistent memory support" ON)
+
+set(libs_to_link
+    pthread)
+
+if(USE_PMEM MATCHES "ON")
+  message(STATUS "persistent memory support enabled, going to build with PMDK")
+  add_definitions(-DPMEM)
+  list(APPEND libs_to_link pmemobj)
+endif()
+
 add_executable(test_cuckoo src/test_cuckoo.cpp)
 target_include_directories(test_cuckoo PRIVATE src util)
-target_link_libraries(test_cuckoo pthread)
+target_link_libraries(test_cuckoo PRIVATE ${libs_to_link})
+
+
