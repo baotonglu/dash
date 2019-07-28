@@ -15,6 +15,7 @@
 #include "../util/pair.h"
 #include "../util/persist.h"
 #include <immintrin.h>
+#include "allocator.h"
 
 #ifdef PMEM
 #include <libpmemobj.h>
@@ -502,24 +503,24 @@ struct Bucket {
 
 struct Table;
 
-struct Directory{
-	Table **_;
-	size_t global_depth;
-	size_t version;
-	size_t depth_count;
-	Directory(size_t capacity, size_t _version){
-		version = _version;
-		global_depth = static_cast<size_t>(log2(capacity));
-		posix_memalign((void **)&_, 64, capacity * sizeof(uint64_t));
-		depth_count = 0;
-	}
+struct Directory {
+  Table **_;
+  size_t global_depth;
+  size_t version;
+  size_t depth_count;
+  Directory(size_t capacity, size_t _version) {
+    version = _version;
+    global_depth = static_cast<size_t>(log2(capacity));
+    Allocator::ZAllocate((void **)&_, kCacheLineSize,
+                        capacity * sizeof(uint64_t));
+    depth_count = 0;
+  }
 
-	static Directory *New(size_t capacity, size_t version)
-	{
-		auto dir_ptr = reinterpret_cast<Directory *>(malloc(sizeof(Directory)));
-		new (dir_ptr) Directory(capacity, version);
-		return dir_ptr;
-	}
+  static Directory *New(size_t capacity, size_t version) {
+    auto dir_ptr = reinterpret_cast<Directory *>(malloc(sizeof(Directory)));
+    new (dir_ptr) Directory(capacity, version);
+    return dir_ptr;
+  }
 };
 
 /* the meta hash-table referenced by the directory*/
@@ -536,18 +537,17 @@ struct Table {
 		memset((void *)&bucket[0], 0, sizeof(struct Bucket) * (kNumBucket + 1));
 	}
 
-	static Table *New()
-	{
-		auto ptr = reinterpret_cast<Table *>(malloc(sizeof(Table)));
-		new (ptr) Table();
-		return ptr;
+
+
+	static void New(Table **tbl){
+		Allocator::ZAllocate((void **)tbl, kCacheLineSize, sizeof(Table));
 	}
 
-	static Table *New(size_t depth, Table *pp)
-	{
-		auto ptr = reinterpret_cast<Table *>(malloc(sizeof(Table)));
-		new (ptr) Table(depth, pp);
-		return ptr;
+	static void New(Table **tbl, size_t depth, Table *pp){
+		// FIXME: use allocator callback
+		Allocator::ZAllocate((void **)tbl, kCacheLineSize, sizeof(Table));
+		(*tbl)->local_depth=depth;
+		(*tbl)->next=pp;
 	}
 
 	~Table(void) {}
@@ -947,7 +947,7 @@ Table* Table::Split(size_t _key_hash){
 	//printf("my pattern is %lld, my load factor is %f\n", pattern, ((double)number)/(kNumBucket*kNumPairPerBucket+kNumPairPerBucket));
 	state = -2;
 
-	next = Table::New(local_depth + 1, next);
+	Table::New(&next, local_depth+1, next);
 
 	next->state = -2;
 	next->bucket->get_lock();/* get the first lock of the new bucket to avoid it is operated(split or merge) by other threads*/
@@ -1218,12 +1218,12 @@ Finger_EH::Finger_EH(size_t initCap)
 	dir = Directory::New(initCap, 0);
 	lock = 0;
 
-	dir->_[initCap - 1] = Table::New(dir->global_depth, nullptr);
+	Table::New(dir->_ + initCap - 1, dir->global_depth, nullptr);
 	dir->_[initCap - 1]->pattern = initCap - 1;
 	/* Initilize the Directory*/
 	for (int i = initCap - 2; i >= 0; --i)
 	{
-		dir->_[i] = Table::New(dir->global_depth, dir->_[i + 1]);
+		Table::New(dir->_ + i, dir->global_depth, dir->_[i + 1]);
 		dir->_[i]->pattern = i;
 	}
 	dir->depth_count = initCap;
