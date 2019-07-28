@@ -1,6 +1,6 @@
 #pragma once
-#include <cstdint>
 #include <sys/stat.h>
+#include <cstdint>
 #include <iostream>
 
 #ifdef PMEM
@@ -9,10 +9,9 @@
 
 static constexpr const uint32_t kCacheLineSize = 64;
 
-static bool FileExists(const char *pool_path)
-{
-    struct stat buffer;
-    return (stat(pool_path, &buffer) == 0);
+static bool FileExists(const char *pool_path) {
+  struct stat buffer;
+  return (stat(pool_path, &buffer) == 0);
 }
 
 #ifdef PMEM
@@ -22,6 +21,8 @@ POBJ_LAYOUT_TOID(allocator, char)
 POBJ_LAYOUT_END(allocator)
 #endif
 
-#define LOG_FATAL(msg)        \
-    std::cout << msg << "\n"; \
-    exit(-1)\
+#define LOG_FATAL(msg)      \
+  std::cout << msg << "\n"; \
+  exit(-1)
+
+#define LOG(msg) std::cout << msg << "\n"

@@ -8,8 +8,7 @@
 #include <thread>
 #include <ctime>
 #include <sys/time.h>
-
-#define LOG(msg) std::cout << msg << "\n"
+#include "utils.h"
 
 Finger_EH *eh;
 uint64_t **workload;
