@@ -1248,7 +1248,7 @@ void Finger_EH::Unlock_Directory(){
 void Finger_EH::Halve_Directory(){
 printf("Begin::Directory_Halving towards %lld\n", dir->global_depth);
   auto d = dir->_;
-  auto new_dir = new Directory(pow(2, dir->global_depth-1), dir->version + 1);
+  auto new_dir = Directory::New(pow(2, dir->global_depth - 1), dir->version + 1);
 
   auto _dir = new_dir->_;
   new_dir->depth_count = 0;
@@ -1287,9 +1287,9 @@ printf("Begin::Directory_Halving towards %lld\n", dir->global_depth);
 void Finger_EH::Directory_Doubling(int x, Table *new_b){
   Table** d = dir->_;
   auto global_depth = dir->global_depth;
-  printf("Directory_Doubling towards %lld\n", global_depth+1);
+  printf("Directory_Doubling towards %lld\n", global_depth + 1);
 
-  auto new_sa = new Directory(2*pow(2, global_depth), dir->version + 1);
+  auto new_sa = Directory::New(2 * pow(2, global_depth), dir->version + 1);
   auto dd = new_sa->_;
 
   auto capacity = pow(2, global_depth);
