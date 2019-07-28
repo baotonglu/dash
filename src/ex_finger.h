@@ -512,13 +512,13 @@ struct Directory {
     version = _version;
     global_depth = static_cast<size_t>(log2(capacity));
     Allocator::ZAllocate((void **)&_, kCacheLineSize,
-                        capacity * sizeof(uint64_t));
+                         capacity * sizeof(uint64_t));
     depth_count = 0;
   }
 
-  static void New(Directory **dir, size_t capacity, size_t version){
-	Allocator::ZAllocate((void **)dir, kCacheLineSize, sizeof(Directory));
-	new (*dir) Directory(capacity, version);
+  static void New(Directory **dir, size_t capacity, size_t version) {
+    Allocator::ZAllocate((void **)dir, kCacheLineSize, sizeof(Directory));
+    new (*dir) Directory(capacity, version);
   }
 };
 
@@ -1210,7 +1210,6 @@ Finger_EH::Finger_EH(void){
 Finger_EH::Finger_EH(size_t initCap)
 {
 	Directory::New(&dir, initCap, 0);
-	// dir = Directory::New(initCap, 0);
 	lock = 0;
 
 	Table::New(dir->_ + initCap - 1, dir->global_depth, nullptr);
