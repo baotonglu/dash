@@ -516,10 +516,9 @@ struct Directory {
     depth_count = 0;
   }
 
-  static Directory *New(size_t capacity, size_t version) {
-    auto dir_ptr = reinterpret_cast<Directory *>(malloc(sizeof(Directory)));
-    new (dir_ptr) Directory(capacity, version);
-    return dir_ptr;
+  static void New(Directory **dir, size_t capacity, size_t version){
+	Allocator::ZAllocate((void **)dir, kCacheLineSize, sizeof(Directory));
+	new (*dir) Directory(capacity, version);
   }
 };
 
@@ -1215,7 +1214,8 @@ Finger_EH::Finger_EH(void){
 
 Finger_EH::Finger_EH(size_t initCap)
 {
-	dir = Directory::New(initCap, 0);
+	Directory::New(&dir, initCap, 0);
+	// dir = Directory::New(initCap, 0);
 	lock = 0;
 
 	Table::New(dir->_ + initCap - 1, dir->global_depth, nullptr);
@@ -1248,7 +1248,10 @@ void Finger_EH::Unlock_Directory(){
 void Finger_EH::Halve_Directory(){
 printf("Begin::Directory_Halving towards %lld\n", dir->global_depth);
   auto d = dir->_;
-  auto new_dir = Directory::New(pow(2, dir->global_depth - 1), dir->version + 1);
+
+  // FIXME: workaround, incorrect;
+  Directory * new_dir;
+  Directory::New(&new_dir, pow(2, dir->global_depth - 1), dir->version + 1);
 
   auto _dir = new_dir->_;
   new_dir->depth_count = 0;
@@ -1289,7 +1292,8 @@ void Finger_EH::Directory_Doubling(int x, Table *new_b){
   auto global_depth = dir->global_depth;
   printf("Directory_Doubling towards %lld\n", global_depth + 1);
 
-  auto new_sa = Directory::New(2 * pow(2, global_depth), dir->version + 1);
+  Directory *new_sa;
+  Directory::New(&new_sa, 2 * pow(2, global_depth), dir->version + 1);
   auto dd = new_sa->_;
 
   auto capacity = pow(2, global_depth);
