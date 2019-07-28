@@ -10,6 +10,7 @@
 #include <shared_mutex>
 #include <bitset>
 #include <cassert>
+#include <tuple>
 #include <unordered_map>
 #include "../util/hash.h"
 #include "../util/pair.h"
@@ -508,17 +509,35 @@ struct Directory {
   size_t global_depth;
   size_t version;
   size_t depth_count;
-  Directory(size_t capacity, size_t _version) {
+  Directory(size_t capacity, size_t _version, Table **tables) {
     version = _version;
     global_depth = static_cast<size_t>(log2(capacity));
-    Allocator::ZAllocate((void **)&_, kCacheLineSize,
-                         capacity * sizeof(uint64_t));
+    _ = tables;
     depth_count = 0;
   }
 
   static void New(Directory **dir, size_t capacity, size_t version) {
+    Table **tables{nullptr};
+    Allocator::ZAllocate((void **)&tables, kCacheLineSize,
+                         sizeof(uint64_t) * capacity);
+#ifdef PMEM
+    auto callback = [](PMEMobjpool *pool, void *ptr, void *arg) {
+      auto value_ptr =
+          reinterpret_cast<std::tuple<size_t, size_t, Table **> *>(arg);
+      auto dir_ptr = reinterpret_cast<Directory *>(ptr);
+      dir_ptr->version = std::get<0>(*value_ptr);
+      dir_ptr->global_depth =
+          static_cast<size_t>(log2(std::get<1>(*value_ptr)));
+      dir_ptr->_ = std::get<2>(*value_ptr);
+      return 0;
+    };
+    std::tuple callback_args = {capacity, version, tables};
+    Allocator::Allocate((void **)dir, kCacheLineSize, sizeof(Directory),
+                        callback, reinterpret_cast<void *>(&callback_args));
+#else
     Allocator::ZAllocate((void **)dir, kCacheLineSize, sizeof(Directory));
-    new (*dir) Directory(capacity, version);
+    new (*dir) Directory(capacity, version, tables);
+#endif
   }
 };
 
@@ -533,6 +552,7 @@ struct Table {
     auto callback = [](PMEMobjpool *pool, void *ptr, void *arg) {
       auto value_ptr = reinterpret_cast<std::pair<size_t, Table *> *>(arg);
       auto table_ptr = reinterpret_cast<Table *>(ptr);
+      memset(ptr, 0, sizeof(Table));
       table_ptr->local_depth = value_ptr->first;
       table_ptr->next = value_ptr->second;
       pmemobj_persist(pool, ptr, sizeof(Table));
