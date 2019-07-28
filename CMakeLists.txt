@@ -31,6 +31,7 @@ add_executable(test_cuckoo src/test_cuckoo.cpp)
 target_include_directories(test_cuckoo PRIVATE src util)
 target_link_libraries(test_cuckoo PRIVATE ${libs_to_link})
 
-add_executable(test_pmem src/test_pmem.cpp)
-target_link_libraries(test_pmem PRIVATE ${libs_to_link})
-
+if(USE_PMEM MATCHES "ON")
+  add_executable(test_pmem src/test_pmem.cpp)
+  target_link_libraries(test_pmem PRIVATE ${libs_to_link})
+endif()

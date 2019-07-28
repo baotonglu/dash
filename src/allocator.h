@@ -31,7 +31,24 @@ struct Allocator {
   PMEMobjpool* pm_pool_{nullptr};
   static Allocator* instance_;
   static Allocator* Get() { return instance_; }
+
+  static void Allocate(void** ptr, uint32_t alignment, size_t size,
+                       int (*alloc_constr)(PMEMobjpool* pool, void* ptr,
+                                           void* arg),
+                       void* arg) {
+    PMEMoid pm_ptr;
+    auto ret = pmemobj_alloc(instance_->pm_pool_, &pm_ptr, size,
+                             TOID_TYPE_NUM(char), alloc_constr, arg);
+    if (ret) {
+      LOG_FATAL("allocation error");
+    }
+    *ptr = pmemobj_direct(pm_ptr);
+  }
 #endif
+
+  static void Allocate(void** ptr, uint32_t alignment, size_t size) {
+    posix_memalign(ptr, alignment, size);
+  }
 
   static void ZAllocate(void** ptr, uint32_t alignment, size_t size) {
 #ifdef PMEM
@@ -42,7 +59,7 @@ struct Allocator {
     if (ret) {
       LOG_FATAL("allocation error");
     }
-    /* this should happen in a transaction
+    /* FIXME: this should happen in a transaction
      */
     *ptr = pmemobj_direct(pm_ptr);
 #else

@@ -524,57 +524,52 @@ struct Directory {
 
 /* the meta hash-table referenced by the directory*/
 struct Table {
-	Table(void)
-		: local_depth{0}, number{0}, next{nullptr}, displace_num{0}
-	{
-		memset((void *)&bucket[0], 0, sizeof(struct Bucket) * (kNumBucket + 1));
-	}
+  static void New(Table **tbl) {
+    Allocator::ZAllocate((void **)tbl, kCacheLineSize, sizeof(Table));
+  }
 
-	Table(size_t depth, Table *pp)
-		: local_depth{depth}, number{0}, next{pp}, displace_num{0}
-	{
-		memset((void *)&bucket[0], 0, sizeof(struct Bucket) * (kNumBucket + 1));
-	}
+  static void New(Table **tbl, size_t depth, Table *pp) {
+#ifdef PMEM
+    auto callback = [](PMEMobjpool *pool, void *ptr, void *arg) {
+      auto value_ptr = reinterpret_cast<std::pair<size_t, Table *> *>(arg);
+      auto table_ptr = reinterpret_cast<Table *>(ptr);
+      table_ptr->local_depth = value_ptr->first;
+      table_ptr->next = value_ptr->second;
+      pmemobj_persist(pool, ptr, sizeof(Table));
+      return 0;
+    };
+    std::pair callback_para(depth, pp);
+    Allocator::Allocate((void **)tbl, kCacheLineSize, sizeof(Table), callback,
+                        reinterpret_cast<void *>(&callback_para));
+#else
+    Allocator::ZAllocate((void **)tbl, kCacheLineSize, sizeof(Table));
+    (*tbl)->local_depth = depth;
+    (*tbl)->next = pp;
+#endif
+  };
 
+  ~Table(void) {}
 
+  int Insert(Key_t key, Value_t value, size_t key_hash, uint8_t meta_hash,
+             Directory **);
+  void Insert4split(Key_t key, Value_t value, size_t key_hash,
+                    uint8_t meta_hash);
+  Table *Split(size_t);
+  int Delete(Key_t key, size_t key_hash, uint8_t meta_hash, Directory **_dir);
+  bool Acquire_and_verify(size_t _pattern) {
+    if (bucket->try_get_lock()) {
+      if (pattern == _pattern) {
+        return true;
+      } else {
+        bucket->release_lock();
+        return false;
+      }
+    }
+    return false;
+  }
 
-	static void New(Table **tbl){
-		Allocator::ZAllocate((void **)tbl, kCacheLineSize, sizeof(Table));
-	}
-
-	static void New(Table **tbl, size_t depth, Table *pp){
-		// FIXME: use allocator callback
-		Allocator::ZAllocate((void **)tbl, kCacheLineSize, sizeof(Table));
-		(*tbl)->local_depth=depth;
-		(*tbl)->next=pp;
-	}
-
-	~Table(void) {}
-
-	int Insert(Key_t key, Value_t value, size_t key_hash, uint8_t meta_hash, Directory **);
-	void Insert4split(Key_t key, Value_t value, size_t key_hash, uint8_t meta_hash);
-	Table *Split(size_t);
-	int Delete(Key_t key, size_t key_hash, uint8_t meta_hash, Directory **_dir);
-	bool Acquire_and_verify(size_t _pattern)
-	{
-		if (bucket->try_get_lock())
-		{
-			if (pattern == _pattern)
-			{
-				return true;
-			}
-			else
-			{
-				bucket->release_lock();
-				return false;
-			}
-		}
-		return false;
-	}
-
-	bool All_acquire_and_verify()
-	{
-		Bucket *curr_bucket;
+  bool All_acquire_and_verify() {
+    Bucket *curr_bucket;
 #ifndef COUNTING
   	if (GET_COUNT(bucket->bitmap) != 0)
   	{
