@@ -136,5 +136,87 @@ int main(int argc, char const *argv[]) {
       "end------------------------------------------------------------------");
   eh->getNumber();
   // eh->CheckDepthCount();
+  /*-----------------------------------------------Concurrent Get
+   * Test-----------------------------------------------------------------------*/
+  LOG("Concurrent positive get "
+      "begin!------------------------------------------------------------");
+  // System::profile("NP_search", [&](){
+  gettimeofday(&tv1, NULL);
+  for (int i = 0; i < thread_num; ++i) {
+    thread_array[i] = new std::thread(concurr_get, &rarray[i]);
+  }
+
+  for (int i = 0; i < thread_num; ++i) {
+    thread_array[i]->join();
+    delete thread_array[i];
+  }
+  gettimeofday(&tv2, NULL);
+  duration = (double)(tv2.tv_usec - tv1.tv_usec) / 1000000 +
+             (double)(tv2.tv_sec - tv1.tv_sec);
+  printf(
+      "For %d threads, Get Total time = %f seconds, the throughput is %f "
+      "options/s\n",
+      thread_num,
+      (double)(tv2.tv_usec - tv1.tv_usec) / 1000000 +
+          (double)(tv2.tv_sec - tv1.tv_sec),
+      insert_num / duration);
+  //});
+  LOG("Concurrent positive get "
+      "end!---------------------------------------------------------------");
+
+  /*-----------------------------------------------Concurrent Delete
+   * Test--------------------------------------------------------------------*/
+  /*
+          LOG("Concurrent deletion
+     begin-----------------------------------------------------------------");
+                  gettimeofday(&tv1, NULL);
+                  for (int i = 0; i < thread_num; ++i)
+                  {
+                          thread_array[i] = new std::thread(concurr_delete,
+     &rarray[i]);
+                  }
+                  for (int i = 0; i < thread_num; ++i)
+                  {
+                          thread_array[i]->join();
+                          delete thread_array[i];
+                  }
+                  gettimeofday(&tv2, NULL);
+                  duration = (double) (tv2.tv_usec - tv1.tv_usec) / 1000000 +
+     (double) (tv2.tv_sec - tv1.tv_sec); printf ("For %d threads, Delete Total
+     time = %f seconds, the throughput is %f options/s\n", thread_num, (double)
+     (tv2.tv_usec - tv1.tv_usec) / 1000000 + (double) (tv2.tv_sec - tv1.tv_sec),
+     insert_num/duration); LOG("Concurrent deletion
+     end-------------------------------------------------------------------");
+          //eh->FindAnyway(1);*/
+
+  LOG("Concurrent negative get "
+      "begin!-------------------------------------------------------------");
+  for (int i = 0; i < thread_num; ++i) {
+    rarray[i].begin = insert_num + i * chunk_size + 1;
+    rarray[i].end = insert_num + (i + 1) * chunk_size + 1;
+  }
+  rarray[thread_num - 1].end = insert_num + insert_num + 1;
+
+  gettimeofday(&tv1, NULL);
+  for (int i = 0; i < thread_num; ++i) {
+    thread_array[i] = new std::thread(concurr_get, &rarray[i]);
+  }
+
+  for (int i = 0; i < thread_num; ++i) {
+    thread_array[i]->join();
+    delete thread_array[i];
+  }
+  gettimeofday(&tv2, NULL);
+  duration = (double)(tv2.tv_usec - tv1.tv_usec) / 1000000 +
+             (double)(tv2.tv_sec - tv1.tv_sec);
+  printf(
+      "For %d threads, Get Total time = %f seconds, the throughput is %f "
+      "options/s\n",
+      thread_num,
+      (double)(tv2.tv_usec - tv1.tv_usec) / 1000000 +
+          (double)(tv2.tv_sec - tv1.tv_sec),
+      insert_num / duration);
+  LOG("Concurrent negative get "
+      "end!---------------------------------------------------------------");
   return 0;
 }

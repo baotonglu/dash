@@ -525,9 +525,9 @@ struct Directory {
       auto value_ptr =
           reinterpret_cast<std::tuple<size_t, size_t, Table **> *>(arg);
       auto dir_ptr = reinterpret_cast<Directory *>(ptr);
-      dir_ptr->version = std::get<0>(*value_ptr);
+      dir_ptr->version = std::get<1>(*value_ptr);
       dir_ptr->global_depth =
-          static_cast<size_t>(log2(std::get<1>(*value_ptr)));
+          static_cast<size_t>(log2(std::get<0>(*value_ptr)));
       dir_ptr->_ = std::get<2>(*value_ptr);
       return 0;
     };
