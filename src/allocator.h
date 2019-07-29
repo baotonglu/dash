@@ -44,6 +44,11 @@ struct Allocator {
     }
     *ptr = pmemobj_direct(pm_ptr);
   }
+
+  static void* GetRoot(size_t size) {
+    return pmemobj_direct(pmemobj_root(instance_->pm_pool_, size));
+  }
+
 #endif
 
   static void Allocate(void** ptr, uint32_t alignment, size_t size) {
