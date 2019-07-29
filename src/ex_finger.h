@@ -185,16 +185,12 @@ struct Bucket {
 
 		if (test_stash_check())
 		{
+			auto test_stash = false;
 			if (test_overflow())
 			{
-				if (stash->check_and_get(meta_hash, key, false) != NONE)
-				{
-					return -1;
-				}
+				test_stash = true;
 			}else{
 				int mask = finger_array[14];
-				auto test_stash = false;
-
 				if (finger_array[14] != 0)
 				{
 					for (int i = 0; i < 4; ++i)
@@ -202,7 +198,7 @@ struct Bucket {
 						if (CHECK_BIT(mask, i) && (finger_array[15+i] == meta_hash) && (((1 << i) & overflowMember) == 0))
 						{
 							test_stash = true;
-							break;
+							goto STASH_CHECK;
 						}
 					}
 				}
@@ -211,25 +207,28 @@ struct Bucket {
 				{
 					mask = neighbor->finger_array[14];
 					for (int i = 0; i < 4; ++i)
+					{
+						if (CHECK_BIT(mask, i) && (neighbor->finger_array[15+i] == meta_hash) && (((1 << i) & neighbor->overflowMember) != 0))
 						{
-							if (CHECK_BIT(mask, i) && (neighbor->finger_array[15+i] == meta_hash) && (((1 << i) & neighbor->overflowMember) != 0))
-							{
-								test_stash = true;
-								break;
-							}
-						}	
+							test_stash = true;
+							break;
+						}
+					}	
 				}
-
-				if (test_stash == true)
+			}
+STASH_CHECK:
+			if (test_stash == true)
+			{
+				for (int i = 0; i < stashBucket; ++i)
 				{
-					if (stash->check_and_get(meta_hash, key, false) != NONE)
+					Bucket *curr_bucket = stash + i;
+					if (curr_bucket->check_and_get(meta_hash, key, false) != NONE)
 					{
 						return -1;
 					}
 				}
 			}
 		}
-
 		return 0;
 	}
 
@@ -347,7 +346,6 @@ struct Bucket {
 
 	int Insert(Key_t key, Value_t value, uint8_t meta_hash, bool probe){
 		auto slot = find_empty_slot();
-		assert(key != 0);
 		/* this branch can be optimized out*/
 		assert(slot < kNumPairPerBucket);
 		if (slot == -1)
@@ -427,8 +425,6 @@ struct Bucket {
 
 	int Insert_with_noflush(Key_t key, Value_t value, uint8_t meta_hash, bool probe){
 		auto slot = find_empty_slot();
-		assert(key != 0);
-
 		/* this branch can be optimized out*/
 		assert(slot < kNumPairPerBucket);
 		if (slot == -1)
@@ -443,7 +439,6 @@ struct Bucket {
 	}
 
 	void Insert_displace(Key_t key, Value_t value, uint8_t meta_hash, int slot, bool probe){
-		assert(key != 0);
 		_[slot].value = value;
 		_[slot].key = key;
 		mfence();
@@ -452,7 +447,6 @@ struct Bucket {
 	}
 
 	void Insert_displace_with_noflush(Key_t key, Value_t value, uint8_t meta_hash, int slot, bool probe){
-		assert(key != 0);
 		_[slot].value = value;
 		_[slot].key = key;
 		set_hash(slot, meta_hash, probe);
@@ -730,8 +724,9 @@ RETRY:
 	auto ret = target->unique_check(meta_hash, key, neighbor, bucket + kNumBucket);
 	if (ret == -1)
 	{
-		printf("unique check failure!\n");
-		return -1;
+		neighbor->release_lock();
+		target->release_lock();
+		return 0;
 	}
 	
 	if (((GET_COUNT(target->bitmap)) == kNumPairPerBucket) && ((GET_COUNT(neighbor->bitmap)) == kNumPairPerBucket))
