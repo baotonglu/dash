@@ -49,6 +49,10 @@ struct Allocator {
     return pmemobj_direct(pmemobj_root(instance_->pm_pool_, size));
   }
 
+  static void Persist(void* ptr, size_t size) {
+    pmemobj_persist(instance_->pm_pool_, ptr, size);
+  }
+
 #endif
 
   static void Allocate(void** ptr, uint32_t alignment, size_t size) {

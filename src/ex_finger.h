@@ -359,7 +359,7 @@ struct Bucket {
 		_[slot].key = key;
 		mfence();
 		set_hash(slot, meta_hash, probe);
-		clflush((char*)&bitmap, sizeof(bitmap));
+		Allocator::Persist(&bitmap, sizeof(bitmap));
 		return 0;
 	}
 
@@ -382,28 +382,28 @@ struct Bucket {
   				if (CHECK_BIT(mask, i) && (_[i].key ==  key))
   				{
   					unset_hash(i);
-  					clflush((char*)&bitmap, sizeof(bitmap));
+  					Allocator::Persist(&bitmap, sizeof(bitmap));
   					return 0;
   				}
 
   				if (CHECK_BIT(mask, i+1) && (_[i+1].key ==  key))
   				{
   					unset_hash(i+1);
-  					clflush((char*)&bitmap, sizeof(bitmap));
+  					Allocator::Persist(&bitmap, sizeof(bitmap));
   					return 0;
   				}
 
   				if (CHECK_BIT(mask, i+2) && (_[i+2].key ==  key))
   				{
   					unset_hash(i+2);
-  					clflush((char*)&bitmap, sizeof(bitmap));
+  					Allocator::Persist(&bitmap, sizeof(bitmap));
   					return 0;
   				}
 
   				if (CHECK_BIT(mask, i+3) && (_[i+3].key ==  key))
   				{
   					unset_hash(i+3);
-  					clflush((char*)&bitmap, sizeof(bitmap));
+  					Allocator::Persist(&bitmap, sizeof(bitmap));
   					return 0;
   				}
   			}
@@ -411,14 +411,14 @@ struct Bucket {
   			if(CHECK_BIT(mask, 12) && (_[12].key ==  key))
 			{
 				unset_hash(12);
-				clflush((char*)&bitmap, sizeof(bitmap));
+				Allocator::Persist(&bitmap, sizeof(bitmap));
 				return 0;
 			}
 
 			if(CHECK_BIT(mask, 13) && (_[13].key ==  key))
 			{
 				unset_hash(13);
-				clflush((char*)&bitmap, sizeof(bitmap));
+				Allocator::Persist(&bitmap, sizeof(bitmap));
 				return 0;
 			}
   		}
@@ -448,7 +448,7 @@ struct Bucket {
 		_[slot].key = key;
 		mfence();
 		set_hash(slot, meta_hash, probe);
-		clflush((char*)&bitmap, sizeof(bitmap));
+		Allocator::Persist(&bitmap, sizeof(bitmap));
 	}
 
 	void Insert_displace_with_noflush(Key_t key, Value_t value, uint8_t meta_hash, int slot, bool probe){
@@ -965,7 +965,7 @@ Table* Table::Split(size_t _key_hash){
 
 	next->state = -2;
 	next->bucket->get_lock();/* get the first lock of the new bucket to avoid it is operated(split or merge) by other threads*/
-	clflush((char*)&next, sizeof(next));
+	Allocator::Persist(&next, sizeof(next));
 	size_t key_hash;
 	for (int i = 0; i < kNumBucket; ++i)
 	{
@@ -1017,7 +1017,7 @@ Table* Table::Split(size_t _key_hash){
 	pattern = old_pattern;
 	displace_num = 0;
 
-	clflush((char*)next, sizeof(struct Table));
+	Allocator::Persist(next, sizeof(Table *));
 	return next;
 }
 
@@ -1294,9 +1294,9 @@ printf("Begin::Directory_Halving towards %lld\n", dir->global_depth);
     }
   }
 
-  clflush((char*)new_dir, sizeof(struct Directory));
+  Allocator::Persist(new_dir, sizeof(Directory));
   dir = new_dir;
-  clflush((char*)&dir, sizeof(dir));
+  Allocator::Persist(&dir, sizeof(dir));
   printf("End::Directory_Halving towards %lld\n", dir->global_depth);
   delete d;
 }
@@ -1318,9 +1318,9 @@ void Finger_EH::Directory_Doubling(int x, Table *new_b){
   dd[2*x+1] = new_b;
   new_sa->depth_count = 2;
 
-  clflush((char*)new_sa, sizeof(struct Directory));
+  Allocator::Persist(new_sa, sizeof(Directory));
   dir = new_sa;
-  clflush((char*)&dir, sizeof(dir));
+  Allocator::Persist(&dir, sizeof(dir));
   
   /*need to delete the old directory...*/
   //printf("Done!!Directory_Doubling towards %lld\n", dir->global_depth);
@@ -1379,7 +1379,7 @@ RETRY:
 
   	auto new_b = target->Split(key_hash);/* also needs the verify..., and we use try lock for this rather than the spin lock*/
   	target->local_depth += 1;
-  	clflush((char*)&target->local_depth, sizeof(target->local_depth));
+  	Allocator::Persist(&target->local_depth, sizeof(target->local_depth));
   	/* update directory*/
 REINSERT:    
     // the following three statements may be unnecessary...
@@ -1674,14 +1674,14 @@ REINSERT:
 		            if (lleft != nullptr)
 		            {
 		            	lleft->next = bro;
-		            	clflush((char*)&lleft->next, sizeof(lleft->next));
+		            	Allocator::Persist(&lleft->next, sizeof(lleft->next));
 		            }
 
 		            right_seg->state = 0;
 		            left_seg->state = 0;
 		        	
 		            bro->local_depth -=1;
-		            clflush((char*) &bro->local_depth, sizeof(bro->local_depth));
+		            Allocator::Persist(&bro->local_depth, sizeof(bro->local_depth));
 		            bro->pattern = bro->pattern >> 1;
 		            retry = bro->Empty_verify()?true:false;
 		            bro->bucket->release_lock();
@@ -1735,12 +1735,12 @@ _REINSERT:
 
 					assert(bro->next == target);
 					bro->next = target->next;
-					clflush((char*)&bro->next, sizeof(bro->next));
+					Allocator::Persist(&bro->next, sizeof(bro->next));
 
 					right_seg->state = 0;
 		            left_seg->state = 0;
 					bro->local_depth -= 1;
-					clflush((char*) &bro->local_depth, sizeof(bro->local_depth));
+					Allocator::Persist(&bro->local_depth, sizeof(bro->local_depth));
 					bro->pattern = bro->pattern >> 1;
 					retry = bro->Empty_verify()?true:false;
 					target->All_release();
