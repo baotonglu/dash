@@ -8,7 +8,7 @@
 #include "utils.h"
 
 static const char *pool_name = "pmem_hash.data";
-static const uint32_t pool_size = 1024 * 1024 * 1024 * 3;
+static const size_t pool_size = 1024ul * 1024ul * 1024ul * 3ul;
 
 Finger_EH *eh;
 uint64_t **workload;
