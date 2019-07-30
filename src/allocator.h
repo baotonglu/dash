@@ -4,6 +4,29 @@
 
 static const char* layout_name = "hashtable";
 
+// A wrapper for raw pointers
+// init with nv offset and use as absolute addr
+// will properly set the offset
+template <typename T>
+struct nv_ptr {
+  explicit nv_ptr(uint64_t off) : offset(off) {}
+  explicit nv_ptr(T* ptr);
+  nv_ptr() : offset(0) {}
+
+  T* operator->();
+
+  T& operator*();
+
+  inline uint64_t get_offset() { return offset; }
+
+  inline T* get_direct();
+
+  inline void set(uint64_t off) { offset = off; }
+
+ private:
+  uint64_t offset;
+};
+
 struct Allocator {
  public:
 #ifdef PMEM
@@ -53,10 +76,31 @@ struct Allocator {
     pmemobj_persist(instance_->pm_pool_, ptr, size);
   }
 
+  static PMEMobjpool* GetPool() { return instance_->pm_pool_; }
+
 #endif
 
   static void Allocate(void** ptr, uint32_t alignment, size_t size) {
     posix_memalign(ptr, alignment, size);
+  }
+
+  template <typename T>
+  static void ZAllocate(nv_ptr<T>* ptr, uint32_t alignment, size_t size) {
+#ifdef PMEM
+    PMEMoid pm_ptr;
+    auto ret =
+        pmemobj_zalloc(instance_->pm_pool_, &pm_ptr, size, TOID_TYPE_NUM(char));
+
+    if (ret) {
+      LOG_FATAL("allocation error");
+    }
+    /* FIXME: this should happen in a transaction
+     */
+    (*ptr).set(pm_ptr.off);
+#else
+    posix_memalign(ptr, alignment, size);
+    memset(*ptr, 0, size);
+#endif
   }
 
   static void ZAllocate(void** ptr, uint32_t alignment, size_t size) {
@@ -92,3 +136,33 @@ struct Allocator {
 #ifdef PMEM
 Allocator* Allocator::instance_ = nullptr;
 #endif
+
+template <typename T>
+T* nv_ptr<T>::get_direct() {
+#ifdef PMEM
+  return reinterpret_cast<T*>(reinterpret_cast<uint64_t>(Allocator::GetPool()) +
+                              offset);
+#else
+  return reinterpret_cast<T*>(offset);
+#endif
+}
+
+template <typename T>
+T* nv_ptr<T>::operator->() {
+  return get_direct();
+}
+
+template <typename T>
+T& nv_ptr<T>::operator*() {
+  return *get_direct();
+}
+
+template <typename T>
+nv_ptr<T>::nv_ptr(T* ptr) {
+#ifdef PMEM
+  offset = reinterpret_cast<uint64_t>(ptr) -
+           reinterpret_cast<uint64_t>(Allocator::GetPool());
+#else
+  offset = reinterpret_cast<uint64_t>(ptr);
+#endif
+}

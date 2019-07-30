@@ -76,6 +76,7 @@ int main(int argc, char const *argv[]) {
 
   eh = reinterpret_cast<Finger_EH *>(Allocator::GetRoot(sizeof(Finger_EH)));
   new (eh) Finger_EH(initCap);
+  eh->pool_addr = Allocator::Get()->pm_pool_;
 
   workload = new uint64_t *[thread_num];
 

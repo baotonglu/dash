@@ -538,10 +538,6 @@ struct Directory {
 
 /* the meta hash-table referenced by the directory*/
 struct Table {
-  static void New(Table **tbl) {
-    Allocator::ZAllocate((void **)tbl, kCacheLineSize, sizeof(Table));
-  }
-
   static void New(Table **tbl, size_t depth, Table *pp) {
 #ifdef PMEM
     auto callback = [](PMEMobjpool *pool, void *ptr, void *arg) {
@@ -1223,6 +1219,9 @@ class Finger_EH {
 
   Directory *dir;
   int lock;
+#ifdef PMEM
+  PMEMobjpool *pool_addr;
+#endif
 };
 
 Finger_EH::Finger_EH(void) {}
