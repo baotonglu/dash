@@ -1163,12 +1163,9 @@ class Finger_EH {
   Finger_EH(size_t);
   ~Finger_EH(void);
   int Insert(Key_t key, Value_t value);
-  int Insert(char *key, Value_t value);
   bool InsertOnly(Key_t, Value_t);
   bool Delete(Key_t);
-  bool Delete(char *key);
   Value_t Get(Key_t);
-  Value_t Get(char *key);
   void Directory_Doubling(int x, Table *new_b);
   void Directory_Update(Directory *_sa, int x, Table *new_b);
   void Halve_Directory();
@@ -1221,6 +1218,11 @@ class Finger_EH {
   int lock;
 #ifdef PMEM
   PMEMobjpool *pool_addr;
+
+  /* directory allocation will write to here first,
+   * in oder to perform safe directory allocation
+   * */
+  Directory *alloc_dir;
 #endif
 };
 
@@ -1260,9 +1262,13 @@ void Finger_EH::Halve_Directory() {
   printf("Begin::Directory_Halving towards %lld\n", dir->global_depth);
   auto d = dir->_;
 
-  // FIXME: workaround, incorrect;
   Directory *new_dir;
+#ifdef PMEM
+  Directory::New(&alloc_dir, pow(2, dir->global_depth - 1), dir->version + 1);
+  new_dir = alloc_dir;
+#else
   Directory::New(&new_dir, pow(2, dir->global_depth - 1), dir->version + 1);
+#endif
 
   auto _dir = new_dir->_;
   new_dir->depth_count = 0;
@@ -1294,6 +1300,7 @@ void Finger_EH::Halve_Directory() {
   dir = new_dir;
 #ifdef PMEM
   Allocator::Persist(&dir, sizeof(dir));
+  alloc_dir = nullptr;
 #endif
   printf("End::Directory_Halving towards %lld\n", dir->global_depth);
   delete d;
