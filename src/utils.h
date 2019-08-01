@@ -1,10 +1,11 @@
 #pragma once
+#include <stdlib.h>
 #include <sys/stat.h>
 #include <cstdint>
 #include <iostream>
-#include <stdlib.h>
 
 #ifdef PMEM
+#include "libpmem.h"
 #include "libpmemobj.h"
 #endif
 

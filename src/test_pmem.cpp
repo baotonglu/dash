@@ -8,7 +8,7 @@
 #include "utils.h"
 
 static const char *pool_name = "pmem_hash.data";
-static const size_t pool_size = 1024ul * 1024ul * 1024ul * 3ul;
+static const size_t pool_size = 1024ul * 1024ul * 1024ul * 10ul;
 
 Finger_EH *eh;
 uint64_t **workload;
@@ -74,7 +74,13 @@ int main(int argc, char const *argv[]) {
 
   double duration;
 
-  eh = reinterpret_cast<Finger_EH *>(Allocator::GetRoot(sizeof(Finger_EH)));
+  auto alloc_root = Allocator::GetRoot();
+
+  Allocator::ZAllocate((void **)&alloc_root->obj, kCacheLineSize,
+                       sizeof(Finger_EH));
+  Allocator::Persist(alloc_root, sizeof(allocator_root));
+  eh = reinterpret_cast<Finger_EH *>(alloc_root->obj);
+
   new (eh) Finger_EH(initCap);
   eh->pool_addr = Allocator::Get()->pm_pool_;
 
