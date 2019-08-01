@@ -5,23 +5,12 @@
 
 static const char* layout_name = "hashtable";
 
-struct allocator_root {
-  uint64_t obj{0};
-  uint64_t pool_addr{0};
-};
-
 struct Allocator {
  public:
 #ifdef PMEM
   static void Initialize(const char* pool_name, size_t pool_size) {
     instance_ = new Allocator(pool_name, pool_size);
-    auto root_oid = pmemobj_root(instance_->pm_pool_, sizeof(allocator_root));
     std::cout << instance_->pm_pool_ << std::endl;
-    struct _pobj_pcache* cache = &_pobj_cached_pool;
-    cache->pop = instance_->pm_pool_;
-    cache->uuid_lo = root_oid.pool_uuid_lo;
-    // cache->invalidate = 1;
-    // std::cout << instance_->pm_pool_->root_offset << std::endl;
   }
 
   Allocator(const char* pool_name, size_t pool_size) {
@@ -32,57 +21,16 @@ struct Allocator {
       if (pm_pool_ == nullptr) {
         LOG_FATAL("failed to create a pool;");
       }
-      auto root_obj = reinterpret_cast<allocator_root*>(
-          pmemobj_direct(pmemobj_root(pm_pool_, sizeof(allocator_root))));
-      root_obj->pool_addr = reinterpret_cast<uint64_t>(pm_pool_);
-
       std::cout << std::hex << (uint64_t)pm_pool_ << std::endl;
       return;
     }
-
     LOG("opening an existing pool, and trying to map to same address");
     /* Need to open an existing persistent pool */
-    pm_pool_ = pmemobj_open(pool_name, layout_name);
-    // if (pm_pool_ == nullptr) {
-    // LOG_FATAL("failed to open the pool;");
-    // }
-    // auto root_obj_ptr = reinterpret_cast<allocator_root*>(
-    // pmemobj_direct(pmemobj_root(pm_pool_, sizeof(allocator_root))));
-    // auto root_obj = *root_obj_ptr;
-
-    // if ((uint64_t)pm_pool_ == root_obj.pool_addr) {
-    /* new pool address is the same as the old one, we are good */
-    // LOG("successfully mapping to the same address");
-    // return;
-    // }
-    // std::cout << std::hex << (uint64_t)pm_pool_ << std::endl;
-    // std::cout << std::hex
-    // << reinterpret_cast<allocator_root*>(pmemobj_direct(
-    //  pmemobj_root(pm_pool_, sizeof(allocator_root))))
-    // << std::endl;
-
-    LOG("failed to map to the previous address, retrying...");
-    // pmemobj_close(pm_pool_);
-
-    int fd{0};
-    if ((fd = open(pool_name, O_RDWR, 0666)) < 0) {
-      perror("open");
-      exit(1);
+    pm_pool_ =
+        pmemobj_open_addr(pool_name, layout_name, (void*)0x7f4d80000000ull);
+    if (pm_pool_ == nullptr) {
+      LOG_FATAL("failed to open the pool");
     }
-
-    if ((errno = posix_fallocate(fd, 0, pool_size)) != 0) {
-      perror("allocate");
-      exit(1);
-    }
-
-    auto pool_addr = mmap(reinterpret_cast<void*>(0x7f4d80000000ull), pool_size,
-                          PROT_READ | PROT_WRITE, MAP_PRIVATE, fd, 0);
-    if (reinterpret_cast<uint64_t>(pool_addr) != 0x7f4d80000000ull) {
-      perror("mmap");
-      exit(1);
-    }
-    auto root_addr = reinterpret_cast<allocator_root*>(pool_addr + 0x3c0550);
-    pm_pool_ = reinterpret_cast<PMEMobjpool*>(pool_addr);
   }
 
   PMEMobjpool* pm_pool_{nullptr};
@@ -102,9 +50,8 @@ struct Allocator {
     *ptr = pmemobj_direct(pm_ptr);
   }
 
-  static allocator_root* GetRoot() {
-    auto root_obj = pmemobj_root(instance_->pm_pool_, sizeof(allocator_root));
-    return reinterpret_cast<allocator_root*>(pmemobj_direct(root_obj));
+  static void* GetRoot(size_t size) {
+    return pmemobj_direct(pmemobj_root(instance_->pm_pool_, size));
   }
 
   static void Persist(void* ptr, size_t size) {

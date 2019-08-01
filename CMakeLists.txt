@@ -20,7 +20,7 @@ endif ()
 set(PMDK_PREFIX "${CMAKE_CURRENT_BINARY_DIR}/pmdk")
 ExternalProject_Add(PMDK
         GIT_REPOSITORY https://github.com/HaoPatrick/pmdk.git
-        GIT_TAG master 
+        GIT_TAG addr-patch 
         BUILD_IN_SOURCE 1
         BUILD_COMMAND $(MAKE)
         PREFIX ${PMDK_PREFIX}
@@ -46,7 +46,7 @@ set(libs_to_link
 if (USE_PMEM MATCHES "ON")
   message(STATUS "persistent memory support enabled, going to build with PMDK")
   add_definitions(-DPMEM)
-  list(APPEND libs_to_link pmemobj)
+  list(APPEND libs_to_link /home/hao/coding/PM_Hashing/release/pmdk/src/PMDK/src/debug/libpmemobj.so)
 endif ()
 
 if (USE_PMEM MATCHES "ON")

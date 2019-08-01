@@ -74,13 +74,7 @@ int main(int argc, char const *argv[]) {
 
   double duration;
 
-  auto alloc_root = Allocator::GetRoot();
-
-  Allocator::ZAllocate((void **)&alloc_root->obj, kCacheLineSize,
-                       sizeof(Finger_EH));
-  Allocator::Persist(alloc_root, sizeof(allocator_root));
-  eh = reinterpret_cast<Finger_EH *>(alloc_root->obj);
-
+  eh = reinterpret_cast<Finger_EH *>(Allocator::GetRoot(sizeof(Finger_EH)));
   new (eh) Finger_EH(initCap);
   eh->pool_addr = Allocator::Get()->pm_pool_;
 
