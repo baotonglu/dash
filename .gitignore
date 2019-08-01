@@ -39,3 +39,5 @@ src/test_cuckoo
 src/test_cukoo.o
 .vscode
 pmem_hash.data
+.idea
+cmake-build-*
