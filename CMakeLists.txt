@@ -46,7 +46,7 @@ set(libs_to_link
 if (USE_PMEM MATCHES "ON")
   message(STATUS "persistent memory support enabled, going to build with PMDK")
   add_definitions(-DPMEM)
-  list(APPEND libs_to_link /home/hao/coding/PM_Hashing/release/pmdk/src/PMDK/src/debug/libpmemobj.so)
+  list(APPEND libs_to_link pmemobj)
 endif ()
 
 if (USE_PMEM MATCHES "ON")

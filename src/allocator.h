@@ -21,7 +21,8 @@ struct Allocator {
       if (pm_pool_ == nullptr) {
         LOG_FATAL("failed to create a pool;");
       }
-      std::cout << std::hex << (uint64_t)pm_pool_ << std::endl;
+      std::cout << "pool address: " << std::hex << (uint64_t)pm_pool_
+                << std::endl;
       return;
     }
     LOG("opening an existing pool, and trying to map to same address");
