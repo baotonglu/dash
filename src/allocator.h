@@ -15,6 +15,12 @@ struct Allocator {
               << std::dec << std::endl;
   }
 
+  static void ReInitialize_test_only(const char* pool_name, size_t pool_size) {
+    pmemobj_close(instance_->pm_pool_);
+    delete instance_;
+    Allocator::Initialize(pool_name, pool_size);
+  }
+
   Allocator(const char* pool_name, size_t pool_size) {
     if (!FileExists(pool_name)) {
       LOG("creating a new pool");
@@ -27,8 +33,7 @@ struct Allocator {
     }
     LOG("opening an existing pool, and trying to map to same address");
     /* Need to open an existing persistent pool */
-    pm_pool_ =
-        pmemobj_open_addr(pool_name, layout_name, (void*)pool_addr);
+    pm_pool_ = pmemobj_open_addr(pool_name, layout_name, (void*)pool_addr);
     if (pm_pool_ == nullptr) {
       LOG_FATAL("failed to open the pool");
     }

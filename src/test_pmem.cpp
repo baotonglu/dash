@@ -39,12 +39,11 @@ void concurr_get(struct range *_range) {
   for (uint64_t i = _range->begin; i < _range->end; ++i) {
     key = i;
     eh->Get(key);
-    /*
-    if (eh->Get(key) == NONE)
-    {
-            std::cout<<"Search the key "<< i << ": ERROR!"<<std::endl;
-            eh->FindAnyway(key);
-    }*/
+    // if (eh->Get(key) == NONE)
+    // {
+    //         std::cout<<"Search the key "<< i << ": ERROR!"<<std::endl;
+    //         eh->FindAnyway(key);
+    // }
   }
 }
 
@@ -139,6 +138,8 @@ int main(int argc, char const *argv[]) {
   // eh->CheckDepthCount();
   /*-----------------------------------------------Concurrent Get
    * Test-----------------------------------------------------------------------*/
+
+  Allocator::ReInitialize_test_only(pool_name, pool_size);
   LOG("Concurrent positive get "
       "begin!------------------------------------------------------------");
   // System::profile("NP_search", [&](){
