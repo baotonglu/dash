@@ -4,31 +4,31 @@
 #include "utils.h"
 
 static const char* layout_name = "hashtable";
+static const constexpr uint64_t pool_addr = 0x7ff700000000;
 
 struct Allocator {
  public:
 #ifdef PMEM
   static void Initialize(const char* pool_name, size_t pool_size) {
     instance_ = new Allocator(pool_name, pool_size);
-    std::cout << instance_->pm_pool_ << std::endl;
+    std::cout << "pool opened at: " << std::hex << instance_->pm_pool_
+              << std::dec << std::endl;
   }
 
   Allocator(const char* pool_name, size_t pool_size) {
     if (!FileExists(pool_name)) {
       LOG("creating a new pool");
-      pm_pool_ =
-          pmemobj_create(pool_name, layout_name, pool_size, CREATE_MODE_RW);
+      pm_pool_ = pmemobj_create_addr(pool_name, layout_name, pool_size,
+                                     CREATE_MODE_RW, (void*)pool_addr);
       if (pm_pool_ == nullptr) {
         LOG_FATAL("failed to create a pool;");
       }
-      std::cout << "pool address: " << std::hex << (uint64_t)pm_pool_
-                << std::endl;
       return;
     }
     LOG("opening an existing pool, and trying to map to same address");
     /* Need to open an existing persistent pool */
     pm_pool_ =
-        pmemobj_open_addr(pool_name, layout_name, (void*)0x7f4d80000000ull);
+        pmemobj_open_addr(pool_name, layout_name, (void*)pool_addr);
     if (pm_pool_ == nullptr) {
       LOG_FATAL("failed to open the pool");
     }
