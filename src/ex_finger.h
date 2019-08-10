@@ -57,12 +57,11 @@ struct _Pair {
 };
 
 constexpr size_t k_PairSize = sizeof(_Pair);  // a k-v _Pair with a bit
-constexpr size_t kNumPairPerBucket =
-    14; /* it is determined by the usage of the fingerprint*/
+constexpr size_t kNumPairPerBucket = 14; /* it is determined by the usage of the fingerprint*/
 constexpr size_t kFingerBits = 8;
 constexpr size_t kMask = (1 << kFingerBits) - 1;
 const constexpr size_t kNumBucket = 64;
-constexpr size_t stashBucket = 4;
+constexpr size_t stashBucket = 2;
 constexpr int allocMask = (1 << kNumPairPerBucket) - 1;
 constexpr size_t bucketMask = ((1 << (int)log2(kNumBucket)) - 1);
 constexpr size_t stashMask = (1 << (int)log2(stashBucket)) - 1;
@@ -1471,27 +1470,16 @@ RETRY:
     goto RETRY;
   }
 
-  // printf("for key %lld, the target table is %lld, target bucket is %lld,
-  // meta_hash is %d\n", key, x, y, meta_hash);
   auto ret = target_bucket->check_and_get(meta_hash, key, false);
-  if (ret != NONE && !(target_bucket->test_lock_version_change(old_version))) {
+  if ((ret != NONE) && (!(target_bucket->test_lock_version_change(old_version))))
+  {
     return ret;
   }
 
-  uint32_t _version;
-  if (neighbor_bucket->test_lock_set(_version)) {
-    goto RETRY;
-  }
-
-  /*no need for verification procedure, we use the version number of
-   * target_bucket to test whether the bucket has ben spliteted*/
+  /*no need for verification procedure, we use the version number of target_bucket to test whether the bucket has ben spliteted*/
   ret = neighbor_bucket->check_and_get(meta_hash, key, true);
-  if (neighbor_bucket->test_lock_version_change(_version) ||
-      target_bucket->test_lock_version_change(old_version)) {
-    goto RETRY;
-  }
-
-  if (ret != NONE) {
+  if ((ret != NONE) && (!(target_bucket->test_lock_version_change(old_version))))
+  {
     return ret;
   }
 
