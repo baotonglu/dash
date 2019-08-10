@@ -11,9 +11,9 @@
 #include <bitset>
 #include <cassert>
 #include <unordered_map>
-#include "util/hash.h"
-#include "util/pair.h"
-#include "util/persist.h"
+#include "../../util/hash.h"
+#include "../../util/pair.h"
+#include "../../util/persist.h"
 #include <libpmemobj.h>
 
 const size_t kCacheLineSize = 64;

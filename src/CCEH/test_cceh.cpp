@@ -1,5 +1,5 @@
-#include "src/CCEH/CCEH_base.h"
-#include "util/file_access.h"
+#include "CCEH_base.h"
+#include "../../util/file_access.h"
 #include <sstream>
 #include <cstring>
 #include <assert.h>
@@ -65,7 +65,7 @@ int main(int argc, char const *argv[])
 	std::cout<<"The initCap is "<<initCap<<std::endl;
 	std::cout<<"The inserted number is "<<insert_num<<std::endl;
 	std::cout<<"The thread number is "<<thread_num<<std::endl;
-	const char *file = "_CCEH";
+	const char *file = "/mnt/pmem1/cceh.data";
 
 	if (file_exists(file) != 0)
 		{
