@@ -28,6 +28,7 @@ constexpr size_t kNumCacheLine = kCacheLineSize/sizeof(Pair);
 #define DIRECTORY_TYPE 2000
 #define ARRAY_TYPE 3000
 #define CCEH_TYPE 4000
+#define INPLACE 1
 
 struct Segment {
   static const size_t kNumSlot = kSegmentSize/sizeof(Pair);
