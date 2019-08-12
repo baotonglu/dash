@@ -23,7 +23,7 @@
 
 #define _INVALID 0 /* we use 0 as the invalid key*/
 #define SINGLE 1
-#define COUNTING 1
+//#define COUNTING 1
 
 #define SIMD 1
 #define SIMD_CMP8(src, key)                                         \
