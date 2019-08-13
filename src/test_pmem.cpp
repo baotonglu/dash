@@ -7,7 +7,7 @@
 #include "libpmemobj.h"
 #include "utils.h"
 
-static const char *pool_name = "/mnt/pmem1/pmem_hash.data";
+static const char *pool_name = "pmem_hash.data";
 static const size_t pool_size = 1024ul * 1024ul * 1024ul * 10ul;
 
 Finger_EH *eh;
@@ -35,15 +35,14 @@ void concurr_insert(struct range *_range) {
 void concurr_get(struct range *_range) {
   size_t key;
   uint64_t *array = workload[_range->index];
-
+  
+  uint32_t not_found = 0;
   for (uint64_t i = _range->begin; i < _range->end; ++i) {
     key = i;
-    eh->Get(key);
-    // if (eh->Get(key) == NONE)
-    // {
-    //         std::cout<<"Search the key "<< i << ": ERROR!"<<std::endl;
-    //         eh->FindAnyway(key);
-    // }
+     if (eh->Get(key) == NONE)
+     {
+	not_found++;
+     }
   }
 }
 
