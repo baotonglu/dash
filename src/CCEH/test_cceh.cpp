@@ -1,5 +1,5 @@
-#include "CCEH_base.h"
-#include "../../util/file_access.h"
+#include "src/CCEH/CCEH_log.h"
+#include "util/file_access.h"
 #include <sstream>
 #include <cstring>
 #include <assert.h>
@@ -8,12 +8,11 @@
 
 #define LOG(msg) std::cout << msg << "\n"
 #define LAYOUT "_cceh"
-const uint64_t POOLSIZE = (uint64_t)1024*1024*1024*30;
+const uint64_t POOLSIZE = (uint64_t)1024*1024*1024*10;
 
 PMEMobjpool *pop;
 CCEH *eh;
 struct timeval tv1, tv2;
-
 
 struct range{
 	int begin;
@@ -43,16 +42,17 @@ void concurr_insert(struct range *_range){
 
 void concurr_get(struct range *_range){
 	Key_t key;
+	uint32_t not_found = 0;
 	for (int i = _range->begin; i < _range->end; ++i)
 	{
 		key = i;
-		eh->Get(pop,key);
-		/*
 		if (eh->Get(pop,key) == NONE)
 		{
-			std::cout<<"Search the key "<< i << ": ERROR!"<<std::endl;
-		}*/
+			not_found++;
+			//std::cout<<"Search the key "<< i << ": ERROR!"<<std::endl;
+		}
 	}
+	printf("not_found = %u\n", not_found);
 }
 
 int main(int argc, char const *argv[])
@@ -65,7 +65,7 @@ int main(int argc, char const *argv[])
 	std::cout<<"The initCap is "<<initCap<<std::endl;
 	std::cout<<"The inserted number is "<<insert_num<<std::endl;
 	std::cout<<"The thread number is "<<thread_num<<std::endl;
-	const char *file = "/mnt/pmem1/cceh.data";
+	const char *file = "_CCEH";
 
 	if (file_exists(file) != 0)
 		{
@@ -136,7 +136,7 @@ int main(int argc, char const *argv[])
 //-----------------------------------------------Concurrent postive Get Test-----------------------------------------------------------------------
 	//std::cout<<"There are "<<eh->GetItemNum()<<" items inserted in the hashing index!"<<std::endl;
 	//rarray[thread_num-1].end = insert_num + 5;
-	LOG("Concurrent get begin!");
+	LOG("Concurrent positive get begin!");
 	gettimeofday(&tv1, NULL);
 	for (int i = 0; i < thread_num; ++i)
 	{
@@ -149,13 +149,38 @@ int main(int argc, char const *argv[])
 		delete thread_array[i];
 	}
 	gettimeofday(&tv2, NULL);
-	LOG("Concurrent get done!");
+	LOG("Concurrent positive get done!");
 	duration = (double) (tv2.tv_usec - tv1.tv_usec) / 1000000 + (double) (tv2.tv_sec - tv1.tv_sec);
-	printf ("For %d threads, Insertion Total time = %f seconds, the throughput is %f options/s\n", thread_num,
+	printf ("For %d threads, Postive Search Total time = %f seconds, the throughput is %f options/s\n", thread_num,
 	         (double) (tv2.tv_usec - tv1.tv_usec) / 1000000 +
 	         (double) (tv2.tv_sec - tv1.tv_sec), insert_num/duration);	
-	eh->Get_Number();
+	//eh->Get_Number();
+	
+//----------------------------------------------Concurrent negative Get Test-----------------------------------------------------------------------
+	LOG("Concurrent negative get begin!");
+	for (int i = 0; i < thread_num; ++i)
+	{
+		rarray[i].begin = insert_num + i*chunk_size + 1;
+		rarray[i].end = insert_num + (i+1)*chunk_size + 1;
+	}
+
+	gettimeofday(&tv1, NULL);
+	for (int i = 0; i < thread_num; ++i)
+	{
+		thread_array[i] = new std::thread(concurr_get, &rarray[i]);
+	}
+
+	for (int i = 0; i < thread_num; ++i)
+	{
+		thread_array[i]->join();
+		delete thread_array[i];
+	}
+	gettimeofday(&tv2, NULL);
+	LOG("Concurrent negative get done!");
+	duration = (double) (tv2.tv_usec - tv1.tv_usec) / 1000000 + (double) (tv2.tv_sec - tv1.tv_sec);
+	printf ("For %d threads, Negative Search Total time = %f seconds, the throughput is %f options/s\n", thread_num,
+	         (double) (tv2.tv_usec - tv1.tv_usec) / 1000000 +
+	         (double) (tv2.tv_sec - tv1.tv_sec), insert_num/duration);	
 	pmemobj_close(pop);
-//-----------------------------------------------Persistence Test-----------------------------------------------------------------------
 	return 0;
 }
