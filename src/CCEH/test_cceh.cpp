@@ -1,5 +1,5 @@
-#include "src/CCEH/CCEH_log.h"
-#include "util/file_access.h"
+#include "CCEH_base.h"
+#include "../../util/file_access.h"
 #include <sstream>
 #include <cstring>
 #include <assert.h>
@@ -46,13 +46,14 @@ void concurr_get(struct range *_range){
 	for (int i = _range->begin; i < _range->end; ++i)
 	{
 		key = i;
+		//eh->Get(pop, key)
 		if (eh->Get(pop,key) == NONE)
 		{
 			not_found++;
 			//std::cout<<"Search the key "<< i << ": ERROR!"<<std::endl;
 		}
 	}
-	printf("not_found = %u\n", not_found);
+	//printf("not_found = %u\n", not_found);
 }
 
 int main(int argc, char const *argv[])
@@ -157,7 +158,7 @@ int main(int argc, char const *argv[])
 	//eh->Get_Number();
 	
 //----------------------------------------------Concurrent negative Get Test-----------------------------------------------------------------------
-	LOG("Concurrent negative get begin!");
+	/*LOG("Concurrent negative get begin!");
 	for (int i = 0; i < thread_num; ++i)
 	{
 		rarray[i].begin = insert_num + i*chunk_size + 1;
@@ -181,6 +182,6 @@ int main(int argc, char const *argv[])
 	printf ("For %d threads, Negative Search Total time = %f seconds, the throughput is %f options/s\n", thread_num,
 	         (double) (tv2.tv_usec - tv1.tv_usec) / 1000000 +
 	         (double) (tv2.tv_sec - tv1.tv_sec), insert_num/duration);	
-	pmemobj_close(pop);
+	pmemobj_close(pop);*/
 	return 0;
 }

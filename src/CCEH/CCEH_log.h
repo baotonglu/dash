@@ -11,9 +11,9 @@
 #include <bitset>
 #include <cassert>
 #include <unordered_map>
-#include "util/hash.h"
-#include "util/pair.h"
-#include "util/persist.h"
+#include "../../util/hash.h"
+#include "../../util/pair.h"
+#include "../../util/persist.h"
 #include <libpmemobj.h>
 
 const size_t kCacheLineSize = 64;
@@ -25,6 +25,8 @@ constexpr size_t kNumPairPerCacheLine = 4;
 constexpr size_t kNumCacheLine = kCacheLineSize/sizeof(Pair);
 constexpr size_t LogMask = (1 << 10)-1;
 //constexpr size_t kNumSlot = kSegmentSize/sizeof(Pair);
+#define INPLACE 1
+//#define PERSISTENT_LOCK 1
 
 #define SEGMENT_TYPE 1000
 #define DIRECTORY_TYPE 2000
@@ -48,43 +50,73 @@ struct Segment {
   Segment** Split(PMEMobjpool *pop);
   
   void get_lock(PMEMobjpool* pop) {
-    //mutex.lock();
+    #ifdef PERSISTENT_LOCK
     pmemobj_rwlock_wrlock(pop, &rwlock);
+    #else
+    uint64_t temp = 0;
+    while(!CAS(&seg_lock, &temp, 1)){
+      temp = 0;
+    }
+    #endif
   }
 
   void release_lock(PMEMobjpool* pop) {
-    //mutex.unlock();
+    #ifdef PERSISTENT_LOCK
     pmemobj_rwlock_unlock(pop, &rwlock);
+    #else
+    uint64_t temp = 1;
+    while(!CAS(&seg_lock, &temp, 0)){
+      temp = 1;
+    }
+    #endif
   }
 
   void get_rd_lock(PMEMobjpool* pop){
-    //mutex.lock_shared();
+    #ifdef PERSISTENT_LOCK
     pmemobj_rwlock_rdlock(pop, &rwlock);
+    #else
+    uint64_t temp = 0;
+    while(!CAS(&seg_lock, &temp, 1)){
+      temp = 0;
+    }
+    #endif
   }
 
   void release_rd_lock(PMEMobjpool* pop){
-    //mutex.unlock_shared();
+    #ifdef PERSISTENT_LOCK
     pmemobj_rwlock_unlock(pop, &rwlock);
+    #else
+    uint64_t temp = 1;
+    while(!CAS(&seg_lock, &temp, 0)){
+      temp = 1;
+    }
+    #endif
   }
 
   bool try_get_lock(PMEMobjpool* pop){
-        //return mutex.try_lock();
+    #ifdef PERSISTENT_LOCK   
     if (pmemobj_rwlock_trywrlock(pop, &rwlock) == 0)
     {
       return true;
     }
-
     return false;
+    #else
+    uint64_t temp = 0;
+    return CAS(&seg_lock, &temp, 1);
+    #endif
   }
 
   bool try_get_rd_lock(PMEMobjpool* pop){
-    //return mutex.try_lock_shared();
+    #ifdef PERSISTENT_LOCK
     if (pmemobj_rwlock_tryrdlock(pop, &rwlock) == 0)
     {
       return true;
     }
-
     return false;
+    #else
+    uint64_t temp = 0;
+    return CAS(&seg_lock, &temp, 1);
+    #endif
   }
 
   char dummy[48];//To make the segment cacheline-aligned
@@ -667,7 +699,7 @@ void CCEH::Directory_Update(PMEMobjpool *pop, uint64_t *dir_entry, size_t global
     }
     pmemobj_persist(pop, &dir_entry[x+chunk_size/2], sizeof(uint64_t)*chunk_size/2);
 #ifndef INPLACE
-    TN_Swap(pop, dir_entry[x], new_seg);/* this dp may be uncorrect*/
+    TX_Swap(pop, dir_entry[x], new_seg);/* this dp may be uncorrect*/
     auto s0 = dir_entry[x];
     for (unsigned i = 1; i < chunk_size/2; ++i) {
       dir_entry[x+i] = s0;
