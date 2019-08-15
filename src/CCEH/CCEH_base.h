@@ -25,7 +25,7 @@ constexpr size_t kNumPairPerCacheLine = 4;
 constexpr size_t kNumCacheLine = kCacheLineSize/sizeof(Pair);
 
 #define INPLACE 1
-//#define PERSISTENT_LOCK 1
+#define PERSISTENT_LOCK 1
 
 #define SEGMENT_TYPE 1000
 #define DIRECTORY_TYPE 2000
@@ -125,7 +125,7 @@ struct Segment {
   int count;
   PMEMrwlock rwlock;
   uint64_t seg_lock;
-  //std::shared_mutex mutex;
+  std::shared_mutex mutex;
   size_t numElem(void); 
 };
 
@@ -141,7 +141,7 @@ static int create_segment(PMEMobjpool *pop, void *ptr, void *arg){
   memset(&se->_[0],255,sizeof(Pair)*Segment::kNumSlot);
   memset(&se->rwlock, 0, sizeof(PMEMrwlock));
   memset(&se->seg_lock, 0, sizeof(se->seg_lock));
-  //memset(&se->mutex, 0, sizeof(se->mutex));
+  memset(&se->mutex, 0, sizeof(se->mutex));
   se->count = 0;
   se->local_depth = dp->local_depth;
   se->pattern = dp->pattern;
@@ -718,7 +718,6 @@ RETRY:
 
 #ifdef INPLACE
   auto sema = dir_->sema;
-
   if (sema == -1)
   {
     goto RETRY;
@@ -731,7 +730,6 @@ RETRY:
     dir_->release_rd_lock(pop);
     goto RETRY;
   } 
-
 #endif
 
   for (unsigned i = 0; i < kNumPairPerCacheLine * kNumCacheLine; ++i) {

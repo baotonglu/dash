@@ -57,6 +57,7 @@ struct Segment {
     while(!CAS(&seg_lock, &temp, 1)){
       temp = 0;
     }
+    //mutex.lock();
     #endif
   }
 
@@ -68,6 +69,7 @@ struct Segment {
     while(!CAS(&seg_lock, &temp, 0)){
       temp = 1;
     }
+    //mutex.unlock();
     #endif
   }
 
@@ -79,6 +81,7 @@ struct Segment {
     while(!CAS(&seg_lock, &temp, 1)){
       temp = 0;
     }
+    //mutex.lock_shared();
     #endif
   }
 
@@ -90,6 +93,7 @@ struct Segment {
     while(!CAS(&seg_lock, &temp, 0)){
       temp = 1;
     }
+    //mutex.unlock_shared();
     #endif
   }
 
@@ -103,6 +107,7 @@ struct Segment {
     #else
     uint64_t temp = 0;
     return CAS(&seg_lock, &temp, 1);
+    //return mutex.try_lock();  
     #endif
   }
 
@@ -116,6 +121,7 @@ struct Segment {
     #else
     uint64_t temp = 0;
     return CAS(&seg_lock, &temp, 1);
+    //return mutex.try_lock_shared();
     #endif
   }
 
@@ -126,7 +132,8 @@ struct Segment {
   size_t pattern = 0;
   int count;
   PMEMrwlock rwlock;
-  //std::shared_mutex mutex;
+  std::shared_mutex mutex;
+  uint64_t seg_lock;
 
   size_t numElem(void); 
 };
