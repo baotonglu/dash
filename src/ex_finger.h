@@ -1323,6 +1323,7 @@ void Finger_EH::Directory_Doubling(int x, Table *new_b) {
   new_sa->depth_count = 2;
 
 #ifdef PMEM
+  Allocator::Persist(new_sa->_, sizeof(Table*)*static_cast<size_t>(pow(2, new_sa->depth)));
   Allocator::Persist(new_sa, sizeof(Directory));
 #endif
   dir = new_sa;
@@ -1330,7 +1331,10 @@ void Finger_EH::Directory_Doubling(int x, Table *new_b) {
   Allocator::Persist(&dir, sizeof(dir));
 #endif
 
-  /*need to delete the old directory...*/
+  /*
+  FixMe
+  need safely deallocate the old_directory
+  */
   // printf("Done!!Directory_Doubling towards %lld\n", dir->global_depth);
 }
 

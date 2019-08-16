@@ -25,7 +25,8 @@ constexpr size_t kNumPairPerCacheLine = 4;
 constexpr size_t kNumCacheLine = kCacheLineSize/sizeof(Pair);
 
 #define INPLACE 1
-#define PERSISTENT_LOCK 1
+//#define PERSISTENT_LOCK 1
+#define PHYSICAL_ADDR 1
 
 #define SEGMENT_TYPE 1000
 #define DIRECTORY_TYPE 2000
@@ -118,6 +119,7 @@ struct Segment {
     #endif
   }
 
+  char dummy[48];
   Pair _[kNumSlot];
   size_t local_depth;
   int64_t sema = 0;
@@ -151,7 +153,11 @@ static int create_segment(PMEMobjpool *pop, void *ptr, void *arg){
 }
 
 struct Seg_array{
+#ifdef PHYSICAL_ADDR
+  Segment** _;
+#else
   uint64_t *_; /*physical addr*/
+#endif
   PMEMoid _arr; /* persistent pointer addr*/
   size_t global_depth;
 };
@@ -185,6 +191,7 @@ struct Directory {
   }
 
   void get_item_num(uint64_t base_addr){
+    /*
     size_t count = 0;
     Seg_array *seg = sa;
     uint64_t *dir_entry = seg->_;
@@ -199,6 +206,7 @@ struct Directory {
       i += pow(2, depth_diff);
     }
     printf("the item stored in this hash table is %lld\n", count);
+    */
   }
 
   bool Acquire(void) {
@@ -267,6 +275,7 @@ class CCEH{
 
 /* remapp the persistent pointer to the actual address after each open*/
 void remapping(PMEMobjpool *pop, CCEH *eh){
+  auto old_base = eh->base_addr;
   eh->base_addr = (uint64_t)pop;
   if (!OID_IS_NULL(eh->_dir))
   {
@@ -279,7 +288,14 @@ void remapping(PMEMobjpool *pop, CCEH *eh){
        auto sa = eh->dir->sa;
        if (!OID_IS_NULL(sa->_arr))
        {
+         #ifdef PHYSICAL_ADDR
+         sa->_ = reinterpret_cast<Segment**>(pmemobj_direct(sa->_arr));
+         for(int i = 0; i < eh->dir->capacity; ++i){
+            sa->_[i] = reinterpret_cast<Segment*>(reinterpret_cast<uint64_t>(sa->_[i]) - old_base + eh->base_addr);
+         }
+         #else
          sa->_ = (uint64_t*)pmemobj_direct(sa->_arr);
+         #endif
        }
      }
   }
@@ -294,12 +310,20 @@ static int create_CCEH(PMEMobjpool *pop, void *ptr, void *arg){
   return 0;
 }
 
+#ifdef PHYSICAL_ADDR
+void segment_allocate(PMEMobjpool* pop, Segment *&offset, depth_pattern *dp){
+#else
 void segment_allocate(PMEMobjpool* pop, uint64_t& offset, depth_pattern *dp){
+#endif
   PMEMoid temp = OID_NULL;
   TX_BEGIN(pop){
     pmemobj_tx_add_range_direct(&offset, sizeof(offset));
     pmemobj_alloc(pop,&temp, sizeof(struct Segment), SEGMENT_TYPE, create_segment, dp);
+    #ifdef PHYSICAL_ADDR
+    offset = reinterpret_cast<Segment*>(pmemobj_direct(temp));
+    #else
     offset = temp.off;
+    #endif
   }TX_ONABORT{
     pmemobj_free(&temp);
     printf("segment allocation failure\n");
@@ -311,7 +335,7 @@ void Initialize_CCEH(PMEMobjpool *pop, CCEH *eh, size_t _capacity){
   pmemobj_alloc(pop, &eh->_dir, sizeof(struct Directory), DIRECTORY_TYPE, create_directory, &_capacity);
 
   /* Initialize the segment_array, the pair_array and the segment pointed by the pair_array*/
-    /* Segment array allocation*/
+  /* Segment array allocation*/
   Directory *dd = (Directory*)pmemobj_direct(eh->_dir);
   eh->dir = dd; 
   pmemobj_alloc(pop, &dd->_sa, sizeof(Seg_array), ARRAY_TYPE, NULL, NULL);
@@ -323,7 +347,11 @@ void Initialize_CCEH(PMEMobjpool *pop, CCEH *eh, size_t _capacity){
   TX_BEGIN(pop){
     pmemobj_tx_add_range_direct(sa,sizeof(*sa));
     sa->_arr = pmemobj_tx_zalloc(sizeof(uint64_t)*dd->capacity, SEGMENT_TYPE+1);
+  #ifdef PHYSICAL_ADDR
+    sa->_ = reinterpret_cast<Segment**>(pmemobj_direct(sa->_arr));
+  #else
     sa->_ = (uint64_t*)pmemobj_direct(sa->_arr);
+  #endif
   }TX_ONABORT{
     printf("allocation error for direcoty entry during initialization\n");
   }TX_END
@@ -343,7 +371,6 @@ void Initialize_CCEH(PMEMobjpool *pop, CCEH *eh, size_t _capacity){
   pmemobj_persist(pop, dd, sizeof(struct Directory));
   pmemobj_persist(pop, eh, sizeof(struct CCEH));
 }
-
 #endif  // EXTENDIBLE_PTR_H_
 
 int Segment::Insert(PMEMobjpool *pop, Key_t& key, Value_t value, size_t loc, size_t key_hash) {
@@ -518,7 +545,7 @@ CCEH::~CCEH(void)
 
 void CCEH::Directory_Doubling(PMEMobjpool *pop, int x, Segment *_s0, Segment *_s1){
   Seg_array *sa = dir->sa;
-  uint64_t* d = sa->_;
+  auto d = sa->_;
   auto global_depth = sa->global_depth;
   auto s1 = pmemobj_oid(_s1);
   auto s0 = pmemobj_oid(_s0);
@@ -530,10 +557,23 @@ void CCEH::Directory_Doubling(PMEMobjpool *pop, int x, Segment *_s0, Segment *_s
   Seg_array *new_sa = (Seg_array*)pmemobj_direct(_new_sa);
   new_sa->global_depth = global_depth + 1;
   pmemobj_alloc(pop, &new_sa->_arr, sizeof(uint64_t)*2*dir->capacity, SEGMENT_TYPE+1, NULL, NULL);
-  new_sa->_ = (uint64_t*)pmemobj_direct(new_sa->_arr);
-  uint64_t *dd = new_sa->_;
+#ifdef PHYSICAL_ADDR
+  new_sa->_ = reinterpret_cast<Segment**>(pmemobj_direct(new_sa->_arr));
+#else
+  new_sa->_ = (uint64_t*)pmemobj_direct(new_sa->_arr);  
+#endif
+  auto dd = new_sa->_;
 
   for (unsigned i = 0; i < dir->capacity; ++i) {
+#ifdef PHYSICAL_ADDR
+    if (i == x) {
+      dd[2*i] = _s0;
+      dd[2*i+1] = _s1;
+    } else {
+      dd[2*i] = d[i];
+      dd[2*i+1] = d[i];
+    }
+#else
     if (i == x) {
       dd[2*i] = s0.off;
       dd[2*i+1] = s1.off;
@@ -541,8 +581,8 @@ void CCEH::Directory_Doubling(PMEMobjpool *pop, int x, Segment *_s0, Segment *_s
       dd[2*i] = d[i];
       dd[2*i+1] = d[i];
     }
+#endif
   }
-
   pmemobj_persist(pop, dd, sizeof(uint64_t)*2*dir->capacity);
   pmemobj_persist(pop, new_sa, sizeof(struct Seg_array));
 
@@ -559,7 +599,6 @@ void CCEH::Directory_Doubling(PMEMobjpool *pop, int x, Segment *_s0, Segment *_s
     pmemobj_free(&old_sa);
   }TX_END
  // printf("Done!!Directory_Doubling towards %lld\n", global_depth);
-  
 }
 
 void CCEH::Lock_Directory(){  
@@ -576,14 +615,18 @@ void CCEH::Unlock_Directory(){
 
 void CCEH::Directory_Update(PMEMobjpool *pop, int x, Segment *_s0, Segment *_s1){
 //  printf("directory update for %d\n", x);
-  uint64_t* dir_entry = dir->sa->_;
+  auto dir_entry = dir->sa->_;
   auto global_depth = dir->sa->global_depth;
   unsigned depth_diff = global_depth - _s0->local_depth;
   auto s1 = pmemobj_oid(_s1);
   auto s0 = pmemobj_oid(_s0);
   if (depth_diff == 0) {
     if (x%2 == 0) {
+#ifdef PHYSICAL_ADDR
+      dir_entry[x+1] = _s1;
+#else
       dir_entry[x+1] = s1.off;
+#endif
 #ifdef INPLACE
       pmemobj_persist(pop, &dir_entry[x+1],sizeof(uint64_t));
 #else
@@ -591,7 +634,11 @@ void CCEH::Directory_Update(PMEMobjpool *pop, int x, Segment *_s0, Segment *_s1)
       pmemobj_persist(pop, &(dir_entry[x], sizeof(uint64_t)*2));
 #endif
     } else {
+#ifdef PHYSICAL_ADDR
+      dir_entry[x] = _s1;
+#else
       dir_entry[x] = s1.off;
+#endif
 #ifdef INPLACE
       pmemobj_persist(pop, &dir_entry[x], sizeof(uint64_t));
 #else
@@ -603,9 +650,12 @@ void CCEH::Directory_Update(PMEMobjpool *pop, int x, Segment *_s0, Segment *_s1)
     int chunk_size = pow(2, global_depth - (_s0->local_depth - 1));
     x = x - (x % chunk_size);
     for (unsigned i = 0; i < chunk_size/2; ++i) {
+#ifdef PHYSICAL_ADDR
+      dir_entry[x+chunk_size/2+i] = _s1;      
+#else
       dir_entry[x+chunk_size/2+i] = s1.off;
+#endif
     }
-    //clflush((char*)&dir_entry[x+chunk_size/2], sizeof(void*)*chunk_size/2);
     pmemobj_persist(pop, &dir_entry[x+chunk_size/2], sizeof(uint64_t)*chunk_size/2);
 #ifndef INPLACE
     for (unsigned i = 0; i < chunk_size/2; ++i) {
@@ -627,33 +677,38 @@ RETRY:
   auto old_sa = dir->sa;
   auto x = (key_hash >> (8*sizeof(key_hash)-old_sa->global_depth));
   auto dir_entry = old_sa->_;
+  #ifdef PHYSICAL_ADDR
+  Segment* target = dir_entry[x];
+  #else
   Segment* target = (Segment*)(base_addr + dir_entry[x]);
+  #endif
 
   auto ret = target->Insert(pop, key, value, y, key_hash);
   //std::cout<<"I am inserting "<<key<<", the x = "<<x<<std::endl;
 
   if (ret == 1) {
-    //printf("Segment split for key %lld\n", key);
     Segment* s = target->Split(pop);
     if (s == nullptr) {
       goto RETRY;
     }
-    //printf("Done!!Segment split for key %lld\n", key);
     target->local_depth += 1;
     pmemobj_persist(pop, &target->local_depth, sizeof(target->local_depth));
 
     target->pattern = (key_hash >> (8*sizeof(key_hash)-target->local_depth+1)) << 1;
     s->pattern = ((key_hash >> (8*sizeof(key_hash)-s->local_depth+1)) << 1) + 1;
 
-    // Directory management
     Lock_Directory();
     { // CRITICAL SECTION - directory update
       auto sa = dir->sa;
       dir_entry = sa->_;
 
       x = (key_hash >> (8*sizeof(key_hash)-sa->global_depth));
+#ifdef PHYSICAL_ADDR
+      assert(target == dir_entry[x]);
+#else
       assert(target == (Segment*)(dir_entry[x]+base_addr));
-      target = (Segment*)(dir_entry[x]+base_addr);
+#endif
+      //target = (Segment*)(dir_entry[x]+base_addr);
 #ifdef INPLACE
       if (target->local_depth-1<sa->global_depth)
       {
@@ -678,29 +733,6 @@ RETRY:
   } 
 }
 
-// This function does not allow resizing
-bool CCEH::InsertOnly(PMEMobjpool* pop, Key_t& key, Value_t value) {
-  auto key_hash = h(&key, sizeof(key));
-  auto y = (key_hash & kMask) * kNumPairPerCacheLine;
-
-RETRY:
-  auto old_sa = dir->sa;
-  auto x = (key_hash >> (8*sizeof(key_hash)-old_sa->global_depth));
-  auto dir_entry = old_sa->_;
-  Segment* target = (Segment*)(base_addr + dir_entry[x]);
-  if (old_sa != dir->sa)
-  {
-    goto RETRY;
-  }
-
-  auto ret = target->Insert(pop, key, value, y, key_hash);
-  if (ret == 0)
-  {
-    return true;
-  }
-  return false;
-}
-
 // TODO
 bool CCEH::Delete(Key_t& key) {
   return false;
@@ -714,14 +746,13 @@ RETRY:
   auto old_sa = dir->sa;
   auto x = (key_hash >> (8*sizeof(key_hash)-old_sa->global_depth));
   auto dir_entry = old_sa->_;
+  #ifdef PHYSICAL_ADDR
+  Segment* dir_ = dir_entry[x];
+  #else
   Segment* dir_ = (Segment*)(base_addr + dir_entry[x]);
+  #endif
 
 #ifdef INPLACE
-  auto sema = dir_->sema;
-  if (sema == -1)
-  {
-    goto RETRY;
-  }
   //dir_->mutex.lock_shared();
   dir_->get_rd_lock(pop);
 
