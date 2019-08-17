@@ -7,7 +7,7 @@
 #include "libpmemobj.h"
 #include "utils.h"
 
-static const char *pool_name = "pmem_hash.data";
+static const char *pool_name = "/mnt/pmem0/pmem_hash.data";
 static const size_t pool_size = 1024ul * 1024ul * 1024ul * 10ul;
 
 Finger_EH *eh;
@@ -137,7 +137,6 @@ int main(int argc, char const *argv[]) {
   // eh->CheckDepthCount();
   /*-----------------------------------------------Concurrent Get
    * Test-----------------------------------------------------------------------*/
-
   Allocator::ReInitialize_test_only(pool_name, pool_size);
   LOG("Concurrent positive get "
       "begin!------------------------------------------------------------");
@@ -164,7 +163,6 @@ int main(int argc, char const *argv[]) {
   //});
   LOG("Concurrent positive get "
       "end!---------------------------------------------------------------");
-
   /*-----------------------------------------------Concurrent Delete
    * Test--------------------------------------------------------------------*/
   /*
@@ -189,7 +187,6 @@ int main(int argc, char const *argv[]) {
      insert_num/duration); LOG("Concurrent deletion
      end-------------------------------------------------------------------");
           //eh->FindAnyway(1);*/
-
   LOG("Concurrent negative get "
       "begin!-------------------------------------------------------------");
   for (int i = 0; i < thread_num; ++i) {

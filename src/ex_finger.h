@@ -343,10 +343,14 @@ struct Bucket {
     }
     _[slot].value = value;
     _[slot].key = key;
+    //mfence();
+#ifdef PMEM
+    Allocator::Persist(&_[slot], sizeof(_[slot]));
+#endif
     mfence();
     set_hash(slot, meta_hash, probe);
 #ifdef PMEM
-    Allocator::Persist(&bitmap, sizeof(bitmap));
+    Allocator::Persist(&version_lock, sizeof(bitmap));
 #endif
     return 0;
   }
@@ -514,6 +518,7 @@ struct Directory {
     Table **tables{nullptr};
     Allocator::ZAllocate((void **)&tables, kCacheLineSize,
                          sizeof(uint64_t) * capacity);
+    //tables = reinterpret_cast<Table**>(malloc(sizeof(uint64_t) * capacity));
 #ifdef PMEM
     auto callback = [](PMEMobjpool *pool, void *ptr, void *arg) {
       auto value_ptr =
@@ -684,7 +689,8 @@ struct Table {
     }
     return -1;
   }
-
+  
+  char dummy[48];
   struct Bucket bucket[kNumBucket + stashBucket];
   size_t local_depth;
   size_t pattern;
@@ -854,14 +860,21 @@ RETRY:
 
   if (GET_COUNT(target->bitmap) <= GET_COUNT(neighbor->bitmap)) {
     target->Insert(key, value, meta_hash, false);
+    //neighbor->release_lock();
+    //target->release_lock();
+    //Allocator::Persist(&target->bitmap, sizeof(target->bitmap));
   } else {
     neighbor->Insert(key, value, meta_hash, true);
+   // neighbor->release_lock();
+    //target->release_lock();
+    //Allocator::Persist(&neighbor->bitmap, sizeof(neighbor->bitmap));
   }
 #ifdef COUNTING
   __sync_fetch_and_add(&number, 1);
 #endif
   neighbor->release_lock();
   target->release_lock();
+  //mfence();
   return 0;
 }
 
@@ -1323,7 +1336,7 @@ void Finger_EH::Directory_Doubling(int x, Table *new_b) {
   new_sa->depth_count = 2;
 
 #ifdef PMEM
-  Allocator::Persist(new_sa->_, sizeof(Table*)*static_cast<size_t>(pow(2, new_sa->depth)));
+  //Allocator::Persist(new_sa->_, sizeof(Table*)*static_cast<size_t>(pow(2, new_sa->global_depth)));
   Allocator::Persist(new_sa, sizeof(Directory));
 #endif
   dir = new_sa;
