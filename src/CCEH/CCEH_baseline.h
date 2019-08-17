@@ -20,6 +20,8 @@
 #include <libpmemobj.h>
 #endif
 
+//#define PERSISTENT_LOCK 1
+
 #define INPLACE 1
 template<class T>
 struct _Pair{
@@ -42,13 +44,13 @@ struct Segment {
   static const size_t kNumSlot = kSegmentSize/sizeof(_Pair<T>);
 
   Segment(void)
-  : local_depth{0}, sema{0}, count{0}, seg_lock{0}, mutex()
+  : local_depth{0}, sema{0}, count{0}, seg_lock{0}, mutex(), rwlock()
   { 
     memset((void*)&_[0],255,sizeof(_Pair<T>)*kNumSlot);
   }
 
   Segment(size_t depth)
-  :local_depth{depth}, sema{0}, count{0}, seg_lock{0}, mutex()
+  :local_depth{depth}, sema{0}, count{0}, seg_lock{0}, mutex(), rwlock()
   {
     memset((void*)&_[0],255,sizeof(_Pair<T>)*kNumSlot);
   }
@@ -64,6 +66,7 @@ struct Segment {
     seg_ptr->seg_lock = 0;
     //new &(seg_ptr->mutex) std::shared_mutex();
     memset((void *)&seg_ptr->mutex, 0, sizeof(std::shared_mutex));
+    memset((void *)&seg_ptr->rwlock, 0, sizeof(PMEMrwlock));
     memset((void*)&seg_ptr->_[0],255,sizeof(_Pair<T>)*kNumSlot);
     return 0;
   };
@@ -77,53 +80,79 @@ struct Segment {
 
   ~Segment(void) {}                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                       
 
-  int Insert(T, Value_t, size_t, size_t);
+  int Insert(PMEMobjpool *,T, Value_t, size_t, size_t);
   int Insert4split(T, Value_t, size_t);
   bool Put(T, Value_t, size_t);
-  Segment* Split();
+  Segment* Split(PMEMobjpool *);
   
-    void get_lock() {
-    //mutex.lock();
+  void get_lock(PMEMobjpool* pop) {
+    #ifdef PERSISTENT_LOCK
+    pmemobj_rwlock_wrlock(pop, &rwlock);
+    #else
     uint64_t temp = 0;
     while(!CAS(&seg_lock, &temp, 1)){
       temp = 0;
     }
+    #endif
   }
 
-  void release_lock() {
-    //mutex.unlock();
+  void release_lock(PMEMobjpool* pop) {
+    #ifdef PERSISTENT_LOCK
+    pmemobj_rwlock_unlock(pop, &rwlock);
+    #else
     uint64_t temp = 1;
     while(!CAS(&seg_lock, &temp, 0)){
       temp = 1;
     }
+    #endif
   }
 
-  void get_rd_lock(){
-    //mutex.lock_shared();
+  void get_rd_lock(PMEMobjpool* pop){
+    #ifdef PERSISTENT_LOCK
+    pmemobj_rwlock_rdlock(pop, &rwlock);
+    #else
     uint64_t temp = 0;
     while(!CAS(&seg_lock, &temp, 1)){
       temp = 0;
     }
+    #endif
   }
 
-  void release_rd_lock(){
-    //mutex.unlock_shared();
+  void release_rd_lock(PMEMobjpool* pop){
+    #ifdef PERSISTENT_LOCK
+    pmemobj_rwlock_unlock(pop, &rwlock);
+    #else
     uint64_t temp = 1;
     while(!CAS(&seg_lock, &temp, 0)){
       temp = 1;
     }
+    #endif
   }
 
-  bool try_get_lock(){
-    //    return mutex.try_lock();
+  bool try_get_lock(PMEMobjpool* pop){
+    #ifdef PERSISTENT_LOCK   
+    if (pmemobj_rwlock_trywrlock(pop, &rwlock) == 0)
+    {
+      return true;
+    }
+    return false;
+    #else
     uint64_t temp = 0;
     return CAS(&seg_lock, &temp, 1);
+    #endif
   }
 
-  bool try_get_rd_lock(){
+  bool try_get_rd_lock(PMEMobjpool* pop){
+    #ifdef PERSISTENT_LOCK
+    if (pmemobj_rwlock_tryrdlock(pop, &rwlock) == 0)
+    {
+      return true;
+    }
+    return false;
+    #else
     uint64_t temp = 0;
     return CAS(&seg_lock, &temp, 1);
-    //return mutex.try_lock_shared();
+    #endif
   }
 
   _Pair<T> _[kNumSlot];
@@ -133,6 +162,7 @@ struct Segment {
   int count=0;
   std::shared_mutex mutex;
   uint64_t seg_lock;
+  PMEMrwlock rwlock;
 };
 
 template<class T>
@@ -288,14 +318,14 @@ class CCEH{
 #endif  // EXTENDIBLE_PTR_H_
 
 template<class T>
-int Segment<T>::Insert(T key, Value_t value, size_t loc, size_t key_hash) {
+int Segment<T>::Insert(PMEMobjpool *pool_addr, T key, Value_t value, size_t loc, size_t key_hash) {
 #ifdef INPLACE
   if (sema == -1) {
     return 2;
   };
-  get_lock();
+  get_lock(pool_addr);
   if ((key_hash >> (8*sizeof(key_hash)-local_depth)) != pattern || sema == -1){
-    release_lock();
+    release_lock(pool_addr);
     return 2;
   } 
   int ret = 1;
@@ -309,13 +339,13 @@ int Segment<T>::Insert(T key, Value_t value, size_t loc, size_t key_hash) {
     if constexpr (std::is_pointer_v<T>){
       if (_[slot].key != (T)INVALID && (strcmp(key, _[slot].key) == 0))
       {
-        release_lock();
+        release_lock(pool_addr);
         return 0;
       }
     }else{
       if (_[slot].key == key)
       {
-        release_lock();
+        release_lock(pool_addr);
         return 0;
       }
     }
@@ -362,7 +392,7 @@ int Segment<T>::Insert(T key, Value_t value, size_t loc, size_t key_hash) {
       }
     }
   }
-  release_lock();
+  release_lock(pool_addr);
   return ret;
 #else
   if (sema == -1) return 2;
@@ -408,13 +438,13 @@ int Segment<T>::Insert4split(T key, Value_t value, size_t loc) {
 }
 
 template<class T>
-Segment<T>* Segment<T>::Split(){
+Segment<T>* Segment<T>::Split(PMEMobjpool *pool_addr){
   using namespace std;
 #ifndef INPLACE
   int64_t lock = 0;
   if (!CAS(&sema, &lock, -1)) return nullptr;
 #else
-  if(!try_get_lock())
+  if(!try_get_lock(pool_addr))
   {
     return nullptr;
   }
@@ -611,18 +641,21 @@ RETRY:
     goto RETRY;
   }
 
-  auto ret = target->Insert(key, value, y, key_hash);
+  auto ret = target->Insert(pool_addr, key, value, y, key_hash);
   //std::cout<<"I am inserting "<<key<<", the x = "<<x<<std::endl;
 
   if (ret == 1) {
-    Segment<T>* s = target->Split();
+    Segment<T>* s = target->Split(pool_addr);
     if (s == nullptr) {
       goto RETRY;
     }
     //printf("Done!!Segment split for key %lld\n", key);
     target->local_depth += 1;
-    //pmemobj_persist(pop, &s[0]->local_depth, sizeof(s[0]->local_depth));
-    clflush((char*)&target->local_depth, sizeof(target->local_depth));
+    //clflush((char*)&target->local_depth, sizeof(target->local_depth));
+#ifdef PMEM
+    Allocator::Persist(&target->local_depth,
+                         sizeof(target->local_depth));
+#endif
 
     target->pattern = (key_hash >> (8*sizeof(key_hash)-target->local_depth+1)) << 1;
     s->pattern = ((key_hash >> (8*sizeof(key_hash)-s->local_depth+1)) << 1) + 1;
@@ -647,7 +680,7 @@ RETRY:
       }
 #ifdef INPLACE
       target->sema = 0;
-      target->release_lock();
+      target->release_lock(pool_addr);
 #endif
     }  // End of critical section
     Unlock_Directory();
@@ -686,14 +719,13 @@ RETRY:
     goto RETRY;
   }
   //dir_->mutex.lock_shared();
-  dir_->get_rd_lock();
+  dir_->get_rd_lock(pool_addr);
 
   if ((key_hash >> (8*sizeof(key_hash)-dir_->local_depth)) != dir_->pattern || dir_->sema == -1){
     //dir_->mutex.unlock_shared();
-    dir_->release_rd_lock();
+    dir_->release_rd_lock(pool_addr);
     goto RETRY;
   } 
-
 #endif
 
   for (unsigned i = 0; i < kNumPairPerCacheLine * kNumCacheLine; ++i) {
@@ -704,7 +736,7 @@ RETRY:
          auto value = dir_->_[slot].value;
   #ifdef INPLACE
         //dir_->mutex.unlock_shared();
-        dir_->release_rd_lock();
+        dir_->release_rd_lock(pool_addr);
   #endif
         return value;
       }
@@ -713,7 +745,7 @@ RETRY:
         auto value = dir_->_[slot].value;
   #ifdef INPLACE
         //dir_->mutex.unlock_shared();
-        dir_->release_rd_lock();
+        dir_->release_rd_lock(pool_addr);
   #endif
         return value;
       }
@@ -722,7 +754,7 @@ RETRY:
 
 #ifdef INPLACE
   //dir_->mutex.unlock_shared();
-  dir_->release_rd_lock();
+  dir_->release_rd_lock(pool_addr);
 #endif
   return NONE;
 }

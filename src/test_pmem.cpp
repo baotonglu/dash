@@ -7,7 +7,8 @@
 #include "libpmemobj.h"
 #include "utils.h"
 
-static const char *pool_name = "/mnt/pmem0/pmem_hash.data";
+//static const char *pool_name = "/mnt/pmem0/pmem_hash.data";
+static const char *pool_name = "pmem_hash.data";
 static const size_t pool_size = 1024ul * 1024ul * 1024ul * 10ul;
 
 Finger_EH *eh;
@@ -109,7 +110,7 @@ int main(int argc, char const *argv[]) {
 
   LOG("Concurrent insertion "
       "begin-----------------------------------------------------------------");
-  // System::profile("Insertion", [&](){
+   //System::profile("Insertion", [&](){
   gettimeofday(&tv1, NULL);
   for (int i = 0; i < thread_num; ++i) {
     thread_array[i] = new std::thread(concurr_insert, &rarray[i]);
@@ -187,6 +188,7 @@ int main(int argc, char const *argv[]) {
      insert_num/duration); LOG("Concurrent deletion
      end-------------------------------------------------------------------");
           //eh->FindAnyway(1);*/
+  /*
   LOG("Concurrent negative get "
       "begin!-------------------------------------------------------------");
   for (int i = 0; i < thread_num; ++i) {
@@ -216,5 +218,6 @@ int main(int argc, char const *argv[]) {
       insert_num / duration);
   LOG("Concurrent negative get "
       "end!---------------------------------------------------------------");
+  */
   return 0;
 }
