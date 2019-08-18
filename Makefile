@@ -13,6 +13,11 @@ Test_CCEH: Test_CCEH_O
 Test_CCEH_O: src/CCEH/test_cceh.cpp util/hash.h
 	$(CXX) $(CFLAGS) -g -c src/CCEH/test_cceh.cpp -o src/CCEH/test_cceh.o -DINPLACE -lpmemobj -lpmem
 
+Test_Level: Test_Level_O
+	$(CXX) $(CFLAGS) -g -o src/Level/test_level src/Level/test_level.o -lpmemobj -lpmem
+
+Test_Level_O: src/Level/test_level.cpp util/hash.h
+	$(CXX) $(CFLAGS) -g -c src/Level/test_level.cpp -o src/Level/test_level.o -DINPLACE -lpmemobj -lpmem
 clean:
 	rm -rf src/*.o
 	rm -rf src/CCEH/*.o

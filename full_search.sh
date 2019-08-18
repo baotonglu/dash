@@ -33,7 +33,7 @@ do
 		fi
 		echo $numaarg
 #		OMP_PLACES=threads OMP_PROC_BIND=true OMP_NESTED=true PMEM_IS_PMEM_FORCE=1 LD_PRELOAD=/usr/lib/libjemalloc.so numactl $numaarg ./new-src/cceh_bench 2 ${workload[$i]} ${thread_num[$j]} 
-		OMP_PLACES=threads OMP_PROC_BIND=true OMP_NESTED=true PMEM_IS_PMEM_FORCE=1 numactl $numaarg ./build/test_pmem 2 ${workload[$i]} ${thread_num[$j]} #>> cuckoo_finger.txt
+		OMP_PLACES=threads OMP_PROC_BIND=true OMP_NESTED=true PMEM_IS_PMEM_FORCE=1 numactl $numaarg ./src/Level/test_level 10 ${workload[$i]} ${thread_num[$j]} #>> cuckoo_finger.txt
 		printf "Done for cceh dm uni: %d %d\n" ${workload[$i]} ${thread_num[$j]}
 	done
 done
