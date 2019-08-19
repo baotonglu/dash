@@ -350,7 +350,7 @@ struct Bucket {
     mfence();
     set_hash(slot, meta_hash, probe);
 #ifdef PMEM
-    Allocator::Persist(&version_lock, sizeof(bitmap));
+    Allocator::Persist(&bitmap, sizeof(bitmap));
 #endif
     return 0;
   }
@@ -439,6 +439,9 @@ struct Bucket {
                        bool probe) {
     _[slot].value = value;
     _[slot].key = key;
+#ifdef PMEM
+    Allocator::Persist(&_[slot], sizeof(_Pair));
+#endif
     mfence();
     set_hash(slot, meta_hash, probe);
 #ifdef PMEM
@@ -1028,7 +1031,7 @@ Table *Table::Split(size_t _key_hash) {
   displace_num = 0;
 
 #ifdef PMEM
-  Allocator::Persist(next, sizeof(Table *));
+  Allocator::Persist(next, sizeof(Table));
 #endif
   return next;
 }

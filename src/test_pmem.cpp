@@ -3,15 +3,26 @@
 #include "../util/System.hpp"
 #include "../util/random.h"
 #include "allocator.h"
-#include "ex_finger.h"
 #include "libpmemobj.h"
 #include "utils.h"
+
+#define LINEAR 1
+
+#ifndef LINEAR
+#include "ex_finger.h"
+#else
+#include "lh_finger.h"
+#endif
 
 //static const char *pool_name = "/mnt/pmem0/pmem_hash.data";
 static const char *pool_name = "pmem_hash.data";
 static const size_t pool_size = 1024ul * 1024ul * 1024ul * 10ul;
 
+#ifndef LINEAR
 Finger_EH *eh;
+#else
+Linear *eh;
+#endif
 uint64_t **workload;
 struct timeval tv1, tv2;
 
@@ -44,6 +55,7 @@ void concurr_get(struct range *_range) {
      {
 	      not_found++;
      }
+     std::cout <<" not_found = "<<not_found<<std::endl;
   }
 }
 
@@ -73,8 +85,14 @@ int main(int argc, char const *argv[]) {
 
   double duration;
 
+#ifndef LINEAR  
   eh = reinterpret_cast<Finger_EH *>(Allocator::GetRoot(sizeof(Finger_EH)));
   new (eh) Finger_EH(initCap);
+#else
+  eh = reinterpret_cast<Linear *>(Allocator::GetRoot(sizeof(Linear)));
+  new (eh) Linear();
+#endif
+  
   eh->pool_addr = Allocator::Get()->pm_pool_;
 
   workload = new uint64_t *[thread_num];
@@ -106,7 +124,7 @@ int main(int argc, char const *argv[]) {
    * Test-----------------------------------------------------------------------*/
   std::thread *thread_array[thread_num];
   /* The muli-thread execution begins*/
-  eh->getNumber();
+  //eh->getNumber();
 
   LOG("Concurrent insertion "
       "begin-----------------------------------------------------------------");
@@ -134,7 +152,7 @@ int main(int argc, char const *argv[]) {
   // printf("the collison check is %d\n", eh->count);
   LOG("Concurrent insertion "
       "end------------------------------------------------------------------");
-  eh->getNumber();
+  //eh->getNumber();
   // eh->CheckDepthCount();
   /*-----------------------------------------------Concurrent Get
    * Test-----------------------------------------------------------------------*/
