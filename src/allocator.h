@@ -2,6 +2,7 @@
 #pragma once
 #include <sys/mman.h>
 #include "utils.h"
+#include "x86intrin.h"
 
 static const char* layout_name = "hashtable";
 static const constexpr uint64_t pool_addr = 0x7ff700000000;
@@ -62,6 +63,23 @@ struct Allocator {
 
   static void Persist(void* ptr, size_t size) {
     pmemobj_persist(instance_->pm_pool_, ptr, size);
+  }
+
+  template <size_t size>
+  static void NTWrite(void* ptr) {
+    // if constexpr (size == 64) {
+    //   _mm512_stream_si512(ptr, )
+    // } else if constexpr (size == 32) {
+    // } else if constexpr (size == 16) {
+    // }
+  }
+
+  static void NTWrite64(uint64_t* ptr, uint64_t val) {
+    _mm_stream_si64((long long*)ptr, val);
+  }
+
+  static void NTWrite32(uint32_t* ptr, uint32_t val) {
+    _mm_stream_si32((int*)ptr, val);
   }
 
   static PMEMobjpool* GetPool() { return instance_->pm_pool_; }

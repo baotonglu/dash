@@ -57,7 +57,8 @@ struct _Pair {
 };
 
 constexpr size_t k_PairSize = sizeof(_Pair);  // a k-v _Pair with a bit
-constexpr size_t kNumPairPerBucket = 14; /* it is determined by the usage of the fingerprint*/
+constexpr size_t kNumPairPerBucket =
+    14; /* it is determined by the usage of the fingerprint*/
 constexpr size_t kFingerBits = 8;
 constexpr size_t kMask = (1 << kFingerBits) - 1;
 const constexpr size_t kNumBucket = 64;
@@ -273,9 +274,15 @@ struct Bucket {
                        bool probe) /* Do I needs the atomic instruction????*/
   {
     finger_array[index] = meta_hash;
-    bitmap = bitmap | (1 << (index + 4));
+    auto new_bitmap = bitmap | (1 << (index + 4));
     assert(GET_COUNT(bitmap) < kNumPairPerBucket);
-    bitmap++;
+    new_bitmap += 1;
+    bitmap = new_bitmap;
+// #ifdef PMEM
+    // Allocator::NTWrite32(reinterpret_cast<uint32_t *>(&bitmap), new_bitmap);
+// #else
+    // bitmap = new_bitmap;
+// #endif
     if (probe) {
       *((int *)membership) = (1 << index) | *((int *)membership);
     }
@@ -283,11 +290,21 @@ struct Bucket {
 
   inline uint8_t get_hash(int index) { return finger_array[index]; }
 
-  inline void unset_hash(int index) {
-    bitmap = bitmap & (~(1 << (index + 4)));
+  inline void unset_hash(int index, bool nt_flush = false) {
+    auto new_bitmap = bitmap & (~(1 << (index + 4)));
     assert(GET_COUNT(bitmap) <= kNumPairPerBucket);
     assert(GET_COUNT(bitmap) > 0);
-    bitmap--;
+    new_bitmap -= 1;
+#ifdef PMEM
+    if (nt_flush) {
+      Allocator::NTWrite32(reinterpret_cast<uint32_t *>(&bitmap), new_bitmap);
+    } else {
+      bitmap = new_bitmap;
+    }
+#else
+    bitmap = new_bitmap;
+#endif
+
     *((int *)membership) =
         (~(1 << index)) &
         (*((int *)membership)); /*since they are in the same cacheline,
@@ -343,7 +360,7 @@ struct Bucket {
     }
     _[slot].value = value;
     _[slot].key = key;
-    //mfence();
+    // mfence();
 #ifdef PMEM
     Allocator::Persist(&_[slot], sizeof(_[slot]));
 #endif
@@ -369,51 +386,33 @@ struct Bucket {
     if (mask != 0) {
       for (int i = 0; i < 12; i += 4) {
         if (CHECK_BIT(mask, i) && (_[i].key == key)) {
-          unset_hash(i);
-#ifdef PMEM
-          Allocator::Persist(&bitmap, sizeof(bitmap));
-#endif
+          unset_hash(i, true);
           return 0;
         }
 
         if (CHECK_BIT(mask, i + 1) && (_[i + 1].key == key)) {
-          unset_hash(i + 1);
-#ifdef PMEM
-          Allocator::Persist(&bitmap, sizeof(bitmap));
-#endif
+          unset_hash(i + 1, true);
           return 0;
         }
 
         if (CHECK_BIT(mask, i + 2) && (_[i + 2].key == key)) {
-          unset_hash(i + 2);
-#ifdef PMEM
-          Allocator::Persist(&bitmap, sizeof(bitmap));
-#endif
+          unset_hash(i + 2, true);
           return 0;
         }
 
         if (CHECK_BIT(mask, i + 3) && (_[i + 3].key == key)) {
-          unset_hash(i + 3);
-#ifdef PMEM
-          Allocator::Persist(&bitmap, sizeof(bitmap));
-#endif
+          unset_hash(i + 3, true);
           return 0;
         }
       }
 
       if (CHECK_BIT(mask, 12) && (_[12].key == key)) {
-        unset_hash(12);
-#ifdef PMEM
-        Allocator::Persist(&bitmap, sizeof(bitmap));
-#endif
+        unset_hash(12, true);
         return 0;
       }
 
       if (CHECK_BIT(mask, 13) && (_[13].key == key)) {
-        unset_hash(13);
-#ifdef PMEM
-        Allocator::Persist(&bitmap, sizeof(bitmap));
-#endif
+        unset_hash(13, true);
         return 0;
       }
     }
@@ -521,7 +520,7 @@ struct Directory {
     Table **tables{nullptr};
     Allocator::ZAllocate((void **)&tables, kCacheLineSize,
                          sizeof(uint64_t) * capacity);
-    //tables = reinterpret_cast<Table**>(malloc(sizeof(uint64_t) * capacity));
+    // tables = reinterpret_cast<Table**>(malloc(sizeof(uint64_t) * capacity));
 #ifdef PMEM
     auto callback = [](PMEMobjpool *pool, void *ptr, void *arg) {
       auto value_ptr =
@@ -692,7 +691,7 @@ struct Table {
     }
     return -1;
   }
-  
+
   char dummy[48];
   struct Bucket bucket[kNumBucket + stashBucket];
   size_t local_depth;
@@ -863,21 +862,21 @@ RETRY:
 
   if (GET_COUNT(target->bitmap) <= GET_COUNT(neighbor->bitmap)) {
     target->Insert(key, value, meta_hash, false);
-    //neighbor->release_lock();
-    //target->release_lock();
-    //Allocator::Persist(&target->bitmap, sizeof(target->bitmap));
+    // neighbor->release_lock();
+    // target->release_lock();
+    // Allocator::Persist(&target->bitmap, sizeof(target->bitmap));
   } else {
     neighbor->Insert(key, value, meta_hash, true);
-   // neighbor->release_lock();
-    //target->release_lock();
-    //Allocator::Persist(&neighbor->bitmap, sizeof(neighbor->bitmap));
+    // neighbor->release_lock();
+    // target->release_lock();
+    // Allocator::Persist(&neighbor->bitmap, sizeof(neighbor->bitmap));
   }
 #ifdef COUNTING
   __sync_fetch_and_add(&number, 1);
 #endif
   neighbor->release_lock();
   target->release_lock();
-  //mfence();
+  // mfence();
   return 0;
 }
 
@@ -976,9 +975,6 @@ Table *Table::Split(size_t _key_hash) {
   next->state = -2;
   next->bucket->get_lock(); /* get the first lock of the new bucket to avoid it
                                is operated(split or merge) by other threads*/
-#ifdef PMEM
-  Allocator::Persist(&next, sizeof(next));
-#endif
   size_t key_hash;
   for (int i = 0; i < kNumBucket; ++i) {
     curr_bucket = bucket + i;
@@ -1275,11 +1271,11 @@ void Finger_EH::Halve_Directory() {
 
 #ifdef PMEM
   Allocator::Persist(new_dir, sizeof(Directory));
-#endif
-  dir = new_dir;
-#ifdef PMEM
-  Allocator::Persist(&dir, sizeof(dir));
+  Allocator::NTWrite64(reinterpret_cast<uint64_t *>(dir),
+                       reinterpret_cast<uint64_t>(new_dir));
   alloc_dir = nullptr;
+#else
+  dir = new_dir;
 #endif
   printf("End::Directory_Halving towards %lld\n", dir->global_depth);
   delete d;
@@ -1303,12 +1299,11 @@ void Finger_EH::Directory_Doubling(int x, Table *new_b) {
   new_sa->depth_count = 2;
 
 #ifdef PMEM
-  //Allocator::Persist(new_sa->_, sizeof(Table*)*static_cast<size_t>(pow(2, new_sa->global_depth)));
   Allocator::Persist(new_sa, sizeof(Directory));
-#endif
+  Allocator::NTWrite64(reinterpret_cast<uint64_t *>(&dir),
+                       reinterpret_cast<uint64_t>(new_sa));
+#else
   dir = new_sa;
-#ifdef PMEM
-  Allocator::Persist(&dir, sizeof(dir));
 #endif
 
   /*
@@ -1373,10 +1368,12 @@ RETRY:
     auto new_b =
         target->Split(key_hash); /* also needs the verify..., and we use try
                                     lock for this rather than the spin lock*/
-    target->local_depth += 1;
 #ifdef PMEM
-    Allocator::Persist(&target->local_depth, sizeof(target->local_depth));
+    Allocator::NTWrite64(&target->local_depth, target->local_depth + 1);
+#else
+    target->local_depth += 1;
 #endif
+
     /* update directory*/
   REINSERT:
     // the following three statements may be unnecessary...
@@ -1455,15 +1452,16 @@ RETRY:
   }
 
   auto ret = target_bucket->check_and_get(meta_hash, key, false);
-  if ((ret != NONE) && (!(target_bucket->test_lock_version_change(old_version))))
-  {
+  if ((ret != NONE) &&
+      (!(target_bucket->test_lock_version_change(old_version)))) {
     return ret;
   }
 
-  /*no need for verification procedure, we use the version number of target_bucket to test whether the bucket has ben spliteted*/
+  /*no need for verification procedure, we use the version number of
+   * target_bucket to test whether the bucket has ben spliteted*/
   ret = neighbor_bucket->check_and_get(meta_hash, key, true);
-  if ((ret != NONE) && (!(target_bucket->test_lock_version_change(old_version))))
-  {
+  if ((ret != NONE) &&
+      (!(target_bucket->test_lock_version_change(old_version)))) {
     return ret;
   }
 
@@ -1625,7 +1623,7 @@ RETRY:
         ret = curr_bucket->Delete(key, meta_hash, false);
         if (ret == 0) {
           /*needs to clear the indicator*/
-          //target->unset_indicator(meta_hash, neighbor, key, i);
+          // target->unset_indicator(meta_hash, neighbor, key, i);
           stash->release_lock();
           neighbor->release_lock();
           target->release_lock();
@@ -1637,7 +1635,7 @@ RETRY:
   }
   neighbor->release_lock();
   target->release_lock();
-  printf("The x = %lld, the y = %lld\n", x , y);
+  printf("The x = %lld, the y = %lld\n", x, y);
   return false; /*only the deletion succeeds, it incurs the process of merge or
                 directory halving*/
 }
