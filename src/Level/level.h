@@ -100,7 +100,7 @@ class LevelHashing{
 
     //bool InsertOnly(Key_t&, Value_t);
     void Insert(PMEMobjpool*, Key_t&, Value_t);
-    bool Delete(Key_t&);
+    bool Delete(PMEMobjpool*, Key_t&);
     Value_t Get(PMEMobjpool*, Key_t&);
     double Utilization(void);
     size_t Capacity(void) {
@@ -786,7 +786,79 @@ RETRY:
   return NONE;
 }
 
-bool LevelHashing::Delete(Key_t& key) {
+bool LevelHashing::Delete(PMEMobjpool *pop ,Key_t& key) {
+  RETRY:
+  while (resizing == true) {
+      asm("nop");
+  }
+  PMEMrwlock* mutex = (PMEMrwlock*)pmemobj_direct(_mutex);
+  uint64_t f_hash = F_HASH(key);
+  uint64_t s_hash = S_HASH(key);
+  uint32_t f_idx = F_IDX(f_hash, addr_capacity);
+  uint32_t s_idx = S_IDX(s_hash, addr_capacity);
+  int i = 0, j;
+
+  for(i = 0; i < 2; i ++){
+    {
+      ///std::shared_lock<std::mutex> lock(mutex[f_idx/locksize]);
+      //mutex[f_idx/locksize].lock_shared();
+      while(pmemobj_rwlock_tryrdlock(pop, &mutex[f_idx/locksize]) != 0){
+        if (resizing == true)
+        {
+          goto RETRY;
+        }
+      }
+
+      if (resizing == true)
+      {
+        //mutex[f_idx/locksize].unlock_shared();
+        pmemobj_rwlock_unlock(pop, &mutex[f_idx/locksize]);
+        goto RETRY;
+      }
+
+      for(j = 0; j < ASSOC_NUM; j ++){
+        if (buckets[i][f_idx].token[j] == 1 && buckets[i][f_idx].slot[j].key == key)
+        {
+          //mutex[f_idx/locksize].unlock_shared();
+          buckets[i][f_idx].token[j] = 0;
+          pmemobj_persist(pop, &buckets[i][f_idx].token[j], sizeof(uint8_t));
+          pmemobj_rwlock_unlock(pop, &mutex[f_idx/locksize]);
+          return true;
+        }
+      }
+      //mutex[f_idx/locksize].unlock_shared();
+      pmemobj_rwlock_unlock(pop, &mutex[f_idx/locksize]);
+    }
+    {
+      //std::shared_lock<std::mutex> lock(mutex[s_idx/locksize]);
+      //]mutex[s_idx/locksize].lock_shared();
+      while(pmemobj_rwlock_tryrdlock(pop, &mutex[s_idx/locksize]) != 0){
+        if (resizing == true)
+        {
+          goto RETRY;
+        }
+      }
+
+      if (resizing == true)
+      {
+        //mutex[s_idx/locksize].unlock_shared();
+        pmemobj_rwlock_unlock(pop, &mutex[s_idx/locksize]);
+        goto RETRY;
+      }
+
+      for(j = 0; j < ASSOC_NUM; j ++){
+        if (buckets[i][s_idx].token[j] == 1 && buckets[i][s_idx].slot[j].key == key)
+        {
+          pmemobj_persist(pop, &buckets[i][s_idx].token[j], sizeof(uint8_t));
+          pmemobj_rwlock_unlock(pop, &mutex[s_idx/locksize]);
+          return true;
+        }
+      }
+      pmemobj_rwlock_unlock(pop, &mutex[s_idx/locksize]);
+    }
+    f_idx = F_IDX(f_hash, addr_capacity/2);
+    s_idx = S_IDX(s_hash, addr_capacity/2);
+  }
   return false;
 }
 
