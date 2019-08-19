@@ -6,7 +6,7 @@
 #include "libpmemobj.h"
 #include "utils.h"
 
-#define LINEAR 1
+//#define LINEAR 1
 
 #ifndef LINEAR
 #include "ex_finger.h"
@@ -55,13 +55,13 @@ void concurr_get(struct range *_range) {
      {
 	      not_found++;
      }
-     std::cout <<" not_found = "<<not_found<<std::endl;
   }
+  std::cout <<" not_found = "<<not_found<<std::endl;
 }
 
 void concurr_delete(struct range *_range) {
   size_t key;
-  for (uint64_t i = _range->begin; i < _range->end; ++i) {
+  for (uint64_t i = _range->begin; i < _range->end+5; ++i) {
     key = i;
     // eh->Delete(key);
 
@@ -184,27 +184,28 @@ int main(int argc, char const *argv[]) {
       "end!---------------------------------------------------------------");
   /*-----------------------------------------------Concurrent Delete
    * Test--------------------------------------------------------------------*/
-  /*
-          LOG("Concurrent deletion
-     begin-----------------------------------------------------------------");
-                  gettimeofday(&tv1, NULL);
-                  for (int i = 0; i < thread_num; ++i)
-                  {
-                          thread_array[i] = new std::thread(concurr_delete,
-     &rarray[i]);
-                  }
-                  for (int i = 0; i < thread_num; ++i)
-                  {
-                          thread_array[i]->join();
-                          delete thread_array[i];
-                  }
-                  gettimeofday(&tv2, NULL);
-                  duration = (double) (tv2.tv_usec - tv1.tv_usec) / 1000000 +
-     (double) (tv2.tv_sec - tv1.tv_sec); printf ("For %d threads, Delete Total
-     time = %f seconds, the throughput is %f options/s\n", thread_num, (double)
-     (tv2.tv_usec - tv1.tv_usec) / 1000000 + (double) (tv2.tv_sec - tv1.tv_sec),
-     insert_num/duration); LOG("Concurrent deletion
-     end-------------------------------------------------------------------");
+  
+    LOG("Concurrent deletion begin-----------------------------------------------------------------");
+    gettimeofday(&tv1, NULL);
+  for (int i = 0; i < thread_num; ++i) {
+    thread_array[i] = new std::thread(concurr_delete, &rarray[i]);
+  }
+
+  for (int i = 0; i < thread_num; ++i) {
+    thread_array[i]->join();
+    delete thread_array[i];
+  }
+  gettimeofday(&tv2, NULL);
+  duration = (double)(tv2.tv_usec - tv1.tv_usec) / 1000000 +
+             (double)(tv2.tv_sec - tv1.tv_sec);
+  printf(
+      "For %d threads, Get Total time = %f seconds, the throughput is %f "
+      "options/s\n",
+      thread_num,
+      (double)(tv2.tv_usec - tv1.tv_usec) / 1000000 +
+          (double)(tv2.tv_sec - tv1.tv_sec),
+      insert_num / duration);
+  LOG("Concurrent deletion end-------------------------------------------------------------------");
           //eh->FindAnyway(1);*/
   /*
   LOG("Concurrent negative get "

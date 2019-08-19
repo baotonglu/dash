@@ -1052,56 +1052,31 @@ RETRY:
   target->get_lock();
   /*aslo needs to lock next bucket since we return merge if these two bucket are
    * both empty*/
-  while (!neighbor->try_get_lock()) {
-    if (neighbor == bucket) {
-      target->release_lock();
-      return -2;
-    }
-  }
 
   auto old_sa = *_dir;
   auto x = (key_hash >> (8 * sizeof(key_hash) - old_sa->global_depth));
   if (old_sa->_[x] != this) /* verify process*/
   {
-    neighbor->release_lock();
     target->release_lock();
     return -2;
   }
 
   auto ret = target->Delete(key, meta_hash, false);
   if (ret == 0) {
-    neighbor->release_lock();
     target->release_lock();
-    /*needs to check the count of the target bucket and neight bucket*/
-#ifndef COUNTING
-    if (((GET_COUNT(target->bitmap)) == 0) &&
-        ((GET_COUNT(neighbor->bitmap)) == 0)) {
-      return 1;
-    } else {
-      return 0;
-    }
-#else
-    // number--;
-    __sync_fetch_and_sub(&number, 1);
-    return number == 0 ? 1 : 0;
-#endif
+    return 0;
+  }
+
+  if (!neighbor->try_get_lock()) {
+    target->release_lock();
+    return -2;
   }
 
   ret = neighbor->Delete(key, meta_hash, true);
   if (ret == 0) {
     neighbor->release_lock();
     target->release_lock();
-#ifndef COUNTING
-    if (((GET_COUNT(target->bitmap)) == 0) &&
-        ((GET_COUNT(neighbor->bitmap)) == 0)) {
-      return 1;
-    } else {
-      return 0;
-    }
-#else
-    __sync_fetch_and_sub(&number, 1);
-    return number == 0 ? 1 : 0;
-#endif
+    return 0;
   }
 
   /*decide whether to check the stash*/
@@ -1149,18 +1124,7 @@ RETRY:
           stash->release_lock();
           neighbor->release_lock();
           target->release_lock();
-#ifndef COUNTING
-          if (((GET_COUNT(target->bitmap)) == 0) &&
-              ((GET_COUNT(neighbor->bitmap)) == 0) &&
-              ((GET_COUNT(stash->bitmap)) == 0)) {
-            return 1;
-          } else {
-            return 0;
-          }
-#else
-          __sync_fetch_and_sub(&number, 1);
-          return number == 0 ? 1 : 0;
-#endif
+          return 0;
         }
       }
       stash->release_lock();
@@ -1586,212 +1550,96 @@ RETRY:
   auto old_sa = dir;
   auto x = (key_hash >> (8 * sizeof(key_hash) - old_sa->global_depth));
   auto dir_entry = old_sa->_;
-  Table *target = dir_entry[x];
+  Table *target_table = dir_entry[x];
 
-  // printf("delete the key %lld\n", key);
-  auto ret = target->Delete(key, key_hash, meta_hash,
-                            &dir); /* the normal delete process*/
-  if (ret == -2) {
-    goto RETRY;
-  } else if (ret == 0) {
-    return true;
-  } else if (ret == -1) {
-    return false;
-  }
+  /*we need to first do the locking and then do the verify*/
+  auto y = BUCKET_INDEX(key_hash);
+  Bucket *target = target_table->bucket + y;
+  Bucket *neighbor = target_table->bucket + ((y + 1) & bucketMask);
+  target->get_lock();
+  /*aslo needs to lock next bucket since we return merge if these two bucket are
+   * both empty*/
 
-  /*the merge process, the merge may not succeed because the bucket may not be
-   * actually empty, also the the condition is not fully fullfilled*/
-  bool retry = false;
-REMERGE:
   old_sa = dir;
   x = (key_hash >> (8 * sizeof(key_hash) - old_sa->global_depth));
-  target = old_sa->_[x];
-  int chunk_size = pow(2, old_sa->global_depth - (target->local_depth - 1));
-  assert(chunk_size >= 2);
-  int left = x - (x % chunk_size);
-  int right = left + chunk_size / 2;
-  Table *bro, *lleft = nullptr;
-  auto left_seg = old_sa->_[left];
-  auto right_seg = old_sa->_[right];
-  if (((left_seg != target) && (right_seg != target)) ||
-      (left_seg == right_seg)) {
-    // indicates that this segment has been deleted...
+  if (old_sa->_[x] != target_table) {
+    goto RETRY;
+  }
+
+  auto ret = target->Delete(key, meta_hash, false);
+  if (ret == 0) {
+    target->release_lock();
     return true;
   }
 
-  if (left != 0) {
-    /* then we needs to get the lock for left left table*/
-    lleft = old_sa->_[left - 1];
+  if (!neighbor->try_get_lock()) {
+    target->release_lock();
+    goto RETRY;
   }
 
-  if ((left_seg == target) && (left != 0)) {
-    lleft = old_sa->_[left - 1];
-    // lleft->bucket->get_lock();//I cannot use the get_lock mechanism, since
-    // there is possibility that this bucket has been deleted
-    if (!lleft->bucket->try_get_lock()) {
-      goto REMERGE;
-    }
-    if (lleft->next != left_seg) {
-      lleft->bucket->release_lock();
-      goto REMERGE;
-    }
+  ret = neighbor->Delete(key, meta_hash, true);
+  if (ret == 0) {
+    neighbor->release_lock();
+    target->release_lock();
+    return true;
   }
 
-  size_t _pattern0 =
-      ((key_hash >> (8 * sizeof(key_hash) - target->local_depth + 1)) << 1);
-  size_t _pattern1 =
-      ((key_hash >> (8 * sizeof(key_hash) - target->local_depth + 1)) << 1) + 1;
-
-  if (left_seg->Acquire_and_verify(_pattern0)) {
-    if (right_seg->Acquire_and_verify(_pattern1)) {
-      /*only this is correct, we start the merge process*/
-      if ((left_seg->local_depth == right_seg->local_depth) &&
-          target->All_acquire_and_verify()) {
-        /*skip indicator for driectory halving operation to get the correct */
-        left_seg->state = -1;
-        right_seg->state = -1;
-        if (left_seg == target) {
-          bro = right_seg;
-          /*needs to first flush the right bucket*/
-          // clflush((char*)bro, sizeof(struct Table));/*needs to first flush
-          // the the right bucket*/ printf("merge from left to right\n");
-        REINSERT:
-          while (Test_Directory_Lock_Set()) {
-            asm("nop");
-          }
-          old_sa = dir;
-          x = (key_hash >> (8 * sizeof(key_hash) - old_sa->global_depth));
-          chunk_size = pow(2, old_sa->global_depth - (target->local_depth - 1));
-          left = x - (x % chunk_size);
-          right = left + chunk_size / 2;
-
-          for (int i = left; i < right; ++i) {
-            // assert(old_sa->_[i] == target);// no need for this assrestion,
-            // else during retry, the assertion would alert
-            old_sa->_[i] = bro;
-          }
-
-          if (bro->local_depth == dir->global_depth) {
-            __sync_fetch_and_sub(&old_sa->depth_count, 2);
-          }
-
-          /*need to check the case of directory halving...*/
-          if (Test_Directory_Lock_Set() || old_sa->version != dir->version) {
-            goto REINSERT;
-          }
-
-          /*update the local depth only after the correctly update the directory
-           * entries, then this can make sense*/
-          if (lleft != nullptr) {
-            lleft->next = bro;
-#ifdef PMEM
-            Allocator::Persist(&lleft->next, sizeof(lleft->next));
-#endif
-          }
-
-          right_seg->state = 0;
-          left_seg->state = 0;
-
-          bro->local_depth -= 1;
-#ifdef PMEM
-          Allocator::Persist(&bro->local_depth, sizeof(bro->local_depth));
-#endif
-          bro->pattern = bro->pattern >> 1;
-          retry = bro->Empty_verify() ? true : false;
-          bro->bucket->release_lock();
-          target->All_release();
-          // target->bucket->release_lock();
-
-          assert(dir->depth_count >= 0);
-          if ((dir->depth_count == 0) && (dir->global_depth >= 3)) {
-            Lock_Directory();
-            if (dir->depth_count == 0) {
-              Halve_Directory();
-            }
-            Unlock_Directory();
-          }
-          delete target; /* it is unsafe now, needs the epoch strategy to ensure
-                            it is correct to reclaim this table*/
-        } else {
-          assert(right_seg == target);
-          bro = left_seg;
-          // clflush((char*)bro, sizeof(struct Table));
-          /* Merge:...Update the right part to point to the left part */
-          // printf("merge from right to left\n");
-
-        _REINSERT:
-          while (Test_Directory_Lock_Set()) {
-            asm("nop");
-          }
-          old_sa = dir;
-          x = (key_hash >> (8 * sizeof(key_hash) - old_sa->global_depth));
-          chunk_size = pow(2, old_sa->global_depth - (target->local_depth - 1));
-          left = x - (x % chunk_size);
-          right = left + chunk_size / 2;
-
-          for (int i = right; i < right + chunk_size / 2; ++i) {
-            // assert(dir->_[i] == target);
-            dir->_[i] = bro;
-          }
-
-          if (bro->local_depth == dir->global_depth) {
-            __sync_fetch_and_sub(&old_sa->depth_count, 2);
-          }
-
-          /*need to check the case of directory halving...*/
-          if (Test_Directory_Lock_Set() || old_sa->version != dir->version) {
-            goto _REINSERT;
-          }
-
-          assert(bro->next == target);
-          bro->next = target->next;
-#ifdef PMEM
-          Allocator::Persist(&bro->next, sizeof(bro->next));
-#endif
-
-          right_seg->state = 0;
-          left_seg->state = 0;
-          bro->local_depth -= 1;
-#ifdef PMEM
-          Allocator::Persist(&bro->local_depth, sizeof(bro->local_depth));
-#endif
-          bro->pattern = bro->pattern >> 1;
-          retry = bro->Empty_verify() ? true : false;
-          target->All_release();
-          // target->bucket->release_lock();
-          bro->bucket->release_lock();
-
-          assert(dir->depth_count >= 0);
-          if ((dir->depth_count == 0) && (dir->global_depth >= 3)) {
-            Lock_Directory();
-            if (dir->depth_count == 0) {
-              Halve_Directory();
-            }
-            Unlock_Directory();
-          }
-          delete target; /* it is unsafe now*/
-        }
-        /*need to check whether the update is on the new direcotry rather than
-         * the old_directory*/
-      } else {
-        right_seg->bucket->release_lock();
-        left_seg->bucket->release_lock();
-      }
+  /*decide whether to check the stash*/
+  Bucket *stash = target_table->bucket + kNumBucket;
+  if (target->test_stash_check()) {
+    auto test_stash = false;
+    if (target->test_overflow()) {
+      test_stash = true;
     } else {
-      left_seg->bucket->release_lock();
+      int mask = target->finger_array[14];
+
+      if (mask != 0) {
+        for (int i = 0; i < 4; ++i) {
+          if (CHECK_BIT(mask, i) &&
+              (target->finger_array[15 + i] == meta_hash) &&
+              (((1 << i) & target->overflowMember) == 0)) {
+            test_stash = true;
+            break;
+          }
+        }
+      }
+
+      mask = neighbor->finger_array[14];
+      if (mask != 0) {
+        for (int i = 0; i < 4; ++i) {
+          if (CHECK_BIT(mask, i) &&
+              (neighbor->finger_array[15 + i] == meta_hash) &&
+              (((1 << i) & neighbor->overflowMember) != 0)) {
+            test_stash = true;
+            break;
+          }
+        }
+      }
+    }
+
+    if (test_stash) {
+      Bucket *curr_bucket;
+      stash->get_lock();
+      for (int i = 0; i < stashBucket; ++i) {
+        curr_bucket = stash + ((i + (y & stashMask)) & stashMask);
+        ret = curr_bucket->Delete(key, meta_hash, false);
+        if (ret == 0) {
+          /*needs to clear the indicator*/
+          //target->unset_indicator(meta_hash, neighbor, key, i);
+          stash->release_lock();
+          neighbor->release_lock();
+          target->release_lock();
+          return true;
+        }
+      }
+      stash->release_lock();
     }
   }
-
-  if ((left_seg == target) && (left != 0)) {
-    lleft->bucket->release_lock();
-  }
-
-  if (retry) {
-    retry = false;
-    goto REMERGE;
-  }
-
-  return true;
+  neighbor->release_lock();
+  target->release_lock();
+  printf("The x = %lld, the y = %lld\n", x , y);
+  return false; /*only the deletion succeeds, it incurs the process of merge or
+                directory halving*/
 }
 
 void Finger_EH::CheckDepthCount() {

@@ -707,6 +707,60 @@ RETRY:
 // TODO
 template<class T>
 bool CCEH<T>::Delete(T key) {
+  uint64_t key_hash;
+  if constexpr (std::is_pointer_v<T>){
+    key_hash = h(key, strlen(key));
+  }else{
+    key_hash = h(&key, sizeof(key));
+  }
+  auto y = (key_hash & kMask) * kNumPairPerCacheLine;
+
+RETRY:
+  auto old_sa = dir->sa;
+  auto x = (key_hash >> (8*sizeof(key_hash)-old_sa->global_depth));
+  auto dir_entry = old_sa->_;
+  Segment<T>* dir_ = dir_entry[x];
+
+#ifdef INPLACE
+  auto sema = dir_->sema;
+  if (sema == -1)
+  {
+    goto RETRY;
+  }
+  //dir_->mutex.lock_shared();
+  dir_->get_lock(pool_addr);
+
+  if ((key_hash >> (8*sizeof(key_hash)-dir_->local_depth)) != dir_->pattern || dir_->sema == -1){
+    //dir_->mutex.unlock_shared();
+    dir_->release_lock(pool_addr);
+    goto RETRY;
+  } 
+#endif
+
+  for (unsigned i = 0; i < kNumPairPerCacheLine * kNumCacheLine; ++i) {
+    auto slot = (y+i) % Segment<T>::kNumSlot;
+    if constexpr (std::is_pointer_v<T>){
+      if ((dir_->_[slot].key != (T)INVALID) && (strcmp(dir_->_[slot].key, key) == 0))
+      {
+         dir_->_[slot].key = (T)INVALID;
+  #ifdef INPLACE
+        //dir_->mutex.unlock_shared();
+        dir_->release_lock(pool_addr);
+  #endif
+        return true;
+      }
+    }else{
+      if (dir_->_[slot].key == key) {
+        dir_->_[slot].key = (T)INVALID;
+  #ifdef INPLACE
+        //dir_->mutex.unlock_shared();
+        dir_->release_lock(pool_addr);
+  #endif
+        return true;
+      }
+    }
+  }
+  dir_->release_lock(pool_addr);
   return false;
 }
 

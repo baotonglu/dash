@@ -282,7 +282,7 @@ struct overflowBucket{
 		return 0;
 	}
 
-	int Delete(Key_t key, uint8_t meta_hash){
+	int Delete(uint8_t meta_hash, Key_t key){
 		int mask = 0;
 		SSE_CMP8(finger_array, meta_hash);
   		mask = mask & GET_BITMAP(bitmap);
@@ -703,7 +703,7 @@ struct Bucket {
 	}
 
 	/*if delete success, then return 0, else return -1*/
-	int Delete(Key_t key, uint8_t meta_hash, bool probe){
+	int Delete(uint8_t meta_hash, Key_t key, bool probe){
 		/*do the simd and check the key, then do the delete operation*/
 		int mask = 0;
   		SSE_CMP8(finger_array, meta_hash);
@@ -1890,7 +1890,168 @@ RETRY:
 
 /*the delete operation of the */
  bool Linear::Delete(Key_t key){
-	return false; 
+	auto key_hash = h(&key, sizeof(key));
+   auto partiton_idx = PARTITION_INDEX(key_hash);
+   auto meta_hash = META_HASH(key_hash);   
+   auto y = BUCKET_INDEX(key_hash);
+RETRY:
+
+	uint64_t old_N_next = dir[partiton_idx].N_next;
+	uint32_t N = old_N_next >> 32;
+	uint32_t next = (uint32_t)old_N_next;
+
+	auto x = IDX(key_hash, N);
+	if (x < next)
+	{
+		x = IDX(key_hash, N+1);
+	}
+
+	uint32_t dir_idx;
+	uint32_t offset;
+	SEG_IDX_OFFSET(static_cast<uint32_t>(x), dir_idx, offset);
+	Table* target = dir[partiton_idx]._[dir_idx] + offset;
+  
+	uint32_t old_version;
+	Bucket *target_bucket = target->bucket + y;
+	Bucket *neighbor_bucket = target->bucket + ((y+1) & bucketMask);
+	//printf("Get key %lld, x = %d, y = %d, meta_hash = %d\n", key, x, BUCKET_INDEX(key_hash), meta_hash);
+
+	target_bucket->get_lock();
+	if (!target_bucket->test_initialize())
+	{
+        target_bucket->release_lock();
+		for (int i = 0; i < kNumBucket; ++i)
+		{
+			Bucket *curr_bucket = target->bucket + i;
+			curr_bucket->get_lock();
+		}
+
+		uint64_t new_N_next = dir[partiton_idx].N_next;
+		uint32_t new_N = new_N_next >> 32;
+		uint32_t new_next = (uint32_t)new_N_next;
+		if (((next <= x) && (new_next > x)) || (new_N != N))
+		{
+			for (int i = 0; i < kNumBucket; ++i)
+			{
+				Bucket *curr_bucket = target->bucket + i;
+				curr_bucket->release_lock();
+			}
+			goto RETRY;
+		}
+
+		uint64_t org_idx;
+		uint64_t base_level;
+		Table* org_table = target->get_org_table(x, &org_idx, &base_level, &(dir[partiton_idx]));
+		target->Split(org_table, target, base_level, org_idx, &(dir[partiton_idx]));
+
+		for (int i = 0; i < kNumBucket; ++i)
+		{
+			Bucket *curr_bucket = target->bucket + i;
+			curr_bucket->release_lock();
+		}
+		goto RETRY;
+	}else{
+		uint64_t new_N_next = dir[partiton_idx].N_next;
+		uint32_t new_N = new_N_next >> 32;
+		uint32_t new_next = (uint32_t)new_N_next;
+		if (((next <= x) && (new_next > x)) || (new_N != N))
+		{
+            target_bucket->release_lock();
+			goto RETRY;
+		}
+
+		auto ret = target_bucket->Delete(meta_hash, key, false);
+        if(ret == 0){
+            target_bucket->release_lock();
+            return true;
+        }
+
+        if(!neighbor_bucket->try_get_lock()){
+            target_bucket->release_lock();
+            goto RETRY;    
+        }
+    
+		/*no need for verification procedure, we use the version number of target_bucket to test whether the bucket has ben spliteted*/
+		ret = neighbor_bucket->Delete(meta_hash, key, true);
+        if(ret == 0){
+            target_bucket->release_lock();
+            neighbor_bucket->release_lock();
+            return true;
+        }
+
+		if(target_bucket->test_stash_check())
+		{
+			auto test_stash = false;
+			if (target_bucket->test_overflow())
+			{	
+				//this only occur when the bucket has more key-values than 10 that are overfloed int he shared bucket area, therefore it needs to search in the extra bucket
+				test_stash = true;
+			}else{
+				//search in the original bucket
+				int mask = target_bucket->finger_array[14];
+				if (mask != 0)
+				{
+					for (int i = 0; i < 4; ++i)
+					{
+						if (CHECK_BIT(mask, i) && (target_bucket->finger_array[15+i] == meta_hash) && (((1 << i) & target_bucket->overflowMember) == 0))
+						{
+							test_stash = true;
+							goto TEST_STASH;
+						}
+					}
+				}
+
+				mask = neighbor_bucket->finger_array[14];
+				if (mask != 0)
+				{
+					for (int i = 0; i < 4; ++i)
+					{
+						if (CHECK_BIT(mask, i) && (neighbor_bucket->finger_array[15+i] == meta_hash) && (((1 << i) & neighbor_bucket->overflowMember) != 0))
+						{
+							test_stash = true;
+							break;
+						}
+					}	
+				}
+			}
+		TEST_STASH:
+			if (test_stash == true)
+			{
+				//overflow_access++;
+				for (int i = 0; i < stashBucket; ++i)
+				{
+					overflowBucket *curr_bucket = target->stash + i;
+					auto ret = curr_bucket->Delete(meta_hash, key);
+					if (ret == 0)
+					{
+                        target_bucket->unset_indicator(meta_hash, neighbor_bucket, key, i);
+                        target_bucket->release_lock();
+                        neighbor_bucket->release_lock();
+						return true;
+					}
+				}
+
+				overflowBucket *prev_bucket = target->stash;
+				overflowBucket *next_bucket = target->stash->next;
+				while(next_bucket != NULL){
+					auto ret = next_bucket->Delete(meta_hash, key);
+					if (ret == 0)
+					{
+                        target_bucket->unset_indicator(meta_hash, neighbor_bucket, key, 3);
+						target_bucket->release_lock();
+                        neighbor_bucket->release_lock();
+						return true;
+					}
+					prev_bucket = next_bucket;
+					next_bucket = next_bucket->next;
+				}
+			}
+		}
+	}
+    target_bucket->release_lock();
+    neighbor_bucket->release_lock();
+	//printf("the x = %lld, the y = %lld, the meta_hash is %d\n", x, y, meta_hash);
+	return false;
  }
 
 
