@@ -89,10 +89,12 @@ struct Segment {
     #ifdef PERSISTENT_LOCK
     pmemobj_rwlock_wrlock(pop, &rwlock);
     #else
+    /*
     uint64_t temp = 0;
     while(!CAS(&seg_lock, &temp, 1)){
       temp = 0;
-    }
+    }*/
+    mutex.lock();
     #endif
   }
 
@@ -100,10 +102,12 @@ struct Segment {
     #ifdef PERSISTENT_LOCK
     pmemobj_rwlock_unlock(pop, &rwlock);
     #else
+    /*
     uint64_t temp = 1;
     while(!CAS(&seg_lock, &temp, 0)){
       temp = 1;
-    }
+    }*/
+    mutex.unlock();
     #endif
   }
 
@@ -111,10 +115,12 @@ struct Segment {
     #ifdef PERSISTENT_LOCK
     pmemobj_rwlock_rdlock(pop, &rwlock);
     #else
+    /*
     uint64_t temp = 0;
     while(!CAS(&seg_lock, &temp, 1)){
       temp = 0;
-    }
+    }*/
+    mutex.lock_shared();
     #endif
   }
 
@@ -122,10 +128,12 @@ struct Segment {
     #ifdef PERSISTENT_LOCK
     pmemobj_rwlock_unlock(pop, &rwlock);
     #else
+    /*
     uint64_t temp = 1;
     while(!CAS(&seg_lock, &temp, 0)){
       temp = 1;
-    }
+    }*/
+    mutex.unlock_shared();
     #endif
   }
 
@@ -137,8 +145,11 @@ struct Segment {
     }
     return false;
     #else
+    /*
     uint64_t temp = 0;
     return CAS(&seg_lock, &temp, 1);
+    */
+    return mutex.try_lock();
     #endif
   }
 
@@ -150,8 +161,11 @@ struct Segment {
     }
     return false;
     #else
+    /*
     uint64_t temp = 0;
     return CAS(&seg_lock, &temp, 1);
+    */
+    return mutex.try_lock_shared();
     #endif
   }
 
