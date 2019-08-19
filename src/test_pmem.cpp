@@ -7,8 +7,8 @@
 #include "libpmemobj.h"
 #include "utils.h"
 
-//static const char *pool_name = "/mnt/pmem0/pmem_hash.data";
-static const char *pool_name = "pmem_hash.data";
+static const char *pool_name = "/mnt/pmem0/pmem_hash.data";
+//static const char *pool_name = "pmem_hash.data";
 static const size_t pool_size = 1024ul * 1024ul * 1024ul * 10ul;
 
 Finger_EH *eh;
