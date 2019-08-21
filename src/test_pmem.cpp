@@ -56,7 +56,7 @@ void concurr_get(struct range *_range) {
 	      not_found++;
      }
   }
-  std::cout <<" not_found = "<<not_found<<std::endl;
+  //std::cout <<" not_found = "<<not_found<<std::endl;
 }
 
 void concurr_delete(struct range *_range) {

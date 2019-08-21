@@ -67,6 +67,8 @@ constexpr int allocMask = (1 << kNumPairPerBucket) - 1;
 constexpr size_t bucketMask = ((1 << (int)log2(kNumBucket)) - 1);
 constexpr size_t stashMask = (1 << (int)log2(stashBucket)) - 1;
 constexpr uint8_t stashHighMask = ~((uint8_t)stashMask);
+constexpr uint8_t preNeighborSet = 1 << 7;
+constexpr uint8_t nextNeighborSet = 1 << 6;
 #define BUCKET_INDEX(hash) ((hash >> kFingerBits) % kNumBucket)
 #define GET_COUNT(var) ((var)&countMask)
 #define GET_BITMAP(var) (((var) >> 4) & allocMask)
@@ -360,15 +362,11 @@ struct Bucket {
     }
     _[slot].value = value;
     _[slot].key = key;
-    // mfence();
 #ifdef PMEM
     Allocator::Persist(&_[slot], sizeof(_[slot]));
 #endif
     mfence();
     set_hash(slot, meta_hash, probe);
-#ifdef PMEM
-    Allocator::Persist(&bitmap, sizeof(bitmap));
-#endif
     return 0;
   }
 
@@ -386,33 +384,33 @@ struct Bucket {
     if (mask != 0) {
       for (int i = 0; i < 12; i += 4) {
         if (CHECK_BIT(mask, i) && (_[i].key == key)) {
-          unset_hash(i, true);
+          unset_hash(i, false);
           return 0;
         }
 
         if (CHECK_BIT(mask, i + 1) && (_[i + 1].key == key)) {
-          unset_hash(i + 1, true);
+          unset_hash(i + 1, false);
           return 0;
         }
 
         if (CHECK_BIT(mask, i + 2) && (_[i + 2].key == key)) {
-          unset_hash(i + 2, true);
+          unset_hash(i + 2, false);
           return 0;
         }
 
         if (CHECK_BIT(mask, i + 3) && (_[i + 3].key == key)) {
-          unset_hash(i + 3, true);
+          unset_hash(i + 3, false);
           return 0;
         }
       }
 
       if (CHECK_BIT(mask, 12) && (_[12].key == key)) {
-        unset_hash(12, true);
+        unset_hash(12, false);
         return 0;
       }
 
       if (CHECK_BIT(mask, 13) && (_[13].key == key)) {
-        unset_hash(13, true);
+        unset_hash(13, false);
         return 0;
       }
     }
@@ -443,9 +441,6 @@ struct Bucket {
 #endif
     mfence();
     set_hash(slot, meta_hash, probe);
-#ifdef PMEM
-    Allocator::Persist(&bitmap, sizeof(bitmap));
-#endif
   }
 
   void Insert_displace_with_noflush(Key_t key, Value_t value, uint8_t meta_hash,
@@ -487,12 +482,37 @@ struct Bucket {
     return __builtin_ctz(mask);
   }
 
+  	/*suite of function to set/unset the flush state of the node*/
+	inline void setPreNonFlush(){
+    overflowMember = overflowMember | preNeighborSet;
+	}
+
+	inline void unsetPreNonFlush(){
+    overflowMember = overflowMember & (~preNeighborSet);
+	}
+
+	/* If the non-flush is set, return true*/
+	inline bool testPreNonFlush(){
+		return ((overflowMember & preNeighborSet) != 0);
+	}
+
+	inline void setNextNonFlush(){
+		overflowMember = overflowMember | nextNeighborSet;
+	}
+
+	inline void unsetNextNonFlush(){
+		overflowMember = overflowMember & (~nextNeighborSet);
+	}
+
+	inline bool testNextNonFlush(){
+		return ((overflowMember & nextNeighborSet) != 0);
+	}
+
   uint32_t version_lock;
   int bitmap;               // allocation bitmap + pointer bitmao + counter
   uint8_t finger_array[20]; /*only use the first 14 bytes, can be accelerated by
                                SSE instruction,0-13 for finger, 14-17 for
-                               overflowed, 18 as the bitmap, 19 as the btimap
-                               and overflow check indicator*/
+                               overflowed, 18 as the bitmap, 19 as the overflow bucket index indicator*/
   uint8_t membership[2];    /*Used to test whether the key originally belongs to
                                this bucket*/
   uint8_t overflowMember; /*overflowmember indicates membership of the overflow
@@ -635,7 +655,7 @@ struct Table {
 #endif
   }
 
-  int Next_displace(Bucket *neighbor, Bucket *next_neighbor, Key_t key,
+  int Next_displace(Bucket* target, Bucket *neighbor, Bucket *next_neighbor, Key_t key,
                     Value_t value, uint8_t meta_hash) {
     int displace_index = neighbor->Find_org_displacement();
     if ((GET_COUNT(next_neighbor->bitmap) != kNumPairPerBucket) &&
@@ -645,8 +665,21 @@ struct Table {
       next_neighbor->Insert(neighbor->_[displace_index].key,
                             neighbor->_[displace_index].value,
                             neighbor->finger_array[displace_index], true);
+      neighbor->setNextNonFlush();
+      next_neighbor->release_lock();
+#ifdef PMEM
+      Allocator::Persist(&next_neighbor->bitmap, sizeof(next_neighbor->bitmap));
+#endif
+      neighbor->unsetNextNonFlush();
       neighbor->unset_hash(displace_index);
       neighbor->Insert_displace(key, value, meta_hash, displace_index, true);
+      target->setNextNonFlush();
+      neighbor->release_lock();
+#ifdef PMEM
+      Allocator::Persist(&neighbor->bitmap, sizeof(neighbor->bitmap));
+#endif
+      target->unsetNextNonFlush();
+      target->release_lock();
 #ifdef COUNTING
       __sync_fetch_and_add(&number, 1);
 #endif
@@ -655,7 +688,7 @@ struct Table {
     return -1;
   }
 
-  int Prev_displace(Bucket *target, Bucket *prev_neighbor, Key_t key,
+  int Prev_displace(Bucket *target, Bucket *prev_neighbor, Bucket *neighbor, Key_t key,
                     Value_t value, uint8_t meta_hash) {
     int displace_index = target->Find_probe_displacement();
     if ((GET_COUNT(prev_neighbor->bitmap) != kNumPairPerBucket) &&
@@ -665,8 +698,21 @@ struct Table {
       prev_neighbor->Insert(target->_[displace_index].key,
                             target->_[displace_index].value,
                             target->finger_array[displace_index], false);
+      target->setPreNonFlush();
+      prev_neighbor->release_lock();
+#ifdef PMEM
+      Allocator::Persist(&prev_neighbor->bitmap, sizeof(prev_neighbor->bitmap));
+#endif
+      target->unsetPreNonFlush();
       target->unset_hash(displace_index);
       target->Insert_displace(key, value, meta_hash, displace_index, false);
+      neighbor->setPreNonFlush();
+      target->release_lock();
+#ifdef PMEM
+      Allocator::Persist(&target->bitmap, sizeof(target->bitmap));
+#endif
+      neighbor->unsetPreNonFlush();
+      neighbor->release_lock();
 #ifdef COUNTING
       __sync_fetch_and_add(&number, 1);
 #endif
@@ -682,6 +728,9 @@ struct Table {
       if (GET_COUNT(curr_bucket->bitmap) < kNumPairPerBucket) {
         // printf("insertion in the stash for key %lld\n", key);
         curr_bucket->Insert(key, value, meta_hash, false);
+#ifdef PMEM
+        Allocator::Persist(&curr_bucket->bitmap, sizeof(curr_bucket->bitmap));
+#endif
         target->set_indicator(meta_hash, neighbor, (stash_pos + i) & stashMask);
 #ifdef COUNTING
         __sync_fetch_and_add(&number, 1);
@@ -697,7 +746,6 @@ struct Table {
   size_t local_depth;
   size_t pattern;
   int number;
-  int displace_num;
   Table *next;
   int state; /*-1 means this bucket is merging, -2 means this bucket is
                 splitting, so we cannot count the depth_count on it during
@@ -740,7 +788,6 @@ RETRY:
 
   if (((GET_COUNT(target->bitmap)) == kNumPairPerBucket) &&
       ((GET_COUNT(neighbor->bitmap)) == kNumPairPerBucket)) {
-    if (displace_num >= -2) {
       Bucket *next_neighbor = bucket + ((y + 2) & bucketMask);
       // Next displacement
       if (!next_neighbor->try_get_lock()) {
@@ -748,12 +795,8 @@ RETRY:
         target->release_lock();
         return -2;
       }
-      auto ret = Next_displace(neighbor, next_neighbor, key, value, meta_hash);
+      auto ret = Next_displace(target, neighbor, next_neighbor, key, value, meta_hash);
       if (ret == 0) {
-        displace_num++;
-        next_neighbor->release_lock();
-        neighbor->release_lock();
-        target->release_lock();
         return 0;
       }
       next_neighbor->release_lock();
@@ -773,16 +816,11 @@ RETRY:
         return -2;
       }
 
-      ret = Prev_displace(target, prev_neighbor, key, value, meta_hash);
+      ret = Prev_displace(target, prev_neighbor, neighbor,key, value, meta_hash);
       if (ret == 0) {
-        displace_num++;
-        neighbor->release_lock();
-        target->release_lock();
-        prev_neighbor->release_lock();
         return 0;
       }
 
-      displace_num--;
       Bucket *stash = bucket + kNumBucket;
       if (!stash->try_get_lock()) {
         neighbor->release_lock();
@@ -798,85 +836,30 @@ RETRY:
       target->release_lock();
       prev_neighbor->release_lock();
       return ret;
-    } else {
-      Bucket *stash = bucket + kNumBucket;
-      if (!stash->try_get_lock()) {
-        neighbor->release_lock();
-        target->release_lock();
-        return -2;
-      }
-      ret =
-          Stash_insert(target, neighbor, key, value, meta_hash, y & stashMask);
-      if (ret == 0) {
-        // displace_num--;
-        stash->release_lock();
-        neighbor->release_lock();
-        target->release_lock();
-        return 0;
-      }
-      stash->release_lock();
-
-      Bucket *next_neighbor = bucket + ((y + 2) & bucketMask);
-      // Next displacement
-      if (!next_neighbor->try_get_lock()) {
-        neighbor->release_lock();
-        target->release_lock();
-        return -2;
-      }
-      auto ret = Next_displace(neighbor, next_neighbor, key, value, meta_hash);
-      if (ret == 0) {
-        displace_num++;
-        next_neighbor->release_lock();
-        neighbor->release_lock();
-        target->release_lock();
-        return 0;
-      }
-      next_neighbor->release_lock();
-
-      Bucket *prev_neighbor;
-      int prev_index;
-      if (y == 0) {
-        prev_neighbor = bucket + kNumBucket - 1;
-        prev_index = kNumBucket - 1;
-      } else {
-        prev_neighbor = bucket + y - 1;
-        prev_index = y - 1;
-      }
-
-      if (!prev_neighbor->try_get_lock()) {
-        target->release_lock();
-        neighbor->release_lock();
-        return -2;
-      }
-
-      ret = Prev_displace(target, prev_neighbor, key, value, meta_hash);
-      if (ret == 0) {
-        displace_num++;
-      }
-      neighbor->release_lock();
-      target->release_lock();
-      prev_neighbor->release_lock();
-      return ret;
-    }
   }
 
   if (GET_COUNT(target->bitmap) <= GET_COUNT(neighbor->bitmap)) {
     target->Insert(key, value, meta_hash, false);
-    // neighbor->release_lock();
-    // target->release_lock();
-    // Allocator::Persist(&target->bitmap, sizeof(target->bitmap));
+    neighbor->setPreNonFlush();
+    target->release_lock();
+#ifdef PMEM
+    Allocator::Persist(&target->bitmap, sizeof(target->bitmap));
+#endif
+    neighbor->unsetPreNonFlush();
+    neighbor->release_lock();
   } else {
     neighbor->Insert(key, value, meta_hash, true);
-    // neighbor->release_lock();
-    // target->release_lock();
-    // Allocator::Persist(&neighbor->bitmap, sizeof(neighbor->bitmap));
+    target->setNextNonFlush();
+    neighbor->release_lock();
+#ifdef PMEM
+    Allocator::Persist(&neighbor->bitmap, sizeof(neighbor->bitmap));
+#endif
+    target->unsetNextNonFlush();
+    target->release_lock();
   }
 #ifdef COUNTING
   __sync_fetch_and_add(&number, 1);
 #endif
-  neighbor->release_lock();
-  target->release_lock();
-  // mfence();
   return 0;
 }
 
@@ -1024,7 +1007,6 @@ Table *Table::Split(size_t _key_hash) {
   }
   next->pattern = new_pattern;
   pattern = old_pattern;
-  displace_num = 0;
 
 #ifdef PMEM
   Allocator::Persist(next, sizeof(Table));
@@ -1036,22 +1018,18 @@ Table *Table::Split(size_t _key_hash) {
 // necessary
 /*for the return value, -2 means needs retry, 0 means delete success, 1 means
  * delete success and also the bucket is empty, -1 means the deletion fails*/
+ /*
 int Table::Delete(Key_t key, size_t key_hash, uint8_t meta_hash,
                   Directory **_dir) {
 RETRY:
-  /*we need to first do the locking and then do the verify*/
   auto y = BUCKET_INDEX(key_hash);
   Bucket *target = bucket + y;
   Bucket *neighbor = bucket + ((y + 1) & bucketMask);
-  // printf("for key %lld, target bucket is %lld, meta_hash is %d\n", key,
-  // BUCKET_INDEX(key_hash), meta_hash);
   target->get_lock();
-  /*aslo needs to lock next bucket since we return merge if these two bucket are
-   * both empty*/
 
   auto old_sa = *_dir;
   auto x = (key_hash >> (8 * sizeof(key_hash) - old_sa->global_depth));
-  if (old_sa->_[x] != this) /* verify process*/
+  if (old_sa->_[x] != this) 
   {
     target->release_lock();
     return -2;
@@ -1075,7 +1053,6 @@ RETRY:
     return 0;
   }
 
-  /*decide whether to check the stash*/
   Bucket *stash = bucket + kNumBucket;
   if (target->test_stash_check()) {
     auto test_stash = false;
@@ -1115,7 +1092,6 @@ RETRY:
         curr_bucket = stash + ((i + (y & stashMask)) & stashMask);
         ret = curr_bucket->Delete(key, meta_hash, false);
         if (ret == 0) {
-          /*needs to clear the indicator*/
           target->unset_indicator(meta_hash, neighbor, key, i);
           stash->release_lock();
           neighbor->release_lock();
@@ -1128,9 +1104,9 @@ RETRY:
   }
   neighbor->release_lock();
   target->release_lock();
-  return -1; /*only the deletion succeeds, it incurs the process of merge or
-                directory halving*/
+  return -1; 
 }
+*/
 
 class Finger_EH {
  public:
@@ -1426,21 +1402,16 @@ RETRY:
   auto y = BUCKET_INDEX(key_hash);
   auto dir_entry = old_sa->_;
   Table *target = dir_entry[x];
-  /* after accessing the right bucket, still need the verification process to
-     verify that I access the right bucket?* or no need to verify? Need the
-     re-traversal for the verification since assuming it go to sleep after it
-     get the pointer to this segment, then the segment has been splitted, the
-     element it wanna search has been re-hashed to other places then it is
-     wrong, so after get the version nnumber of the lock, it needs to
-     re-traversal to do the verifciation!
-   */
+
   uint32_t old_version;
+  uint32_t old_neighbor_version;
   Bucket *target_bucket = target->bucket + y;
   Bucket *neighbor_bucket = target->bucket + ((y + 1) & bucketMask);
   // printf("Get key %lld, x = %d, y = %d, meta_hash = %d\n", key, x,
   // BUCKET_INDEX(key_hash), meta_hash);
 
-  if (target_bucket->test_lock_set(old_version)) {
+  if (target_bucket->test_lock_set(old_version) || 
+      neighbor_bucket->test_lock_set(old_neighbor_version)) {
     goto RETRY;
   }
 
@@ -1555,49 +1526,59 @@ RETRY:
   Bucket *target = target_table->bucket + y;
   Bucket *neighbor = target_table->bucket + ((y + 1) & bucketMask);
   target->get_lock();
+  neighbor->get_lock();
   /*aslo needs to lock next bucket since we return merge if these two bucket are
    * both empty*/
 
   old_sa = dir;
   x = (key_hash >> (8 * sizeof(key_hash) - old_sa->global_depth));
   if (old_sa->_[x] != target_table) {
+    target->release_lock();
+    neighbor->release_lock();
     goto RETRY;
   }
 
   auto ret = target->Delete(key, meta_hash, false);
   if (ret == 0) {
+    neighbor->setPreNonFlush();
     target->release_lock();
+#ifdef PMEM
+    Allocator::Persist(&target->bitmap, sizeof(target->bitmap));
+#endif
+    neighbor->unsetPreNonFlush();
+    neighbor->release_lock();
     return true;
-  }
-
-  if (!neighbor->try_get_lock()) {
-    target->release_lock();
-    goto RETRY;
   }
 
   ret = neighbor->Delete(key, meta_hash, true);
   if (ret == 0) {
+    target->setNextNonFlush();
     neighbor->release_lock();
+#ifdef PMEM
+    Allocator::Persist(&neighbor->bitmap, sizeof(neighbor->bitmap));
+#endif
+    target->unsetNextNonFlush();
     target->release_lock();
     return true;
   }
 
-  /*decide whether to check the stash*/
-  Bucket *stash = target_table->bucket + kNumBucket;
   if (target->test_stash_check()) {
     auto test_stash = false;
     if (target->test_overflow()) {
+      /*this only occur when the bucket has more key-values than 10 that are
+       * overfloed int he shared bucket area, therefore it needs to search in
+       * the extra bucket*/
       test_stash = true;
     } else {
+      /*search in the original bucket*/
       int mask = target->finger_array[14];
-
       if (mask != 0) {
         for (int i = 0; i < 4; ++i) {
           if (CHECK_BIT(mask, i) &&
               (target->finger_array[15 + i] == meta_hash) &&
               (((1 << i) & target->overflowMember) == 0)) {
-            test_stash = true;
-            break;
+              test_stash = true;
+              goto TEST_STASH;
           }
         }
       }
@@ -1608,23 +1589,27 @@ RETRY:
           if (CHECK_BIT(mask, i) &&
               (neighbor->finger_array[15 + i] == meta_hash) &&
               (((1 << i) & neighbor->overflowMember) != 0)) {
-            test_stash = true;
-            break;
+              test_stash = true;
+              break;
           }
         }
       }
     }
 
-    if (test_stash) {
-      Bucket *curr_bucket;
+  TEST_STASH:
+    if (test_stash == true) {
+      Bucket *stash = target_table->bucket + kNumBucket;
       stash->get_lock();
       for (int i = 0; i < stashBucket; ++i) {
-        curr_bucket = stash + ((i + (y & stashMask)) & stashMask);
-        ret = curr_bucket->Delete(key, meta_hash, false);
+        Bucket* curr_stash =
+            target_table->bucket + kNumBucket + ((i + (y & stashMask)) & stashMask);
+        auto ret = curr_stash->Delete(key, meta_hash, false);
         if (ret == 0) {
-          /*needs to clear the indicator*/
-          // target->unset_indicator(meta_hash, neighbor, key, i);
+          /*need to unset indicator in original bucket*/
           stash->release_lock();
+#ifdef PMEM
+          Allocator::Persist(&curr_stash->bitmap, sizeof(curr_stash->bitmap));
+#endif
           neighbor->release_lock();
           target->release_lock();
           return true;
@@ -1635,9 +1620,7 @@ RETRY:
   }
   neighbor->release_lock();
   target->release_lock();
-  printf("The x = %lld, the y = %lld\n", x, y);
-  return false; /*only the deletion succeeds, it incurs the process of merge or
-                directory halving*/
+  return false;
 }
 
 void Finger_EH::CheckDepthCount() {
