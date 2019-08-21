@@ -665,20 +665,20 @@ struct Table {
       next_neighbor->Insert(neighbor->_[displace_index].key,
                             neighbor->_[displace_index].value,
                             neighbor->finger_array[displace_index], true);
-      neighbor->setNextNonFlush();
+      //neighbor->setNextNonFlush();
       next_neighbor->release_lock();
 #ifdef PMEM
       Allocator::Persist(&next_neighbor->bitmap, sizeof(next_neighbor->bitmap));
 #endif
-      neighbor->unsetNextNonFlush();
+      //neighbor->unsetNextNonFlush();
       neighbor->unset_hash(displace_index);
       neighbor->Insert_displace(key, value, meta_hash, displace_index, true);
-      target->setNextNonFlush();
+      //target->setNextNonFlush();
       neighbor->release_lock();
 #ifdef PMEM
       Allocator::Persist(&neighbor->bitmap, sizeof(neighbor->bitmap));
 #endif
-      target->unsetNextNonFlush();
+      //target->unsetNextNonFlush();
       target->release_lock();
 #ifdef COUNTING
       __sync_fetch_and_add(&number, 1);
@@ -698,20 +698,20 @@ struct Table {
       prev_neighbor->Insert(target->_[displace_index].key,
                             target->_[displace_index].value,
                             target->finger_array[displace_index], false);
-      target->setPreNonFlush();
+      //target->setPreNonFlush();
       prev_neighbor->release_lock();
 #ifdef PMEM
       Allocator::Persist(&prev_neighbor->bitmap, sizeof(prev_neighbor->bitmap));
 #endif
-      target->unsetPreNonFlush();
+      //target->unsetPreNonFlush();
       target->unset_hash(displace_index);
       target->Insert_displace(key, value, meta_hash, displace_index, false);
-      neighbor->setPreNonFlush();
+      //neighbor->setPreNonFlush();
       target->release_lock();
 #ifdef PMEM
       Allocator::Persist(&target->bitmap, sizeof(target->bitmap));
 #endif
-      neighbor->unsetPreNonFlush();
+      //neighbor->unsetPreNonFlush();
       neighbor->release_lock();
 #ifdef COUNTING
       __sync_fetch_and_add(&number, 1);
@@ -840,21 +840,21 @@ RETRY:
 
   if (GET_COUNT(target->bitmap) <= GET_COUNT(neighbor->bitmap)) {
     target->Insert(key, value, meta_hash, false);
-    neighbor->setPreNonFlush();
+    //neighbor->setPreNonFlush();
     target->release_lock();
 #ifdef PMEM
     Allocator::Persist(&target->bitmap, sizeof(target->bitmap));
 #endif
-    neighbor->unsetPreNonFlush();
+    //neighbor->unsetPreNonFlush();
     neighbor->release_lock();
   } else {
     neighbor->Insert(key, value, meta_hash, true);
-    target->setNextNonFlush();
+    //target->setNextNonFlush();
     neighbor->release_lock();
 #ifdef PMEM
     Allocator::Persist(&neighbor->bitmap, sizeof(neighbor->bitmap));
 #endif
-    target->unsetNextNonFlush();
+    //target->unsetNextNonFlush();
     target->release_lock();
   }
 #ifdef COUNTING
@@ -1540,24 +1540,24 @@ RETRY:
 
   auto ret = target->Delete(key, meta_hash, false);
   if (ret == 0) {
-    neighbor->setPreNonFlush();
+    //neighbor->setPreNonFlush();
     target->release_lock();
 #ifdef PMEM
     Allocator::Persist(&target->bitmap, sizeof(target->bitmap));
 #endif
-    neighbor->unsetPreNonFlush();
+    //neighbor->unsetPreNonFlush();
     neighbor->release_lock();
     return true;
   }
 
   ret = neighbor->Delete(key, meta_hash, true);
   if (ret == 0) {
-    target->setNextNonFlush();
+    //target->setNextNonFlush();
     neighbor->release_lock();
 #ifdef PMEM
     Allocator::Persist(&neighbor->bitmap, sizeof(neighbor->bitmap));
 #endif
-    target->unsetNextNonFlush();
+    //target->unsetNextNonFlush();
     target->release_lock();
     return true;
   }

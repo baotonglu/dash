@@ -14,8 +14,8 @@
 #include "lh_finger.h"
 #endif
 
-//static const char *pool_name = "/mnt/pmem0/pmem_hash.data";
-static const char *pool_name = "pmem_hash.data";
+static const char *pool_name = "/mnt/pmem0/pmem_hash.data";
+//static const char *pool_name = "pmem_hash.data";
 static const size_t pool_size = 1024ul * 1024ul * 1024ul * 10ul;
 
 #ifndef LINEAR
@@ -61,14 +61,16 @@ void concurr_get(struct range *_range) {
 
 void concurr_delete(struct range *_range) {
   size_t key;
-  for (uint64_t i = _range->begin; i < _range->end+5; ++i) {
+  uint32_t not_found = 0;
+  for (uint64_t i = _range->begin; i < _range->end; ++i) {
     key = i;
-    // eh->Delete(key);
-
+    //eh->Delete(key);
     if (eh->Delete(key) == false) {
-      std::cout << "Delete the key " << i << ": ERROR!" << std::endl;
-    }
+	    not_found++;
+     // std::cout << "Delete the key " << i << ": ERROR!" << std::endl;
+    } 
   }
+  //std::cout<<"not found = "<<not_found<<std::endl;
 }
 
 int main(int argc, char const *argv[]) {
@@ -156,6 +158,7 @@ int main(int argc, char const *argv[]) {
   // eh->CheckDepthCount();
   /*-----------------------------------------------Concurrent Get
    * Test-----------------------------------------------------------------------*/
+ /*
   Allocator::ReInitialize_test_only(pool_name, pool_size);
   LOG("Concurrent positive get "
       "begin!------------------------------------------------------------");
@@ -180,34 +183,7 @@ int main(int argc, char const *argv[]) {
           (double)(tv2.tv_sec - tv1.tv_sec),
       insert_num / duration);
   //});
-  LOG("Concurrent positive get "
-      "end!---------------------------------------------------------------");
-  /*-----------------------------------------------Concurrent Delete
-   * Test--------------------------------------------------------------------*/
   
-    LOG("Concurrent deletion begin-----------------------------------------------------------------");
-    gettimeofday(&tv1, NULL);
-  for (int i = 0; i < thread_num; ++i) {
-    thread_array[i] = new std::thread(concurr_delete, &rarray[i]);
-  }
-
-  for (int i = 0; i < thread_num; ++i) {
-    thread_array[i]->join();
-    delete thread_array[i];
-  }
-  gettimeofday(&tv2, NULL);
-  duration = (double)(tv2.tv_usec - tv1.tv_usec) / 1000000 +
-             (double)(tv2.tv_sec - tv1.tv_sec);
-  printf(
-      "For %d threads, Get Total time = %f seconds, the throughput is %f "
-      "options/s\n",
-      thread_num,
-      (double)(tv2.tv_usec - tv1.tv_usec) / 1000000 +
-          (double)(tv2.tv_sec - tv1.tv_sec),
-      insert_num / duration);
-  LOG("Concurrent deletion end-------------------------------------------------------------------");
-          //eh->FindAnyway(1);*/
-  /*
   LOG("Concurrent negative get "
       "begin!-------------------------------------------------------------");
   for (int i = 0; i < thread_num; ++i) {
@@ -238,5 +214,39 @@ int main(int argc, char const *argv[]) {
   LOG("Concurrent negative get "
       "end!---------------------------------------------------------------");
   */
+  /*-----------------------------------------------Concurrent Delete
+   * Test--------------------------------------------------------------------*/
+  
+    LOG("Concurrent deletion begin-----------------------------------------------------------------");
+  for (int i = 0; i < thread_num; ++i) {
+    rarray[i].begin = i * chunk_size + 1;
+    rarray[i].end = (i + 1) * chunk_size + 1;
+  }
+  rarray[thread_num - 1].end = insert_num + 1;
+
+
+  System::profile("Delete", [&](){
+    gettimeofday(&tv1, NULL);
+  for (int i = 0; i < thread_num; ++i) {
+    thread_array[i] = new std::thread(concurr_delete, &rarray[i]);
+  }
+
+  for (int i = 0; i < thread_num; ++i) {
+    thread_array[i]->join();
+    delete thread_array[i];
+  }
+  gettimeofday(&tv2, NULL);
+ });
+  duration = (double)(tv2.tv_usec - tv1.tv_usec) / 1000000 +
+             (double)(tv2.tv_sec - tv1.tv_sec);
+  printf(
+      "For %d threads, Delete Total time = %f seconds, the throughput is %f "
+      "options/s\n",
+      thread_num,
+      (double)(tv2.tv_usec - tv1.tv_usec) / 1000000 +
+          (double)(tv2.tv_sec - tv1.tv_sec),
+      insert_num / duration);
+  LOG("Concurrent deletion end-------------------------------------------------------------------");
+          //eh->FindAnyway(1);
   return 0;
 }

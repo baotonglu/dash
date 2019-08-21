@@ -58,7 +58,7 @@ void concurr_get(struct range *_range){
 void concurr_delete(struct range *_range){
 	Key_t key;
 	int not_found = 0;
-	for (int i = _range->begin; i < _range->end + 5; ++i)
+	for (int i = _range->begin; i < _range->end; ++i)
 	{
 		key = i;
 		if (level->Delete(pop, key) == false)
@@ -66,7 +66,7 @@ void concurr_delete(struct range *_range){
 			not_found++;
 		}
 	}
-	printf("not found = %d", not_found);
+//printf("not found = %d", not_found);
 }
 
 int main(int argc, char const *argv[])
@@ -79,7 +79,7 @@ int main(int argc, char const *argv[])
 	std::cout<<"The levels is "<<initCap<<std::endl;
 	std::cout<<"The inserted number is "<<insert_num<<std::endl;
 	std::cout<<"The thread number is "<<thread_num<<std::endl;
-	const char *file = "_LEVEL";
+	const char *file = "/mnt/pmem0/pmem_level.data";
 	PMEMoid root;
 	struct my_root *rr;
 
@@ -153,28 +153,9 @@ int chunk_size = insert_num/thread_num;
 	         (double) (tv2.tv_sec - tv1.tv_sec), insert_num/duration);	
 	//eh->Get_Number();
 
-	LOG("Concurrent delete begin!");
-	gettimeofday(&tv1, NULL);
-	for (int i = 0; i < thread_num; ++i)
-	{
-		thread_array[i] = new std::thread(concurr_delete, &rarray[i]);
-	}
-
-	for (int i = 0; i < thread_num; ++i)
-	{
-		thread_array[i]->join();
-		delete thread_array[i];
-	}
-	gettimeofday(&tv2, NULL);
-	LOG("Concurrent delete done!");
-	duration = (double) (tv2.tv_usec - tv1.tv_usec) / 1000000 + (double) (tv2.tv_sec - tv1.tv_sec);
-	printf ("For %d threads, Delete Total time = %f seconds, the throughput is %f options/s\n", thread_num,
-	         (double) (tv2.tv_usec - tv1.tv_usec) / 1000000 +
-	         (double) (tv2.tv_sec - tv1.tv_sec), insert_num/duration);	
 
 
 //-----------------------------------------------Concurrent postive Get Test-----------------------------------------------------------------------
-	/*
 	//std::cout<<"There are "<<eh->GetItemNum()<<" items inserted in the hashing index!"<<std::endl;
 	//rarray[thread_num-1].end = insert_num + 5;
 	LOG("Concurrent positive get begin!");
@@ -197,7 +178,26 @@ int chunk_size = insert_num/thread_num;
 	         (double) (tv2.tv_sec - tv1.tv_sec), insert_num/duration);	
 	//eh->Get_Number();
 	
+	LOG("Concurrent delete begin!");
+	gettimeofday(&tv1, NULL);
+	for (int i = 0; i < thread_num; ++i)
+	{
+		thread_array[i] = new std::thread(concurr_delete, &rarray[i]);
+	}
+
+	for (int i = 0; i < thread_num; ++i)
+	{
+		thread_array[i]->join();
+		delete thread_array[i];
+	}
+	gettimeofday(&tv2, NULL);
+	LOG("Concurrent delete done!");
+	duration = (double) (tv2.tv_usec - tv1.tv_usec) / 1000000 + (double) (tv2.tv_sec - tv1.tv_sec);
+	printf ("For %d threads, Delete Total time = %f seconds, the throughput is %f options/s\n", thread_num,
+	         (double) (tv2.tv_usec - tv1.tv_usec) / 1000000 +
+	         (double) (tv2.tv_sec - tv1.tv_sec), insert_num/duration);	
 //----------------------------------------------Concurrent negative Get Test-----------------------------------------------------------------------
+	/*
 	LOG("Concurrent negative get begin!");
 	for (int i = 0; i < thread_num; ++i)
 	{

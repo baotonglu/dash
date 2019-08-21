@@ -798,10 +798,8 @@ bool LevelHashing::Delete(PMEMobjpool *pop ,Key_t& key) {
   uint32_t s_idx = S_IDX(s_hash, addr_capacity);
   int i = 0, j;
 
-  for(i = 0; i < 2; i ++){
+  for(i = 0; i < 2; i++){
     {
-      ///std::shared_lock<std::mutex> lock(mutex[f_idx/locksize]);
-      //mutex[f_idx/locksize].lock_shared();
       while(pmemobj_rwlock_tryrdlock(pop, &mutex[f_idx/locksize]) != 0){
         if (resizing == true)
         {
@@ -811,7 +809,6 @@ bool LevelHashing::Delete(PMEMobjpool *pop ,Key_t& key) {
 
       if (resizing == true)
       {
-        //mutex[f_idx/locksize].unlock_shared();
         pmemobj_rwlock_unlock(pop, &mutex[f_idx/locksize]);
         goto RETRY;
       }
@@ -819,19 +816,15 @@ bool LevelHashing::Delete(PMEMobjpool *pop ,Key_t& key) {
       for(j = 0; j < ASSOC_NUM; j ++){
         if (buckets[i][f_idx].token[j] == 1 && buckets[i][f_idx].slot[j].key == key)
         {
-          //mutex[f_idx/locksize].unlock_shared();
           buckets[i][f_idx].token[j] = 0;
           pmemobj_persist(pop, &buckets[i][f_idx].token[j], sizeof(uint8_t));
           pmemobj_rwlock_unlock(pop, &mutex[f_idx/locksize]);
           return true;
         }
       }
-      //mutex[f_idx/locksize].unlock_shared();
       pmemobj_rwlock_unlock(pop, &mutex[f_idx/locksize]);
     }
     {
-      //std::shared_lock<std::mutex> lock(mutex[s_idx/locksize]);
-      //]mutex[s_idx/locksize].lock_shared();
       while(pmemobj_rwlock_tryrdlock(pop, &mutex[s_idx/locksize]) != 0){
         if (resizing == true)
         {
@@ -841,7 +834,6 @@ bool LevelHashing::Delete(PMEMobjpool *pop ,Key_t& key) {
 
       if (resizing == true)
       {
-        //mutex[s_idx/locksize].unlock_shared();
         pmemobj_rwlock_unlock(pop, &mutex[s_idx/locksize]);
         goto RETRY;
       }
@@ -849,6 +841,7 @@ bool LevelHashing::Delete(PMEMobjpool *pop ,Key_t& key) {
       for(j = 0; j < ASSOC_NUM; j ++){
         if (buckets[i][s_idx].token[j] == 1 && buckets[i][s_idx].slot[j].key == key)
         {
+	  buckets[i][s_idx].token[j] = 0;
           pmemobj_persist(pop, &buckets[i][s_idx].token[j], sizeof(uint8_t));
           pmemobj_rwlock_unlock(pop, &mutex[s_idx/locksize]);
           return true;
