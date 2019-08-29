@@ -1,5 +1,6 @@
 #include <sys/time.h>
 #include <thread>
+#include <cstring>
 #include "../util/System.hpp"
 #include "../util/random.h"
 #include "allocator.h"
@@ -7,6 +8,7 @@
 #include "utils.h"
 
 //#define LINEAR 1
+//#define FIXED 1
 
 #ifndef LINEAR
 #include "ex_finger.h"
@@ -14,17 +16,34 @@
 #include "lh_finger.h"
 #endif
 
-static const char *pool_name = "/mnt/pmem0/pmem_hash.data";
-//static const char *pool_name = "pmem_hash.data";
+//static const char *pool_name = "/mnt/pmem0/pmem_hash.data";
+static const char *pool_name = "pmem_hash.data";
 static const size_t pool_size = 1024ul * 1024ul * 1024ul * 10ul;
 
 #ifndef LINEAR
-Finger_EH *eh;
+
+#ifdef FIXED
+Finger_EH<Key_t> *eh;
 #else
-Linear *eh;
+Finger_EH<char*> *eh;
 #endif
-uint64_t **workload;
+
+#else
+
+#ifdef FIXED
+Linear<Key_t> *eh;
+#else
+Linear<char*> *eh;
+#endif
+
+#endif
+uint64_t *workload;
 struct timeval tv1, tv2;
+
+/*fixed length 16-byte key*/
+struct string_key{
+  char key[16];
+};
 
 struct range {
   uint64_t index;
@@ -33,44 +52,68 @@ struct range {
 };
 
 void concurr_insert(struct range *_range) {
+#ifdef FIXED
   size_t key;
+#else
+  char* key;
+  string_key *var_workload = reinterpret_cast<string_key *>(workload);
+#endif
   char arr[64];
   Value_t value = (Value_t)arr;
-  uint64_t *array = workload[_range->index];
 
   for (uint64_t i = _range->begin; i < _range->end; ++i) {
-    key = i;
+#ifdef FIXED
+    key = workload[i];
+#else
+    key = reinterpret_cast<char *>(var_workload + i);
+#endif
     eh->Insert(key, value);
   }
 }
 
 void concurr_get(struct range *_range) {
+#ifdef FIXED
   size_t key;
-  uint64_t *array = workload[_range->index];
+#else
+  char* key;
+  string_key *var_workload = reinterpret_cast<string_key *>(workload);
+#endif
   
   uint32_t not_found = 0;
   for (uint64_t i = _range->begin; i < _range->end; ++i) {
-    key = i;
-     if (eh->Get(key) == NONE)
-     {
-	      not_found++;
-     }
+#ifdef FIXED
+    key = workload[i];
+#else
+    key = reinterpret_cast<char *>(var_workload + i);
+#endif
+    if (eh->Get(key) == NONE)
+    {
+      not_found++;
+    }
   }
-  //std::cout <<" not_found = "<<not_found<<std::endl;
+  std::cout <<"not_found = "<<not_found<<std::endl;
 }
 
 void concurr_delete(struct range *_range) {
+#ifdef FIXED
   size_t key;
+#else
+  char* key;
+  string_key *var_workload = reinterpret_cast<string_key *>(workload);
+#endif
+
   uint32_t not_found = 0;
   for (uint64_t i = _range->begin; i < _range->end; ++i) {
-    key = i;
-    //eh->Delete(key);
+#ifdef FIXED
+    key = workload[i];
+#else
+    key = reinterpret_cast<char *>(var_workload + i);
+#endif
     if (eh->Delete(key) == false) {
 	    not_found++;
-     // std::cout << "Delete the key " << i << ": ERROR!" << std::endl;
     } 
   }
-  //std::cout<<"not found = "<<not_found<<std::endl;
+  std::cout<<"not found = "<<not_found<<std::endl;
 }
 
 int main(int argc, char const *argv[]) {
@@ -86,19 +129,30 @@ int main(int argc, char const *argv[]) {
   std::cout << "The thread number is " << thread_num << std::endl;
 
   double duration;
-
 #ifndef LINEAR  
-  eh = reinterpret_cast<Finger_EH *>(Allocator::GetRoot(sizeof(Finger_EH)));
-  new (eh) Finger_EH(initCap);
+
+#ifdef FIXED
+  eh = reinterpret_cast<Finger_EH<Key_t> *>(Allocator::GetRoot(sizeof(Finger_EH<Key_t>)));
+  new (eh) Finger_EH<Key_t>(initCap);
 #else
-  eh = reinterpret_cast<Linear *>(Allocator::GetRoot(sizeof(Linear)));
-  new (eh) Linear();
+  eh = reinterpret_cast<Finger_EH<char *> *>(Allocator::GetRoot(sizeof(Finger_EH<char *>)));
+  new (eh) Finger_EH<char *>(initCap);
 #endif
-  
+
+#else
+
+#ifdef FIXED
+  eh = reinterpret_cast<Linear<Key_t> *>(Allocator::GetRoot(sizeof(Linear<Key_t>)));
+  new (eh) Linear<Key_t>();
+#else
+  eh = reinterpret_cast<Linear<char *> *>(Allocator::GetRoot(sizeof(Linear<char *>)));
+  new (eh) Linear<char *>();
+#endif
+
+#endif
   eh->pool_addr = Allocator::Get()->pm_pool_;
 
-  workload = new uint64_t *[thread_num];
-
+  /* Description of the workload*/
   int chunk_size = insert_num / thread_num;
   struct range rarray[thread_num];
   for (int i = 0; i < thread_num; ++i) {
@@ -108,18 +162,25 @@ int main(int argc, char const *argv[]) {
   }
   rarray[thread_num - 1].end = insert_num + 1;
 
+  /* Generate Workload for fixed_length key or variable_length key*/
+  Allocator::ZAllocate((void **)&workload, kCacheLineSize, sizeof(uint64_t) * (insert_num + 100) * 4);
   int i;
   unsigned long long init[4] = {0x12345ULL, 0x23456ULL, 0x34567ULL, 0x45678ULL},
-                     length = 4;
+  length = 4;
   init_by_array64(init, length);
 
-  /* Genereate Workload*/
-  for (int i = 0; i < thread_num; ++i) {
-    auto num = rarray[i].end - rarray[i].begin;
-    workload[i] = new uint64_t[num];
-    for (int j = 0; j < num; ++j) {
-      workload[i][j] = genrand64_int64();
-    }
+  /* Generate Workload*/
+  char var_key[24];
+  for(int i = 0; i < insert_num*2 + 2; ++i){
+    uint64_t _key = genrand64_int64();
+#ifdef FIXED
+    workload[i] = _key;
+#else
+    snprintf(var_key, 24, "%lld", _key);
+    var_key[15] = '\0';
+    string_key *var_workload = reinterpret_cast<string_key *>(workload);
+    strcpy(reinterpret_cast<char *>(var_workload + i), var_key);
+#endif
   }
 
   /*-----------------------------------------------Concurrent Insertion
@@ -155,10 +216,9 @@ int main(int argc, char const *argv[]) {
   LOG("Concurrent insertion "
       "end------------------------------------------------------------------");
   //eh->getNumber();
-  // eh->CheckDepthCount();
   /*-----------------------------------------------Concurrent Get
    * Test-----------------------------------------------------------------------*/
- /*
+ 
   Allocator::ReInitialize_test_only(pool_name, pool_size);
   LOG("Concurrent positive get "
       "begin!------------------------------------------------------------");
@@ -213,20 +273,19 @@ int main(int argc, char const *argv[]) {
       insert_num / duration);
   LOG("Concurrent negative get "
       "end!---------------------------------------------------------------");
-  */
+  
   /*-----------------------------------------------Concurrent Delete
    * Test--------------------------------------------------------------------*/
   
-    LOG("Concurrent deletion begin-----------------------------------------------------------------");
+  LOG("Concurrent deletion begin-----------------------------------------------------------------");
   for (int i = 0; i < thread_num; ++i) {
     rarray[i].begin = i * chunk_size + 1;
     rarray[i].end = (i + 1) * chunk_size + 1;
   }
   rarray[thread_num - 1].end = insert_num + 1;
 
-
-  System::profile("Delete", [&](){
-    gettimeofday(&tv1, NULL);
+  //System::profile("Delete", [&](){
+  gettimeofday(&tv1, NULL);
   for (int i = 0; i < thread_num; ++i) {
     thread_array[i] = new std::thread(concurr_delete, &rarray[i]);
   }
@@ -236,7 +295,7 @@ int main(int argc, char const *argv[]) {
     delete thread_array[i];
   }
   gettimeofday(&tv2, NULL);
- });
+ //});
   duration = (double)(tv2.tv_usec - tv1.tv_usec) / 1000000 +
              (double)(tv2.tv_sec - tv1.tv_sec);
   printf(
@@ -247,6 +306,5 @@ int main(int argc, char const *argv[]) {
           (double)(tv2.tv_sec - tv1.tv_sec),
       insert_num / duration);
   LOG("Concurrent deletion end-------------------------------------------------------------------");
-          //eh->FindAnyway(1);
   return 0;
 }

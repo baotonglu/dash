@@ -57,7 +57,7 @@ struct _Pair {
   Value_t value;
 };
 
-constexpr size_t k_PairSize = sizeof(_Pair);  // a k-v _Pair with a bit
+constexpr size_t k_PairSize = 16;  // a k-v _Pair with a bit
 constexpr size_t kNumPairPerBucket = 14; /* it is determined by the usage of the fingerprint*/
 constexpr size_t kFingerBits = 8;
 constexpr size_t kMask = (1 << kFingerBits) - 1;
@@ -485,7 +485,7 @@ struct Bucket {
     return -1;
 }
 
-  int Insert_with_noflush(Key_t key, Value_t value, uint8_t meta_hash,
+  int Insert_with_noflush(T key, Value_t value, uint8_t meta_hash,
                           bool probe) {
     auto slot = find_empty_slot();
     /* this branch can be optimized out*/
@@ -505,7 +505,7 @@ struct Bucket {
     _[slot].value = value;
     _[slot].key = key;
 #ifdef PMEM
-    Allocator::Persist(&_[slot], sizeof(_Pair));
+    Allocator::Persist(&_[slot], sizeof(_Pair<T>));
 #endif
     mfence();
     set_hash(slot, meta_hash, probe);
@@ -733,7 +733,7 @@ struct Table {
   int Stash_insert(Bucket<T> *target, Bucket<T> *neighbor, T key, Value_t value,
                    uint8_t meta_hash, int stash_pos) {
     for (int i = 0; i < stashBucket; ++i) {
-      Bucket *curr_bucket = bucket + kNumBucket + ((stash_pos + i) & stashMask);
+      Bucket<T> *curr_bucket = bucket + kNumBucket + ((stash_pos + i) & stashMask);
       if (GET_COUNT(curr_bucket->bitmap) < kNumPairPerBucket) {
         // printf("insertion in the stash for key %lld\n", key);
         curr_bucket->Insert(key, value, meta_hash, false);
@@ -874,7 +874,8 @@ RETRY:
 }
 
 /*the insert needs to be perfectly balanced, not destory the power of balance*/
-void Table::Insert4split(T key, Value_t value, size_t key_hash,
+template<class T>
+void Table<T>::Insert4split(T key, Value_t value, size_t key_hash,
                          uint8_t meta_hash) {
   auto y = BUCKET_INDEX(key_hash);
   Bucket<T> *target = bucket + y;
@@ -976,7 +977,7 @@ Table<T> *Table<T>::Split(size_t _key_hash) {
     for (int j = 0; j < kNumPairPerBucket; ++j) {
       if (CHECK_BIT(mask, j)) {
         if constexpr (std::is_pointer_v<T>){
-          key_hash = h(curr_bucket->_[j].key, str_len(curr_bucket->_[j].key));
+          key_hash = h(curr_bucket->_[j].key, strlen(curr_bucket->_[j].key));
         }else{
           key_hash = h(&(curr_bucket->_[j].key), sizeof(Key_t));
         }
@@ -1002,7 +1003,7 @@ Table<T> *Table<T>::Split(size_t _key_hash) {
     for (int j = 0; j < kNumPairPerBucket; ++j) {
       if (CHECK_BIT(mask, j)) {
         if constexpr (std::is_pointer_v<T>){
-          key_hash = h(curr_bucket->_[j].key, str_len(curr_bucket->_[j].key));
+          key_hash = h(curr_bucket->_[j].key, strlen(curr_bucket->_[j].key));
         }else{
           key_hash = h(&(curr_bucket->_[j].key), sizeof(Key_t));
         }
@@ -1108,14 +1109,14 @@ class Finger_EH {
 
 template<class T>
 Finger_EH<T>::Finger_EH(size_t initCap) {
-  Directory::New(&dir, initCap, 0);
+  Directory<T>::New(&dir, initCap, 0);
   lock = 0;
 
-  Table::New(dir->_ + initCap - 1, dir->global_depth, nullptr);
+  Table<T>::New(dir->_ + initCap - 1, dir->global_depth, nullptr);
   dir->_[initCap - 1]->pattern = initCap - 1;
   /* Initilize the Directory*/
   for (int i = initCap - 2; i >= 0; --i) {
-    Table::New(dir->_ + i, dir->global_depth, dir->_[i + 1]);
+    Table<T>::New(dir->_ + i, dir->global_depth, dir->_[i + 1]);
     dir->_[i]->pattern = i;
   }
   dir->depth_count = initCap;
@@ -1196,7 +1197,7 @@ void Finger_EH<T>::Directory_Doubling(int x, Table<T> *new_b) {
   printf("Directory_Doubling towards %lld\n", global_depth + 1);
 
   Directory<T> *new_sa;
-  Directory::New(&new_sa, 2 * pow(2, global_depth), dir->version + 1);
+  Directory<T>::New(&new_sa, 2 * pow(2, global_depth), dir->version + 1);
   auto dd = new_sa->_;
 
   auto capacity = pow(2, global_depth);
@@ -1208,7 +1209,7 @@ void Finger_EH<T>::Directory_Doubling(int x, Table<T> *new_b) {
   //new_sa->depth_count = 2;
 
 #ifdef PMEM
-  Allocator::Persist(new_sa, sizeof(Directory));
+  Allocator::Persist(new_sa, sizeof(Directory<T>));
   Allocator::NTWrite64(reinterpret_cast<uint64_t *>(&dir),
                        reinterpret_cast<uint64_t>(new_sa));
 #else
@@ -1250,9 +1251,11 @@ template<class T>
 int Finger_EH<T>::Insert(T key, Value_t value) {
   uint64_t key_hash;
   if constexpr (std::is_pointer_v<T>){
-    key_hash = h(key, str_len(key));
+    key_hash = h(key, strlen(key));
+    //printf("Insert the variable length key = %s\n", key);
   }else{
     key_hash = h(&key, sizeof(key));
+    //printf("Insert the fixed length key = %lld\n", key);
   }
   auto meta_hash = ((uint8_t)(key_hash & kMask));  // the last 8 bits
 RETRY:
@@ -1337,9 +1340,11 @@ template<class T>
 Value_t Finger_EH<T>::Get(T key) {
   uint64_t key_hash;
   if constexpr (std::is_pointer_v<T>){
-    key_hash = h(key, str_len(key));
+    key_hash = h(key, strlen(key));
+    //printf("Get The variable length key = %s, the length is %d\n", key, strlen(key));
   }else{
     key_hash = h(&key, sizeof(key));
+    //printf("Get The fixed length key = %lld\n", key);
   }
   auto meta_hash = ((uint8_t)(key_hash & kMask));  // the last 8 bits
 RETRY:
@@ -1458,11 +1463,11 @@ RETRY:
 
 /*the delete operation of the */
 template<class T>
-bool Finger_EH::Delete(T key) {
+bool Finger_EH<T>::Delete(T key) {
   /*Basic delete operation and merge operation*/
   uint64_t key_hash;
   if constexpr (std::is_pointer_v<T>){
-    key_hash = h(key, str_len(key));
+    key_hash = h(key, strlen(key));
   }else{
     key_hash = h(&key, sizeof(key));
   }
@@ -1553,7 +1558,7 @@ RETRY:
       Bucket<T> *stash = target_table->bucket + kNumBucket;
       stash->get_lock();
       for (int i = 0; i < stashBucket; ++i) {
-        Bucket* curr_stash =
+        Bucket<T>* curr_stash =
             target_table->bucket + kNumBucket + ((i + (y & stashMask)) & stashMask);
         auto ret = curr_stash->Delete(key, meta_hash, false);
         if (ret == 0) {
@@ -1572,6 +1577,7 @@ RETRY:
   }
   neighbor->release_lock();
   target->release_lock();
+  //printf("Not found key %s\n", key);
   return false;
 }
 
