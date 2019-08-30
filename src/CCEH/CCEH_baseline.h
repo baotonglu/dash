@@ -487,7 +487,9 @@ Segment<T>* Segment<T>::Split(PMEMobjpool *pool_addr){
     {
         split->Insert4split
         (_[i].key, _[i].value, (key_hash & kMask)*kNumPairPerCacheLine);
-        _[i].key = (T)INVALID;
+        if constexpr (std::is_pointer_v<T>){
+          _[i].key = (T)INVALID;
+        }
         split->count++;
         count--;
     }

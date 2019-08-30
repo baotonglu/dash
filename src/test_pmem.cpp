@@ -7,8 +7,8 @@
 #include "libpmemobj.h"
 #include "utils.h"
 
-//#define LINEAR 1
-#define FIXED 1
+#define LINEAR 1
+//#define FIXED 1
 
 #ifndef LINEAR
 #include "ex_finger.h"

@@ -2,7 +2,7 @@
 # For 100% read operation based 100 millions records inserted into the dataset
 
 thread_num=(0 1 2 4 8 16 24)
-workload=(0 20000000)
+workload=(0 170000000)
 base=(0 1000000)
 
 #delete the corresponding file
