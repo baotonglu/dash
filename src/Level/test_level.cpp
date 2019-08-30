@@ -66,7 +66,7 @@ void concurr_delete(struct range *_range){
 			not_found++;
 		}
 	}
-//printf("not found = %d", not_found);
+	printf("not found = %d", not_found);
 }
 
 int main(int argc, char const *argv[])
@@ -79,7 +79,8 @@ int main(int argc, char const *argv[])
 	std::cout<<"The levels is "<<initCap<<std::endl;
 	std::cout<<"The inserted number is "<<insert_num<<std::endl;
 	std::cout<<"The thread number is "<<thread_num<<std::endl;
-	const char *file = "/mnt/pmem0/pmem_level.data";
+	//const char *file = "/mnt/pmem0/pmem_level.data";
+	const char *file = "pmem_level.data";
 	PMEMoid root;
 	struct my_root *rr;
 
@@ -129,7 +130,6 @@ int chunk_size = insert_num/thread_num;
 	}
 	rarray[thread_num-1].end = insert_num + 1;
 
-	//eh->Get_Number();
 //-----------------------------------------------Concurrent Insertion Test-----------------------------------------------------------------------
 	std::thread *thread_array[thread_num];
 	

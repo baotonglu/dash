@@ -15,7 +15,7 @@
 #include "util/persist.h"
 #include <sys/stat.h>
 #include <inttypes.h> 
-#define ASSOC_NUM 3
+#define ASSOC_NUM 7
 #define NODE_TYPE 1000
 #define LEVEL_TYPE 2000
 #define LOCK_TYPE 3000
@@ -35,7 +35,7 @@ struct Entry {
 struct Node {
   uint8_t token[ASSOC_NUM];
   Entry slot[ASSOC_NUM];
-  char dummy[5];
+  char dummy[1];
   void* operator new[] (size_t size) {
     void* ret;
     posix_memalign(&ret, 64, size);
@@ -258,26 +258,22 @@ UNIQUE:
   s_idx = S_IDX(s_hash, addr_capacity);
 #endif
 
-  //printf("Inserting key %lld\n", key);
   int i, j;
   for(i = 0; i < 2; i ++){
-    for(j = 0; j < ASSOC_NUM; j ++){
+    while(pmemobj_rwlock_trywrlock(pop, &mutex[f_idx/locksize]) != 0){
+      if (resizing == true)
       {
-        //while(!mutex[f_idx/locksize].try_lock()){
-        while(pmemobj_rwlock_trywrlock(pop, &mutex[f_idx/locksize]) != 0){
-          if (resizing == true)
-          {
-            goto RETRY;
-          }
-        }
+        goto RETRY;
+      }
+    }
 
-        if (resizing == true)
-        {
-          //mutex[f_idx/locksize].unlock();
-          pmemobj_rwlock_unlock(pop, &mutex[f_idx/locksize]);
-          goto RETRY;
-        }
+    if (resizing == true)
+    {
+      pmemobj_rwlock_unlock(pop, &mutex[f_idx/locksize]);
+      goto RETRY;
+    }
 
+    for(j = 0; j < ASSOC_NUM; j ++){
         if(buckets[i][f_idx].token[j] == 0){
           buckets[i][f_idx].slot[j].value = value;
           mfence();
@@ -290,23 +286,23 @@ UNIQUE:
           pmemobj_rwlock_unlock(pop, &mutex[f_idx/locksize]);
           return;
         }
-        pmemobj_rwlock_unlock(pop, &mutex[f_idx/locksize]);
-      }
+    }
+    pmemobj_rwlock_unlock(pop, &mutex[f_idx/locksize]);
+
+    while(pmemobj_rwlock_trywrlock(pop, &mutex[s_idx/locksize]) != 0){
+      if (resizing == true)
       {
+        goto RETRY;
+      }
+    }
 
-        while(pmemobj_rwlock_trywrlock(pop, &mutex[s_idx/locksize]) != 0){
-          if (resizing == true)
-          {
-            goto RETRY;
-          }
-        }
+    if (resizing == true)
+    {
+      pmemobj_rwlock_unlock(pop, &mutex[s_idx/locksize]);
+      goto RETRY;
+    }
 
-        if (resizing == true)
-        {
-          pmemobj_rwlock_unlock(pop, &mutex[s_idx/locksize]);
-          goto RETRY;
-        }
-
+    for(j = 0; j < ASSOC_NUM; j ++){
         if(buckets[i][s_idx].token[j] == 0){
           buckets[i][s_idx].slot[j].value = value;
           mfence();
@@ -317,15 +313,15 @@ UNIQUE:
           pmemobj_rwlock_unlock(pop, &mutex[s_idx/locksize]);
           return;
         }
-        pmemobj_rwlock_unlock(pop, &mutex[s_idx/locksize]);
-      }
     }
+    pmemobj_rwlock_unlock(pop, &mutex[s_idx/locksize]);
+
     f_idx = F_IDX(f_hash, addr_capacity / 2);
     s_idx = S_IDX(s_hash, addr_capacity / 2);
   }
+
   f_idx = F_IDX(f_hash, addr_capacity);
   s_idx = S_IDX(s_hash, addr_capacity);
-
   int empty_loc;
   int64_t lock = 0;
   //if (CAS(&resizing_lock, &lock, 1)) {
