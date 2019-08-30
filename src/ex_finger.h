@@ -1483,7 +1483,10 @@ RETRY:
   Bucket<T> *target = target_table->bucket + y;
   Bucket<T> *neighbor = target_table->bucket + ((y + 1) & bucketMask);
   target->get_lock();
-  neighbor->get_lock();
+  if(!neighbor->try_get_lock()){
+    target->release_lock();
+    goto RETRY;
+  }
   /*aslo needs to lock next bucket since we return merge if these two bucket are
    * both empty*/
 
@@ -1558,8 +1561,9 @@ RETRY:
       Bucket<T> *stash = target_table->bucket + kNumBucket;
       stash->get_lock();
       for (int i = 0; i < stashBucket; ++i) {
+        int index = ((i + (y & stashMask)) & stashMask);
         Bucket<T>* curr_stash =
-            target_table->bucket + kNumBucket + ((i + (y & stashMask)) & stashMask);
+            target_table->bucket + kNumBucket + index;
         auto ret = curr_stash->Delete(key, meta_hash, false);
         if (ret == 0) {
           /*need to unset indicator in original bucket*/
@@ -1567,6 +1571,10 @@ RETRY:
 #ifdef PMEM
           Allocator::Persist(&curr_stash->bitmap, sizeof(curr_stash->bitmap));
 #endif
+          auto bucket_ix = BUCKET_INDEX(key_hash);
+          auto org_bucket = target_table->bucket + bucket_ix;
+          assert(org_bucket == target);
+          target->unset_indicator(meta_hash, neighbor, key, index);
           neighbor->release_lock();
           target->release_lock();
           return true;

@@ -276,9 +276,6 @@ struct overflowBucket{
 #endif
 		mfence();
 		set_hash(slot, meta_hash);
-#ifdef PMEM
-        Allocator::Persist(&bitmap, sizeof(bitmap));
-#endif
 		return 0;
 	}
 
@@ -293,56 +290,38 @@ struct overflowBucket{
   			{
   				if (CHECK_BIT(mask, i) && (_[i].key ==  key))
   				{
-  					unset_hash(i);
-#ifdef PMEM
-          Allocator::Persist(&bitmap, sizeof(bitmap));
-#endif  					
+  					unset_hash(i);			
                     return 0;
   				}
 
   				if (CHECK_BIT(mask, i+1) && (_[i+1].key ==  key))
   				{
-  					unset_hash(i+1);
-#ifdef PMEM
-          Allocator::Persist(&bitmap, sizeof(bitmap));
-#endif  					
+  					unset_hash(i+1);				
                     return 0;
   				}
 
   				if (CHECK_BIT(mask, i+2) && (_[i+2].key ==  key))
   				{
-  					unset_hash(i+2);
-#ifdef PMEM
-          Allocator::Persist(&bitmap, sizeof(bitmap));
-#endif  					
+  					unset_hash(i+2);					
                     return 0;
   				}
 
   				if (CHECK_BIT(mask, i+3) && (_[i+3].key ==  key))
   				{
-  					unset_hash(i+3);
-#ifdef PMEM
-          Allocator::Persist(&bitmap, sizeof(bitmap));
-#endif  					
+  					unset_hash(i+3);			
                     return 0;
   				}
   			}
 
   			if(CHECK_BIT(mask, 12) && (_[12].key ==  key))
 			{
-				unset_hash(12);
-#ifdef PMEM
-          Allocator::Persist(&bitmap, sizeof(bitmap));
-#endif				
+				unset_hash(12);		
                 return 0;
 			}
 
 			if(CHECK_BIT(mask, 13) && (_[13].key ==  key))
 			{
-				unset_hash(13);
-#ifdef PMEM
-          Allocator::Persist(&bitmap, sizeof(bitmap));
-#endif				
+				unset_hash(13);	
                 return 0;
 			}
   		}
@@ -351,7 +330,6 @@ struct overflowBucket{
 
 	int Insert_with_noflush(Key_t key, Value_t value, uint8_t meta_hash){
 		auto slot = find_empty_slot();
-
 		/* this branch can be optimized out*/
 		assert(slot < kNumPairPerBucket);
 		if (slot == -1)
@@ -547,7 +525,6 @@ struct Bucket {
 				}
 			}
 		}
-
 		return 0;
 	}
 
@@ -696,9 +673,6 @@ struct Bucket {
 #endif
         mfence();
         set_hash(slot, meta_hash, probe);
-#ifdef PMEM
-        Allocator::Persist(&bitmap, sizeof(bitmap));
-#endif
 		return 0;
 	}
 
@@ -722,36 +696,24 @@ struct Bucket {
   				{
   					unset_hash(i);
   					//clflush((char*)&bitmap, sizeof(bitmap));
-#ifdef PMEM
-                    Allocator::Persist(&bitmap, sizeof(bitmap));
-#endif
   					return 0;
   				}
 
   				if (CHECK_BIT(mask, i+1) && (_[i+1].key ==  key))
   				{
   					unset_hash(i+1);
-#ifdef PMEM
-                    Allocator::Persist(&bitmap, sizeof(bitmap));
-#endif
   					return 0;
   				}
 
   				if (CHECK_BIT(mask, i+2) && (_[i+2].key ==  key))
   				{
   					unset_hash(i+2);
-#ifdef PMEM
-                    Allocator::Persist(&bitmap, sizeof(bitmap));
-#endif
   					return 0;
   				}
 
   				if (CHECK_BIT(mask, i+3) && (_[i+3].key ==  key))
   				{
   					unset_hash(i+3);
-#ifdef PMEM
-                    Allocator::Persist(&bitmap, sizeof(bitmap));
-#endif
   					return 0;
   				}
   			}
@@ -759,18 +721,12 @@ struct Bucket {
   			if(CHECK_BIT(mask, 12) && (_[12].key ==  key))
 			{
 				unset_hash(12);
-#ifdef PMEM
-                Allocator::Persist(&bitmap, sizeof(bitmap));
-#endif
 				return 0;
 			}
 
 			if(CHECK_BIT(mask, 13) && (_[13].key ==  key))
 			{
 				unset_hash(13);
-#ifdef PMEM
-                Allocator::Persist(&bitmap, sizeof(bitmap));
-#endif
 				return 0;
 			}
   		}
@@ -801,9 +757,6 @@ struct Bucket {
 #endif
         mfence();
         set_hash(slot, meta_hash, probe);
-#ifdef PMEM
-        Allocator::Persist(&bitmap, sizeof(bitmap));
-#endif
 	}
 
 	void Insert_displace_with_noflush(Key_t key, Value_t value, uint8_t meta_hash, int slot, bool probe){
@@ -944,8 +897,16 @@ struct Table {
 	{
 		//printf("do the displacement in next bucket, the displaced key is %lld, the new key is %lld\n", neighbor->_[displace_index].key, key);
 		next_neighbor->Insert(neighbor->_[displace_index].key, neighbor->_[displace_index].value, neighbor->finger_array[displace_index], true);
+		next_neighbor->release_lock();
+#ifdef
+		Allocator::Persist(&next_neighbor->bitmap, sizeof(next_neighbor->bitmap));
+#endif
 		neighbor->unset_hash(displace_index);
 		neighbor->Insert_displace(key, value, meta_hash, displace_index, true);
+		neighbor->release_lock();
+#ifdef PMEM
+		Allocator::Persist(&neighbor->bitmap, sizeof(neighbor->bitmap));
+#endif
 	#ifdef COUNTING
 			__sync_fetch_and_add(&number, 1);
 	#endif
@@ -960,8 +921,16 @@ struct Table {
 	{
 	    //printf("do the displacement in previous bucket,the displaced key is %lld, the new key is %lld\n", target->_[displace_index].key, key);
 		prev_neighbor->Insert(target->_[displace_index].key, target->_[displace_index].value, target->finger_array[displace_index], false);
+		prev_neighbor->release_lock();
+#ifdef PMEM
+		Allocator::Persist(&prev_neighbor->bitmap, sizeof(prev_neighbor->bitmap));
+#endif
 		target->unset_hash(displace_index);
 		target->Insert_displace(key, value, meta_hash, displace_index, false);
+		target->release_lock();
+#ifdef PMEM
+		Allocator::Persist(&target->bitmap, sizeof(target->bitmap));
+#endif
 	#ifdef COUNTING
 			__sync_fetch_and_add(&number, 1);
 	#endif
@@ -979,6 +948,9 @@ struct Table {
 		if (GET_COUNT(curr_bucket->bitmap) < kNumPairPerBucket)
 		{
 			curr_bucket->Insert(key, value, meta_hash);
+#ifdef PMEM
+		    Allocator::Persist(&curr_bucket->bitmap, sizeof(curr_bucket->bitmap));
+#endif
 			target->set_indicator(meta_hash, neighbor, (stash_pos + i) & stashMask);
 	#ifdef COUNTING
 				__sync_fetch_and_add(&number, 1);
@@ -994,6 +966,9 @@ struct Table {
 		if (GET_COUNT(next_bucket->bitmap) < kNumPairPerBucket)
 		{
 			next_bucket->Insert(key, value, meta_hash);
+#ifdef PMEM
+			Allocator::Persist(&next_bucket->bitmap, sizeof(next_bucket->bitmap));
+#endif
 			target->set_indicator(meta_hash, neighbor, 3);
 	#ifdef COUNTING
 				__sync_fetch_and_add(&number, 1);
@@ -1012,6 +987,9 @@ struct Table {
     Allocator::Persist(&prev_bucket->next, sizeof(prev_bucket->next));
 #endif
 	prev_bucket->next->Insert(key, value, meta_hash);
+#ifdef PMEM
+	Allocator::Persist(&prev_bucket->next->bitmap, sizeof(prev_bucket->next->bitmap));
+#endif
 	target->set_indicator(meta_hash, neighbor, 3);
 	#ifdef COUNTING
 		__sync_fetch_and_add(&number, 1);
@@ -1066,6 +1044,9 @@ int Table::Insert2Org(Key_t key, Value_t value, size_t key_hash, size_t pos){
 			if (GET_COUNT(curr_bucket->bitmap) < kNumPairPerBucket)
 			{
 				curr_bucket->Insert(key, value, meta_hash);
+#ifdef PMEM
+				Allocator::Persist(&curr_bucket->bitmap, sizeof(curr_bucket->bitmap));
+#endif
 				target_bucket->set_indicator(meta_hash, neighbor_bucket, ((i + (pos & stashMask)) & stashMask));
 				return 0;
 			}
@@ -1076,8 +1057,14 @@ int Table::Insert2Org(Key_t key, Value_t value, size_t key_hash, size_t pos){
 	if (target_num <= neighbor_num)
 	{
 		target_bucket->Insert(key, value, meta_hash, false);
+#ifdef PMEM
+		Allocator::Persist(&target_bucket->bitmap, sizeof(target_bucket->bitmap));
+#endif
 	}else{
 		neighbor_bucket->Insert(key, value, meta_hash, true);
+#ifdef PMEM
+		Allocator::Persist(&neighbor_bucket->bitmap, sizeof(neighbor_bucket->bitma));
+#endif
 	}
 
 	return 0;
@@ -1150,11 +1137,6 @@ void Table::Split(Table *org_table, Table *expand_table, uint64_t base_level, in
 					//printf("In stash %d, for slot %d, the cleared key is %lld, the meta_hash is %d\n", i,j,curr_bucket->_[j].key, META_HASH(key_hash));
 					org_bucket->unset_indicator(curr_bucket->finger_array[j], neighbor_bucket, curr_bucket->_[j].key, i);
 					curr_bucket->unset_hash(j);
-					/*
-					if (org_idx == 100)
-					{
-						PrintTableImage(org_table, base_level);
-					}*/
 	#ifdef COUNTING
 					org_table->number--;
 	#endif				
@@ -1345,8 +1327,6 @@ int Table::Insert(Key_t key, Value_t value, size_t key_hash, Directory *_dir, ui
 			auto ret = Next_displace(neighbor, next_neighbor, key, value, meta_hash);
 			if (ret == 0)
 			{
-				next_neighbor->release_lock();
-				neighbor->release_lock();
 				target->release_lock();
 				return 0;
 			}		
@@ -1373,8 +1353,6 @@ int Table::Insert(Key_t key, Value_t value, size_t key_hash, Directory *_dir, ui
 			if (ret == 0)
 			{
 				neighbor->release_lock();
-				target->release_lock();
-				prev_neighbor->release_lock();
 				return 0;
 			}
 
@@ -1391,15 +1369,23 @@ int Table::Insert(Key_t key, Value_t value, size_t key_hash, Directory *_dir, ui
 		if (target_num <= neighbor_num)
 		{
 			target->Insert(key, value, meta_hash, false);
+			target->release_lock();
+#ifdef PMEM
+			Allocator::Persist(&target->bitmap, sizeof(target->bitmap));
+#endif
+			neighbor->release_lock();
 		}else{
 			neighbor->Insert(key, value, meta_hash, true);
+			neighbor->release_lock();
+#ifdef PMEM
+			Allocator::Persist(&neighbor->bitmap, sizeof(neighbor->bitmap));
+#endif
+			target->release_lock();
 		}
 
 		#ifdef COUNTING
 		__sync_fetch_and_add(&number, 1);
 		#endif
-		neighbor->release_lock();
-		target->release_lock();
 		return 0;
 	}
 }
@@ -1750,11 +1736,12 @@ RETRY:
 	Table* target = dir[partiton_idx]._[dir_idx] + offset;
   
 	uint32_t old_version;
+	uint32_t old_neighbor_version;
 	Bucket *target_bucket = target->bucket + y;
 	Bucket *neighbor_bucket = target->bucket + ((y+1) & bucketMask);
 	//printf("Get key %lld, x = %d, y = %d, meta_hash = %d\n", key, x, BUCKET_INDEX(key_hash), meta_hash);
 
-	if (target_bucket->test_lock_set(old_version))
+	if (target_bucket->test_lock_set(old_version) || neighbor_bucket->test_lock_set(old_neighbor_version))
 	{
 		goto RETRY;
 	}
@@ -1895,7 +1882,6 @@ RETRY:
    auto meta_hash = META_HASH(key_hash);   
    auto y = BUCKET_INDEX(key_hash);
 RETRY:
-
 	uint64_t old_N_next = dir[partiton_idx].N_next;
 	uint32_t N = old_N_next >> 32;
 	uint32_t next = (uint32_t)old_N_next;
@@ -1917,9 +1903,15 @@ RETRY:
 	//printf("Get key %lld, x = %d, y = %d, meta_hash = %d\n", key, x, BUCKET_INDEX(key_hash), meta_hash);
 
 	target_bucket->get_lock();
+	if(!neighbor_bucket->get_lock()){
+		target_bucket->release_lock();
+		goto RETRY;
+	}
+
 	if (!target_bucket->test_initialize())
 	{
         target_bucket->release_lock();
+		neighbor_bucket->release_lock();
 		for (int i = 0; i < kNumBucket; ++i)
 		{
 			Bucket *curr_bucket = target->bucket + i;
@@ -1957,25 +1949,28 @@ RETRY:
 		if (((next <= x) && (new_next > x)) || (new_N != N))
 		{
             target_bucket->release_lock();
+			neighbor_bucket->release_lock();
 			goto RETRY;
 		}
 
 		auto ret = target_bucket->Delete(meta_hash, key, false);
         if(ret == 0){
-            target_bucket->release_lock();
+			target_bucket->release_lock();
+#ifdef PMEM
+			Allocator::Persist(&target_bucket->bitmap, sizeof(target_bucket->bitmap));		
+#endif
+			neighbor_bucket->release_lock();
             return true;
-        }
-
-        if(!neighbor_bucket->try_get_lock()){
-            target_bucket->release_lock();
-            goto RETRY;    
         }
     
 		/*no need for verification procedure, we use the version number of target_bucket to test whether the bucket has ben spliteted*/
 		ret = neighbor_bucket->Delete(meta_hash, key, true);
         if(ret == 0){
+			neighbor_bucket->release_lock();
+#ifdef PMEM
+			Allocator::Persist(&neighbor_bucket->btimap, sizeof(neighbor_bucket->bitmap));
+#endif
             target_bucket->release_lock();
-            neighbor_bucket->release_lock();
             return true;
         }
 
@@ -2018,12 +2013,18 @@ RETRY:
 			if (test_stash == true)
 			{
 				//overflow_access++;
+				overflowBucket *stash = target->stash;
+				stash->get_lock();
 				for (int i = 0; i < stashBucket; ++i)
 				{
 					overflowBucket *curr_bucket = target->stash + i;
 					auto ret = curr_bucket->Delete(meta_hash, key);
 					if (ret == 0)
 					{
+						stash->release_lock();
+#ifdef PMEM
+						Allocator::Persist(&curr_bucket->bitmap, sizeof(curr_bucket->bitmap));
+#endif
                         target_bucket->unset_indicator(meta_hash, neighbor_bucket, key, i);
                         target_bucket->release_lock();
                         neighbor_bucket->release_lock();
@@ -2037,6 +2038,10 @@ RETRY:
 					auto ret = next_bucket->Delete(meta_hash, key);
 					if (ret == 0)
 					{
+						stash->release_lock();
+#ifdef PMEM
+						Allocator::Persist(&next_bucket->bitmap, sizeof(next_bucket->bitmap));
+#endif
                         target_bucket->unset_indicator(meta_hash, neighbor_bucket, key, 3);
 						target_bucket->release_lock();
                         neighbor_bucket->release_lock();
@@ -2045,6 +2050,7 @@ RETRY:
 					prev_bucket = next_bucket;
 					next_bucket = next_bucket->next;
 				}
+				stash->release_lock();
 			}
 		}
 	}
