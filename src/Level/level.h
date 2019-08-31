@@ -276,11 +276,12 @@ UNIQUE:
     for(j = 0; j < ASSOC_NUM; j ++){
         if(buckets[i][f_idx].token[j] == 0){
           buckets[i][f_idx].slot[j].value = value;
-          mfence();
           buckets[i][f_idx].slot[j].key = key;
+          pmemobj_persist(pop, &buckets[i][f_idx].slot[j], sizeof(Entry));
+          mfence();
           buckets[i][f_idx].token[j] = 1;
           //clflush((char*)&buckets[i][f_idx], sizeof(Node));
-          pmemobj_persist(pop, &buckets[i][f_idx], sizeof(Node));
+          pmemobj_persist(pop, &buckets[i][f_idx].token[j], sizeof(uint8_t));
           //level_item_num[i]++;
           //mutex[f_idx/locksize].unlock();
           pmemobj_rwlock_unlock(pop, &mutex[f_idx/locksize]);
@@ -305,10 +306,11 @@ UNIQUE:
     for(j = 0; j < ASSOC_NUM; j ++){
         if(buckets[i][s_idx].token[j] == 0){
           buckets[i][s_idx].slot[j].value = value;
-          mfence();
           buckets[i][s_idx].slot[j].key = key;
+          pmemobj_persist(pop, &buckets[i][s_idx].slot[j], sizeof(Entry));
+          mfence();
           buckets[i][s_idx].token[j] = 1;
-          clflush((char*)&buckets[i][s_idx], sizeof(Node));            
+          pmemobj_persist(pop, &buckets[i][s_idx].token[j], sizeof(uint8_t));
           //level_item_num[i]++;
           pmemobj_rwlock_unlock(pop, &mutex[s_idx/locksize]);
           return;
@@ -358,13 +360,12 @@ UNIQUE:
 #endif
         if(empty_loc != -1){
           buckets[1][f_idx].slot[empty_loc].value = value;
-          mfence();
           buckets[1][f_idx].slot[empty_loc].key = key;
+          pmemobj_persist(pop, &buckets[1][f_idx].slot[empty_loc], sizeof(Entry));
+          mfence();
           buckets[1][f_idx].token[empty_loc] = 1;
-          //clflush((char*)&buckets[1][f_idx], sizeof(Node));
-          pmemobj_persist(pop, &buckets[1][f_idx], sizeof(Node));
+          pmemobj_persist(pop, &buckets[1][f_idx].token[empty_loc], sizeof(uint8_t));
           //level_item_num[1]++;
-          //resizing_lock = 0;
           resizing_lock.store(0);
           //mutex[f_idx/locksize].unlock();
           pmemobj_rwlock_unlock(pop, &mutex[f_idx/locksize]);
@@ -386,12 +387,13 @@ UNIQUE:
 #endif
         if(empty_loc != -1){
           buckets[1][s_idx].slot[empty_loc].value = value;
-          mfence();
           buckets[1][s_idx].slot[empty_loc].key = key;
-    buckets[1][s_idx].token[empty_loc] = 1;
-    //clflush((char*)&buckets[1][s_idx], sizeof(Node));
-    pmemobj_persist(pop, &buckets[1][s_idx], sizeof(Node));
-    //level_item_num[1]++;
+          pmemobj_persist(pop, &buckets[1][s_idx].slot[empty_loc], sizeof(Entry));
+          mfence();
+          buckets[1][s_idx].token[empty_loc] = 1;
+          //clflush((char*)&buckets[1][s_idx], sizeof(Node));
+          pmemobj_persist(pop, &buckets[1][s_idx].token[empty_loc], sizeof(uint8_t));
+          //level_item_num[1]++;
           //resizing_lock = 0;
           resizing_lock.store(0);
           //mutex[s_idx/locksize].unlock();
@@ -470,14 +472,15 @@ void LevelHashing::resize(PMEMobjpool *pop) {
           if (interim_level_buckets[f_idx].token[j] == 0)
           {
             interim_level_buckets[f_idx].slot[j].value = value;
+            interim_level_buckets[f_idx].slot[j].key = key;
 #ifndef BATCH
+            pmemobj_persist(pop, &interim_level_buckets[f_idx].slot[j], sizeof(Entry));
             mfence();
 #endif
-            interim_level_buckets[f_idx].slot[j].key = key;
       interim_level_buckets[f_idx].token[j] = 1;
 #ifndef BATCH
       //clflush((char*)&interim_level_buckets[f_idx], sizeof(Node));
-      pmemobj_persist(pop, &interim_level_buckets[f_idx], sizeof(Node));
+      pmemobj_persist(pop, &interim_level_buckets[f_idx].token[j], sizeof(uint8_t));
 #endif
             insertSuccess = 1;
       //new_level_item_num++;
@@ -486,14 +489,15 @@ void LevelHashing::resize(PMEMobjpool *pop) {
           else if (interim_level_buckets[s_idx].token[j] == 0)
           {
             interim_level_buckets[s_idx].slot[j].value = value;
+            interim_level_buckets[s_idx].slot[j].key = key;
 #ifndef BATCH
+            pmemobj_persist(pop, &interim_level_buckets[s_idx].slot[j], sizeof(Entry));
             mfence();
 #endif
-            interim_level_buckets[s_idx].slot[j].key = key;
       interim_level_buckets[s_idx].token[j] = 1;
 #ifndef BATCH
       //clflush((char*)&interim_level_buckets[s_idx], sizeof(Node));
-      pmemobj_persist(pop, &interim_level_buckets[s_idx], sizeof(Node));
+      pmemobj_persist(pop, &interim_level_buckets[s_idx].token[j], sizeof(uint8_t));
 #endif
             insertSuccess = 1;
       //new_level_item_num++;
@@ -595,21 +599,21 @@ cuck_timer.Start();
       for(j=0; j<ASSOC_NUM; j++){
         if(buckets[level_num][jdx].token[j] == 0){
           buckets[level_num][jdx].slot[j].value = m_value;
-          mfence();
           buckets[level_num][jdx].slot[j].key = m_key;
+          pmemobj_persist(pop, &buckets[level_num][jdx].slot[j], sizeof(Entry));
+          mfence();
           buckets[level_num][jdx].token[j] = 1;
-          //clflush((char*)&buckets[level_num][jdx], sizeof(Node));
-          pmemobj_persist(pop, &buckets[level_num][jdx], sizeof(Node));
+          pmemobj_persist(pop, &buckets[level_num][jdx].token[j], sizeof(uint8_t));
           buckets[level_num][idx].token[i] = 0;
           //clflush((char*)&buckets[level_num][idx].token[i], sizeof(uint8_t));
           pmemobj_persist(pop, &buckets[level_num][idx].token[i], sizeof(uint8_t));
 
           buckets[level_num][idx].slot[i].value = value;
-          mfence();
           buckets[level_num][idx].slot[i].key = key;
+          pmemobj_persist(pop, &buckets[level_num][idx].slot[i], sizeof(Entry));
+          mfence();
           buckets[level_num][idx].token[i] = 1;
-          //clflush((char*)&buckets[level_num][idx], sizeof(Node));
-          pmemobj_persist(pop, &buckets[level_num][idx], sizeof(Node));
+          pmemobj_persist(pop, &buckets[level_num][idx].token[i], sizeof(uint8_t));
           //level_item_num[level_num]++;
 
           if((jdx/locksize) != (idx/locksize)) {
@@ -664,18 +668,18 @@ int LevelHashing::b2t_movement(PMEMobjpool *pop, uint64_t idx){
 
       if(buckets[0][f_idx].token[j] == 0){
         buckets[0][f_idx].slot[j].value = value;
-        mfence();
         buckets[0][f_idx].slot[j].key = key;
+        pmemobj_persist(pop, &buckets[0][f_idx].slot[j], sizeof(Entry));
+        mfence();
         buckets[0][f_idx].token[j] = 1;
         //clflush((char*)&buckets[0][f_idx], sizeof(Node));
-        pmemobj_persist(pop, &buckets[0][f_idx], sizeof(Node));
+        pmemobj_persist(pop, &buckets[0][f_idx].token[j], sizeof(uint8_t));
         buckets[1][idx].token[i] = 0;
         //clflush((char*)&buckets[1][idx].token[i], sizeof(uint8_t));
         pmemobj_persist(pop, &buckets[1][idx].token[i], sizeof(uint8_t));
         //level_item_num[0]++;
         //level_item_num[1]--;
 
-        //if((idx/locksize) != (f_idx/locksize)) delete lock;
         if((idx/locksize) != (f_idx/locksize)) pmemobj_rwlock_unlock(pop, &mutex[f_idx/locksize]);
         return i;
       }
@@ -687,11 +691,12 @@ int LevelHashing::b2t_movement(PMEMobjpool *pop, uint64_t idx){
 
       if(buckets[0][s_idx].token[j] == 0){
         buckets[0][s_idx].slot[j].value = value;
-        mfence();
         buckets[0][s_idx].slot[j].key = key;
+        pmemobj_persist(pop, &buckets[0][s_idx].slot[j], sizeof(Entry));
+        mfence();
   buckets[0][s_idx].token[j] = 1;
   //clflush((char*)&buckets[0][s_idx], sizeof(Node));
-  pmemobj_persist(pop, &buckets[0][s_idx], sizeof(Node));
+  pmemobj_persist(pop, &buckets[0][s_idx].token[j], sizeof(uint8_t));
   buckets[1][idx].token[i] = 0;
   //clflush((char*)&buckets[0][s_idx].token[j], sizeof(uint8_t));
   pmemobj_persist(pop, &buckets[0][s_idx].token[j], sizeof(uint8_t));
@@ -723,7 +728,6 @@ RETRY:
 
   for(i = 0; i < 2; i ++){
     {
-      ///std::shared_lock<std::mutex> lock(mutex[f_idx/locksize]);
       //mutex[f_idx/locksize].lock_shared();
       while(pmemobj_rwlock_tryrdlock(pop, &mutex[f_idx/locksize]) != 0){
         if (resizing == true)
@@ -751,7 +755,6 @@ RETRY:
       pmemobj_rwlock_unlock(pop, &mutex[f_idx/locksize]);
     }
     {
-      //std::shared_lock<std::mutex> lock(mutex[s_idx/locksize]);
       //]mutex[s_idx/locksize].lock_shared();
       while(pmemobj_rwlock_tryrdlock(pop, &mutex[s_idx/locksize]) != 0){
         if (resizing == true)

@@ -52,7 +52,7 @@ void concurr_get(struct range *_range){
 			not_found++;
 		}
 	}
-	printf("not found = %d", not_found);
+	printf("not found = %d\n", not_found);
 }
 
 void concurr_delete(struct range *_range){
@@ -66,7 +66,7 @@ void concurr_delete(struct range *_range){
 			not_found++;
 		}
 	}
-	printf("not found = %d", not_found);
+	printf("not found = %d\n", not_found);
 }
 
 int main(int argc, char const *argv[])
