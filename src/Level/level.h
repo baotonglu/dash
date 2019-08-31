@@ -23,8 +23,9 @@
 #define BATCH 1
 #define UNIQUE_CHECK 1
 
+template<class T>
 struct Entry {
-  Key_t key;
+  T key;
   Value_t value;
   Entry() {
     key = INVALID;
@@ -32,9 +33,10 @@ struct Entry {
   }
 };
 
+template<class T>
 struct Node {
   uint8_t token[ASSOC_NUM];
-  Entry slot[ASSOC_NUM];
+  Entry<T> slot[ASSOC_NUM];
   char dummy[1];
   void* operator new[] (size_t size) {
     void* ret;
@@ -49,18 +51,18 @@ struct Node {
   }
 };
 
+template<class T>
 class LevelHashing{
   public:
     PMEMoid _buckets[2];
     PMEMoid _interim_level_buckets;
-    Node* buckets[2];
-    Node* interim_level_buckets; 
+    Node<T>* buckets[2];
+    Node<T>* interim_level_buckets; 
     //uint64_t level_item_num[2];
 
     uint64_t levels;
     uint64_t addr_capacity;
     uint64_t total_capacity;
-//    uint32_t occupied;
     uint64_t f_seed;
     uint64_t s_seed;
     uint32_t resize_num;
@@ -73,19 +75,19 @@ class LevelHashing{
     int locksize;
     bool resizing;
 
-    //void generate_seeds(void);
+    void generate_seeds(void);
     void resize(PMEMobjpool *pop);
     int b2t_movement(PMEMobjpool *pop, uint64_t );
-    uint8_t try_movement(PMEMobjpool *pop, uint64_t , uint64_t , Key_t& , Value_t);
-    uint64_t F_HASH(uint64_t key);
-    uint64_t S_HASH(uint64_t key);
+    uint8_t try_movement(PMEMobjpool *pop, uint64_t , uint64_t , T , Value_t);
+    uint64_t F_HASH(T key);
+    uint64_t S_HASH(T key);
   
     LevelHashing(void);
     LevelHashing(size_t);
     ~LevelHashing(void);
      void display_size(){
-      std::cout<<"The Node size is "<<sizeof(Node)<<std::endl;
-      std::cout<<"The Entry size is "<<sizeof(Entry)<<std::endl;
+      std::cout<<"The Node size is "<<sizeof(Node<T>)<<std::endl;
+      std::cout<<"The Entry size is "<<sizeof(Entry<T>)<<std::endl;
       
       if (buckets[0])
       {
@@ -98,10 +100,9 @@ class LevelHashing{
       }
     }
 
-    //bool InsertOnly(Key_t&, Value_t);
-    void Insert(PMEMobjpool*, Key_t&, Value_t);
-    bool Delete(PMEMobjpool*, Key_t&);
-    Value_t Get(PMEMobjpool*, Key_t&);
+    void Insert(PMEMobjpool*, T, Value_t);
+    bool Delete(PMEMobjpool*, T);
+    Value_t Get(PMEMobjpool*, T);
     double Utilization(void);
     size_t Capacity(void) {
       return (addr_capacity + addr_capacity/2)*ASSOC_NUM;
@@ -111,29 +112,42 @@ class LevelHashing{
 #define F_IDX(hash, capacity) (hash % (capacity/2))
 #define S_IDX(hash, capacity) ((hash % (capacity/2)) + (capacity/2))
 
-uint64_t LevelHashing::F_HASH(uint64_t key){
-  return h(&key, sizeof(Key_t), f_seed);
+template<class T>
+uint64_t LevelHashing<T>::F_HASH(T key){
+  if constexpr (std::is_pointer_v<T>){
+    return h(key, strlen(key), f_seed);
+  }else{
+    return h(&key, sizeof(Key_t), f_seed);
+  }
 }
 
-uint64_t LevelHashing::S_HASH(uint64_t key){
-  return h(&key, sizeof(Key_t), s_seed);
+template<class T>
+uint64_t LevelHashing<T>::S_HASH(T key){
+  if constexpr (std::is_pointer_v<T>){
+    return h(key, strlen(key), s_seed);
+  }else{
+    return h(&key, sizeof(Key_t), s_seed);
+  }
 }
 
-void generate_seeds(LevelHashing *level) {
+template<class T>
+void LevelHashing<T>::generate_seeds() {
   srand(time(NULL));
   do
   {
-    level->f_seed = rand();
-    level->s_seed = rand();
-    level->f_seed = level->f_seed << (rand() % 63);
-    level->s_seed = level->s_seed << (rand() % 63);
-  } while (level->f_seed == level->s_seed);
+    f_seed = rand();
+    s_seed = rand();
+    f_seed = f_seed << (rand() % 63);
+    s_seed = s_seed << (rand() % 63);
+  } while (f_seed == s_seed);
 }
 
-LevelHashing::LevelHashing(void){
+template<class T>
+LevelHashing<T>::LevelHashing(void){
 }
 
-LevelHashing::~LevelHashing(void){
+template<class T>
+LevelHashing<T>::~LevelHashing(void){
  
 }
 /*
@@ -164,7 +178,8 @@ void* cache_align(void* ptr){
   return (void *)pp;
 }
 
-void initialize_level(PMEMobjpool *pop, LevelHashing *level, void *arg){
+template<class T>
+void initialize_level(PMEMobjpool *pop, LevelHashing<T> *level, void *arg){
   TX_BEGIN(pop){
     pmemobj_tx_add_range_direct(level, sizeof(*level));
     /* modify*/
@@ -177,30 +192,32 @@ void initialize_level(PMEMobjpool *pop, LevelHashing *level, void *arg){
     level->locksize = 128;
     level->nlocks = (3*level->addr_capacity/2)/level->locksize+1;
 
-    generate_seeds(level);
+    level->generate_seeds();
     //level->level_item_num[0] = 0;
     //level->level_item_num[1] = 0;
     level->_interim_level_buckets = OID_NULL;
     level->interim_level_buckets = NULL;
     /*allocate*/
     level->_mutex = pmemobj_tx_zalloc(sizeof(PMEMrwlock)*level->nlocks, LOCK_TYPE);
-    level->_buckets[0] = pmemobj_tx_zalloc(sizeof(Node)*level->addr_capacity + 1, NODE_TYPE);
-    level->_buckets[1] = pmemobj_tx_zalloc(sizeof(Node)*level->addr_capacity/2 + 1, NODE_TYPE);
+    level->_buckets[0] = pmemobj_tx_zalloc(sizeof(Node<T>)*level->addr_capacity + 1, NODE_TYPE);
+    level->_buckets[1] = pmemobj_tx_zalloc(sizeof(Node<T>)*level->addr_capacity/2 + 1, NODE_TYPE);
     level->_old_mutex = OID_NULL;
     level->prev_nlocks = 0;
 
     /* Intialize pointer*/
-    level->buckets[0] = (Node*)cache_align(pmemobj_direct(level->_buckets[0]));
-    level->buckets[1] = (Node*)cache_align(pmemobj_direct(level->_buckets[1]));
+    level->buckets[0] = (Node<T> *)cache_align(pmemobj_direct(level->_buckets[0]));
+    level->buckets[1] = (Node<T> *)cache_align(pmemobj_direct(level->_buckets[1]));
   }TX_END
 }
 
-void remapping(LevelHashing *level){
-    level->buckets[0] = (Node*)cache_align(pmemobj_direct(level->_buckets[0]));
-    level->buckets[1] = (Node*)cache_align(pmemobj_direct(level->_buckets[1]));
+template<class T>
+void remapping(LevelHashing<T> *level){
+    level->buckets[0] = (Node<T> *)cache_align(pmemobj_direct(level->_buckets[0]));
+    level->buckets[1] = (Node<T> *)cache_align(pmemobj_direct(level->_buckets[1]));
 }
 
-void LevelHashing::Insert(PMEMobjpool *pop, Key_t& key, Value_t value) {
+template<class T>
+void LevelHashing<T>::Insert(PMEMobjpool *pop, T key, Value_t value) {
 RETRY:
 //std::cout<<"Inserting key "<<key<<std::endl;
   while (resizing_lock.load() == 1) {
@@ -230,10 +247,17 @@ RETRY:
   bool inserted = false;
   for(int i = 0; i < 2; ++i){
     for(int j = 0; j < ASSOC_NUM; ++j){
-      if ((buckets[i][f_idx].token[j] == 1) && (buckets[i][f_idx].slot[j].key == key)){
-        inserted = true;
-        goto UNIQUE;
-      }
+      if constexpr (std::is_pointer_v<T>){
+        if ((buckets[i][f_idx].token[j] == 1) && (strcmp(buckets[i][f_idx].slot[j].key, key) == 0)){
+          inserted = true;
+          goto UNIQUE;
+        }
+      }else{
+        if ((buckets[i][f_idx].token[j] == 1) && (buckets[i][f_idx].slot[j].key == key)){
+          inserted = true;
+          goto UNIQUE;
+        }
+      } 
     }
 
     for(int j = 0; j < ASSOC_NUM; ++j){
@@ -277,7 +301,7 @@ UNIQUE:
         if(buckets[i][f_idx].token[j] == 0){
           buckets[i][f_idx].slot[j].value = value;
           buckets[i][f_idx].slot[j].key = key;
-          pmemobj_persist(pop, &buckets[i][f_idx].slot[j], sizeof(Entry));
+          pmemobj_persist(pop, &buckets[i][f_idx].slot[j], sizeof(Entry<T>));
           mfence();
           buckets[i][f_idx].token[j] = 1;
           //clflush((char*)&buckets[i][f_idx], sizeof(Node));
@@ -307,7 +331,7 @@ UNIQUE:
         if(buckets[i][s_idx].token[j] == 0){
           buckets[i][s_idx].slot[j].value = value;
           buckets[i][s_idx].slot[j].key = key;
-          pmemobj_persist(pop, &buckets[i][s_idx].slot[j], sizeof(Entry));
+          pmemobj_persist(pop, &buckets[i][s_idx].slot[j], sizeof(Entry<T>));
           mfence();
           buckets[i][s_idx].token[j] = 1;
           pmemobj_persist(pop, &buckets[i][s_idx].token[j], sizeof(uint8_t));
@@ -329,7 +353,6 @@ UNIQUE:
   //if (CAS(&resizing_lock, &lock, 1)) {
   if (resizing_lock.compare_exchange_strong(lock, 1))
   {
-  
     for(i=0; i<2; i++){
       if(!try_movement(pop,f_idx, i, key, value)){
         //resizing_lock = 0;
@@ -361,7 +384,7 @@ UNIQUE:
         if(empty_loc != -1){
           buckets[1][f_idx].slot[empty_loc].value = value;
           buckets[1][f_idx].slot[empty_loc].key = key;
-          pmemobj_persist(pop, &buckets[1][f_idx].slot[empty_loc], sizeof(Entry));
+          pmemobj_persist(pop, &buckets[1][f_idx].slot[empty_loc], sizeof(Entry<T>));
           mfence();
           buckets[1][f_idx].token[empty_loc] = 1;
           pmemobj_persist(pop, &buckets[1][f_idx].token[empty_loc], sizeof(uint8_t));
@@ -377,18 +400,11 @@ UNIQUE:
         //std::unique_lock<std::mutex> lock(mutex[s_idx/locksize]);
         //mutex[s_idx/locksize].lock();
         pmemobj_rwlock_wrlock(pop, &mutex[s_idx/locksize]);
-#ifdef TIME
-  cuck_timer.Start();
-#endif
         empty_loc = b2t_movement(pop, s_idx);
-#ifdef TIME
-  cuck_timer.Stop();
-  displacement += cuck_timer.GetSeconds();
-#endif
         if(empty_loc != -1){
           buckets[1][s_idx].slot[empty_loc].value = value;
           buckets[1][s_idx].slot[empty_loc].key = key;
-          pmemobj_persist(pop, &buckets[1][s_idx].slot[empty_loc], sizeof(Entry));
+          pmemobj_persist(pop, &buckets[1][s_idx].slot[empty_loc], sizeof(Entry<T>));
           mfence();
           buckets[1][s_idx].token[empty_loc] = 1;
           //clflush((char*)&buckets[1][s_idx], sizeof(Node));
@@ -403,21 +419,14 @@ UNIQUE:
        pmemobj_rwlock_unlock(pop, &mutex[s_idx/locksize]);
       }
     }
-    //timer.Start();
     resize(pop);
-    //timer.Stop();
-    //breakdown += timer.GetSeconds();
-    //resizing_lock = 0;
     resizing_lock.store(0);
   }
   goto RETRY;
 }
-/*
-bool LevelHashing::InsertOnly(Key_t& key, Value_t value) {
-  return false;
-}*/
 
-void LevelHashing::resize(PMEMobjpool *pop) {
+template<class T>
+void LevelHashing<T>::resize(PMEMobjpool *pop) {
   std::cout<<"Resizing towards levels "<<levels+1<<std::endl;
 
   PMEMrwlock* mutex = (PMEMrwlock*)pmemobj_direct(_mutex);
@@ -443,8 +452,8 @@ void LevelHashing::resize(PMEMobjpool *pop) {
       prev_nlocks = nlocks;
       nlocks = (3*2*addr_capacity/2)/locksize+1;
       _mutex = pmemobj_tx_zalloc(nlocks*sizeof(PMEMrwlock), LOCK_TYPE);
-      _interim_level_buckets = pmemobj_tx_zalloc(new_addr_capacity*sizeof(Node)+1, NODE_TYPE);
-      interim_level_buckets = (Node*)cache_align(pmemobj_direct(_interim_level_buckets));
+      _interim_level_buckets = pmemobj_tx_zalloc(new_addr_capacity*sizeof(Node<T>)+1, NODE_TYPE);
+      interim_level_buckets = (Node<T> *)cache_align(pmemobj_direct(_interim_level_buckets));
   }TX_ONABORT{
     printf("resizing txn 1 fails\n");
   }TX_END
@@ -452,16 +461,13 @@ void LevelHashing::resize(PMEMobjpool *pop) {
   PMEMrwlock* old_mutex = mutex;
   mutex = (PMEMrwlock*)pmemobj_direct(_mutex); 
 
-  //clflush((char*)&interim_level_buckets, sizeof(Node));
-
-  //uint64_t new_level_item_num = 0;
   uint64_t old_idx;
   for (old_idx = 0; old_idx < pow(2, levels - 1); old_idx ++) {
     uint64_t i, j;
     for(i = 0; i < ASSOC_NUM; i ++){
       if (buckets[1][old_idx].token[i] == 1)
       {
-        Key_t key = buckets[1][old_idx].slot[i].key;
+        T key = buckets[1][old_idx].slot[i].key;
         Value_t value = buckets[1][old_idx].slot[i].value;
 
         uint32_t f_idx = F_IDX(F_HASH(key), new_addr_capacity);
@@ -515,8 +521,8 @@ void LevelHashing::resize(PMEMobjpool *pop) {
   }
 
 #ifdef BATCH
-  pmemobj_persist(pop, &buckets[1][0],sizeof(Node)*pow(2,levels-1));
-  pmemobj_persist(pop, &interim_level_buckets[0], sizeof(Node)*new_addr_capacity);
+  pmemobj_persist(pop, &buckets[1][0],sizeof(Node<T>)*pow(2,levels-1));
+  pmemobj_persist(pop, &interim_level_buckets[0], sizeof(Node<T>)*new_addr_capacity);
   //clflush((char*)&buckets[1][0],sizeof(Node)*pow(2,levels-1));
   //clflush((char*)&interim_level_buckets[0], sizeof(Node)*new_addr_capacity);
 #endif
@@ -529,8 +535,8 @@ void LevelHashing::resize(PMEMobjpool *pop) {
       pmemobj_tx_free(_buckets[1]);
       _buckets[1] = _buckets[0];
       _buckets[0] = _interim_level_buckets;
-      buckets[1] = (Node*)cache_align(pmemobj_direct(_buckets[1]));
-      buckets[0] = (Node*)cache_align(pmemobj_direct(_buckets[0]));
+      buckets[1] = (Node<T> *)cache_align(pmemobj_direct(_buckets[1]));
+      buckets[0] = (Node<T> *)cache_align(pmemobj_direct(_buckets[0]));
 
       _interim_level_buckets = OID_NULL;
       interim_level_buckets = NULL;
@@ -568,10 +574,8 @@ void LevelHashing::resize(PMEMobjpool *pop) {
   std::cout<<"Done! :Resizing towards levels "<<levels<<std::endl;
 }
 
-uint8_t LevelHashing::try_movement(PMEMobjpool *pop, uint64_t idx, uint64_t level_num, Key_t& key, Value_t value) {
-#ifdef TIME
-cuck_timer.Start();
-#endif
+template<class T>
+uint8_t LevelHashing<T>::try_movement(PMEMobjpool *pop, uint64_t idx, uint64_t level_num, T key, Value_t value) {
   uint64_t i, j, jdx;
   PMEMrwlock* mutex = (PMEMrwlock*)pmemobj_direct(_mutex);
   {
@@ -580,7 +584,7 @@ cuck_timer.Start();
     //mutex[idx/locksize].lock();
     pmemobj_rwlock_wrlock(pop, &mutex[idx/locksize]);
     for(i=0; i<ASSOC_NUM; i++){
-      Key_t m_key = buckets[level_num][idx].slot[i].key;
+      T m_key = buckets[level_num][idx].slot[i].key;
       Value_t m_value = buckets[level_num][idx].slot[i].value;
       uint64_t f_hash = F_HASH(m_key);
       uint64_t s_hash = S_HASH(m_key);
@@ -600,7 +604,7 @@ cuck_timer.Start();
         if(buckets[level_num][jdx].token[j] == 0){
           buckets[level_num][jdx].slot[j].value = m_value;
           buckets[level_num][jdx].slot[j].key = m_key;
-          pmemobj_persist(pop, &buckets[level_num][jdx].slot[j], sizeof(Entry));
+          pmemobj_persist(pop, &buckets[level_num][jdx].slot[j], sizeof(Entry<T>));
           mfence();
           buckets[level_num][jdx].token[j] = 1;
           pmemobj_persist(pop, &buckets[level_num][jdx].token[j], sizeof(uint8_t));
@@ -610,7 +614,7 @@ cuck_timer.Start();
 
           buckets[level_num][idx].slot[i].value = value;
           buckets[level_num][idx].slot[i].key = key;
-          pmemobj_persist(pop, &buckets[level_num][idx].slot[i], sizeof(Entry));
+          pmemobj_persist(pop, &buckets[level_num][idx].slot[i], sizeof(Entry<T>));
           mfence();
           buckets[level_num][idx].token[i] = 1;
           pmemobj_persist(pop, &buckets[level_num][idx].token[i], sizeof(uint8_t));
@@ -624,27 +628,19 @@ cuck_timer.Start();
           //delete lock[0];
           //mutex[idx/locksize].unlock();
           pmemobj_rwlock_unlock(pop, &mutex[idx/locksize]);
-#ifdef TIME
-    cuck_timer.Stop();
-    displacement += cuck_timer.GetSeconds();
-#endif
           return 0;
         }
       }
       if((jdx/locksize) != (idx/locksize)) pmemobj_rwlock_unlock(pop, &mutex[jdx/locksize]);
     }
-    //delete lock[0];
     pmemobj_rwlock_unlock(pop, &mutex[idx/locksize]);
   }
-#ifdef TIME
-  cuck_timer.Stop();
-  displacement += cuck_timer.GetSeconds();
-#endif
   return 1;
 }
 
-int LevelHashing::b2t_movement(PMEMobjpool *pop, uint64_t idx){
-  Key_t key;
+template<class T>
+int LevelHashing<T>::b2t_movement(PMEMobjpool *pop, uint64_t idx){
+  T key;
   Value_t value;
   uint64_t s_hash, f_hash;
   uint64_t s_idx, f_idx;
@@ -669,7 +665,7 @@ int LevelHashing::b2t_movement(PMEMobjpool *pop, uint64_t idx){
       if(buckets[0][f_idx].token[j] == 0){
         buckets[0][f_idx].slot[j].value = value;
         buckets[0][f_idx].slot[j].key = key;
-        pmemobj_persist(pop, &buckets[0][f_idx].slot[j], sizeof(Entry));
+        pmemobj_persist(pop, &buckets[0][f_idx].slot[j], sizeof(Entry<T>));
         mfence();
         buckets[0][f_idx].token[j] = 1;
         //clflush((char*)&buckets[0][f_idx], sizeof(Node));
@@ -692,7 +688,7 @@ int LevelHashing::b2t_movement(PMEMobjpool *pop, uint64_t idx){
       if(buckets[0][s_idx].token[j] == 0){
         buckets[0][s_idx].slot[j].value = value;
         buckets[0][s_idx].slot[j].key = key;
-        pmemobj_persist(pop, &buckets[0][s_idx].slot[j], sizeof(Entry));
+        pmemobj_persist(pop, &buckets[0][s_idx].slot[j], sizeof(Entry<T>));
         mfence();
   buckets[0][s_idx].token[j] = 1;
   //clflush((char*)&buckets[0][s_idx], sizeof(Node));
@@ -713,8 +709,8 @@ int LevelHashing::b2t_movement(PMEMobjpool *pop, uint64_t idx){
   return -1;
 }
 
-
-Value_t LevelHashing::Get(PMEMobjpool *pop ,Key_t& key) {
+template<class T>
+Value_t LevelHashing<T>::Get(PMEMobjpool *pop ,T key) {
 RETRY:
   while (resizing == true) {
       asm("nop");
@@ -744,11 +740,20 @@ RETRY:
       }
 
       for(j = 0; j < ASSOC_NUM; j ++){
-        if (buckets[i][f_idx].token[j] == 1 && buckets[i][f_idx].slot[j].key == key)
-        {
-          //mutex[f_idx/locksize].unlock_shared();
-          pmemobj_rwlock_unlock(pop, &mutex[f_idx/locksize]);
-          return buckets[i][f_idx].slot[j].value;
+        if constexpr (std::is_pointer_v<T>){
+          if (buckets[i][f_idx].token[j] == 1 && (strcmp(buckets[i][f_idx].slot[j].key, key) == 0))
+          {
+            //mutex[f_idx/locksize].unlock_shared();
+            pmemobj_rwlock_unlock(pop, &mutex[f_idx/locksize]);
+            return buckets[i][f_idx].slot[j].value;
+          }
+        }else{
+          if (buckets[i][f_idx].token[j] == 1 && buckets[i][f_idx].slot[j].key == key)
+          {
+            //mutex[f_idx/locksize].unlock_shared();
+            pmemobj_rwlock_unlock(pop, &mutex[f_idx/locksize]);
+            return buckets[i][f_idx].slot[j].value;
+          }
         }
       }
       //mutex[f_idx/locksize].unlock_shared();
@@ -771,11 +776,21 @@ RETRY:
       }
 
       for(j = 0; j < ASSOC_NUM; j ++){
-        if (buckets[i][s_idx].token[j] == 1 && buckets[i][s_idx].slot[j].key == key)
-        {
-          pmemobj_rwlock_unlock(pop, &mutex[s_idx/locksize]);
-          return buckets[i][s_idx].slot[j].value;
+        if constexpr (std::is_pointer_v<T>){
+          if (buckets[i][s_idx].token[j] == 1 && (strcmp(buckets[i][s_idx].slot[j].key, key) == 0))
+          {
+            pmemobj_rwlock_unlock(pop, &mutex[s_idx/locksize]);
+            return buckets[i][s_idx].slot[j].value;
+          }
+        }else{
+          if (buckets[i][s_idx].token[j] == 1 && buckets[i][s_idx].slot[j].key == key)
+          {
+            pmemobj_rwlock_unlock(pop, &mutex[s_idx/locksize]);
+            return buckets[i][s_idx].slot[j].value;
+          }
         }
+
+        
       }
       pmemobj_rwlock_unlock(pop, &mutex[s_idx/locksize]);
     }
@@ -785,7 +800,8 @@ RETRY:
   return NONE;
 }
 
-bool LevelHashing::Delete(PMEMobjpool *pop ,Key_t& key) {
+template<class T>
+bool LevelHashing<T>::Delete(PMEMobjpool *pop, T key) {
   RETRY:
   while (resizing == true) {
       asm("nop");
@@ -813,12 +829,22 @@ bool LevelHashing::Delete(PMEMobjpool *pop ,Key_t& key) {
       }
 
       for(j = 0; j < ASSOC_NUM; j ++){
-        if (buckets[i][f_idx].token[j] == 1 && buckets[i][f_idx].slot[j].key == key)
-        {
-          buckets[i][f_idx].token[j] = 0;
-          pmemobj_persist(pop, &buckets[i][f_idx].token[j], sizeof(uint8_t));
-          pmemobj_rwlock_unlock(pop, &mutex[f_idx/locksize]);
-          return true;
+        if constexpr (std::is_pointer_v<T>){
+          if (buckets[i][f_idx].token[j] == 1 && (strcmp(buckets[i][f_idx].slot[j].key, key) == 0))
+          {
+            buckets[i][f_idx].token[j] = 0;
+            pmemobj_persist(pop, &buckets[i][f_idx].token[j], sizeof(uint8_t));
+            pmemobj_rwlock_unlock(pop, &mutex[f_idx/locksize]);
+            return true;
+          }
+        }else{
+          if (buckets[i][f_idx].token[j] == 1 && buckets[i][f_idx].slot[j].key == key)
+          {
+            buckets[i][f_idx].token[j] = 0;
+            pmemobj_persist(pop, &buckets[i][f_idx].token[j], sizeof(uint8_t));
+            pmemobj_rwlock_unlock(pop, &mutex[f_idx/locksize]);
+            return true;
+          }
         }
       }
       pmemobj_rwlock_unlock(pop, &mutex[f_idx/locksize]);
@@ -838,12 +864,22 @@ bool LevelHashing::Delete(PMEMobjpool *pop ,Key_t& key) {
       }
 
       for(j = 0; j < ASSOC_NUM; j ++){
-        if (buckets[i][s_idx].token[j] == 1 && buckets[i][s_idx].slot[j].key == key)
-        {
-	  buckets[i][s_idx].token[j] = 0;
-          pmemobj_persist(pop, &buckets[i][s_idx].token[j], sizeof(uint8_t));
-          pmemobj_rwlock_unlock(pop, &mutex[s_idx/locksize]);
-          return true;
+        if constexpr (std::is_pointer_v<T>){
+          if (buckets[i][s_idx].token[j] == 1 && (strcmp(buckets[i][s_idx].slot[j].key, key) == 0))
+          {
+            buckets[i][s_idx].token[j] = 0;
+            pmemobj_persist(pop, &buckets[i][s_idx].token[j], sizeof(uint8_t));
+            pmemobj_rwlock_unlock(pop, &mutex[s_idx/locksize]);
+            return true;
+          }
+        }else{
+          if (buckets[i][s_idx].token[j] == 1 && buckets[i][s_idx].slot[j].key == key)
+          {
+            buckets[i][s_idx].token[j] = 0;
+            pmemobj_persist(pop, &buckets[i][s_idx].token[j], sizeof(uint8_t));
+            pmemobj_rwlock_unlock(pop, &mutex[s_idx/locksize]);
+            return true;
+          }
         }
       }
       pmemobj_rwlock_unlock(pop, &mutex[s_idx/locksize]);
