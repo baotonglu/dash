@@ -745,6 +745,7 @@ RETRY:
       if ((dir_->_[slot].key != (T)INVALID) && (strcmp(dir_->_[slot].key, key) == 0))
       {
          dir_->_[slot].key = (T)INVALID;
+         Allocator::Persist(&dir_->_[slot], sizeof(_Pair<T>));
   #ifdef INPLACE
         //dir_->mutex.unlock_shared();
         dir_->release_lock(pool_addr);
@@ -754,6 +755,7 @@ RETRY:
     }else{
       if (dir_->_[slot].key == key) {
         dir_->_[slot].key = (T)INVALID;
+        Allocator::Persist(&dir_->_[slot], sizeof(_Pair<T>));
   #ifdef INPLACE
         //dir_->mutex.unlock_shared();
         dir_->release_lock(pool_addr);

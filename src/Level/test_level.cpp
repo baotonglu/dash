@@ -11,7 +11,7 @@
 
 #define LOG(msg) std::cout << msg << "\n"
 #define LAYOUT "_level"
-//#define FIXED 1
+#define FIXED 1
 
 const uint64_t POOLSIZE = (uint64_t)1024*1024*1024*10;
 

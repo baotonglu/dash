@@ -39,7 +39,7 @@ do
 		rm -f pmem_hash.data
 		rm -f pmem_cceh.data
 		rm -f pmem_level.data
-		OMP_PLACES=threads OMP_PROC_BIND=true OMP_NESTED=true PMEM_IS_PMEM_FORCE=1 LD_PRELOAD="./build/pmdk/src/PMDK/src/nondebug/libpmemobj.so.1 ./build/pmdk/src/PMDK/src/nondebug/libpmem.so.1" numactl $numaarg ./src/Level/test_level 10 ${workload[$i]} ${thread_num[$j]} #>> cuckoo_finger.txt
+		OMP_PLACES=threads OMP_PROC_BIND=true OMP_NESTED=true PMEM_IS_PMEM_FORCE=1 LD_PRELOAD="./build/pmdk/src/PMDK/src/nondebug/libpmemobj.so.1 ./build/pmdk/src/PMDK/src/nondebug/libpmem.so.1" numactl $numaarg ./build/test_cceh 2 ${workload[$i]} ${thread_num[$j]} #>> cuckoo_finger.txt
 		printf "Done for cceh dm uni: %d %d\n" ${workload[$i]} ${thread_num[$j]}
 	done
 done
