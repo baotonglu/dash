@@ -7,11 +7,11 @@
 #include "libpmemobj.h"
 #include "../utils.h"
 
-#define FIXED 1
+//#define FIXED 1
 
-//static const char *pool_name = "/mnt/pmem0/pmem_cceh.data";
-static const char *pool_name = "pmem_cceh.data";
-static const size_t pool_size = 1024ul * 1024ul * 1024ul * 10ul;
+static const char *pool_name = "/mnt/pmem0/pmem_cceh.data";
+//static const char *pool_name = "pmem_cceh.data";
+static const size_t pool_size = 1024ul * 1024ul * 1024ul * 30ul;
 
 #ifdef FIXED
 CCEH<Key_t> *eh;

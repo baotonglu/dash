@@ -10,6 +10,7 @@
 #include <shared_mutex>
 #include <atomic>
 #include <libpmemobj.h>
+#include <libpmem.h>
 #include "util/pair.h"
 #include "util/hash.h"
 #include "util/persist.h"
@@ -799,6 +800,106 @@ RETRY:
   }
   return NONE;
 }
+/*
+template<class T>
+bool LevelHashing<T>::Delete(PMEMobjpool *pop ,T key) {
+RETRY:
+  while (resizing == true) {
+      asm("nop");
+  }
+  PMEMrwlock* mutex = (PMEMrwlock*)pmemobj_direct(_mutex);
+  uint64_t f_hash = F_HASH(key);
+  uint64_t s_hash = S_HASH(key);
+  uint32_t f_idx = F_IDX(f_hash, addr_capacity);
+  uint32_t s_idx = S_IDX(s_hash, addr_capacity);
+  int i = 0, j;
+
+  for(i = 0; i < 2; i ++){
+    {
+      //mutex[f_idx/locksize].lock_shared();
+      while(pmemobj_rwlock_trywrlock(pop, &mutex[f_idx/locksize]) != 0){
+        if (resizing == true)
+        {
+          goto RETRY;
+        }
+      }
+
+      if (resizing == true)
+      {
+        //mutex[f_idx/locksize].unlock_shared();
+        pmemobj_rwlock_unlock(pop, &mutex[f_idx/locksize]);
+        goto RETRY;
+      }
+
+      for(j = 0; j < ASSOC_NUM; j ++){
+        if constexpr (std::is_pointer_v<T>){
+          if (buckets[i][f_idx].token[j] == 1 && (strcmp(buckets[i][f_idx].slot[j].key, key) == 0))
+          {
+            //mutex[f_idx/locksize].unlock_shared();
+	    buckets[i][f_idx].token[j] = 0;
+	    pmemobj_persist(pop ,&buckets[i][f_idx].token[j], sizeof(uint8_t));
+            pmemobj_rwlock_unlock(pop, &mutex[f_idx/locksize]);
+            return true;
+          }
+        }else{
+          if (buckets[i][f_idx].token[j] == 1 && buckets[i][f_idx].slot[j].key == key)
+          {
+            //mutex[f_idx/locksize].unlock_shared();
+	    buckets[i][f_idx].token[j] = 0;
+	    pmemobj_persist(pop ,&buckets[i][f_idx].token[j], sizeof(uint8_t));
+            pmemobj_rwlock_unlock(pop, &mutex[f_idx/locksize]);
+            return true;
+          }
+        }
+      }
+      //mutex[f_idx/locksize].unlock_shared();
+      pmemobj_rwlock_unlock(pop, &mutex[f_idx/locksize]);
+    }
+    {
+      //]mutex[s_idx/locksize].lock_shared();
+      while(pmemobj_rwlock_trywrlock(pop, &mutex[s_idx/locksize]) != 0){
+        if (resizing == true)
+        {
+          goto RETRY;
+        }
+      }
+
+      if (resizing == true)
+      {
+        //mutex[s_idx/locksize].unlock_shared();
+        pmemobj_rwlock_unlock(pop, &mutex[s_idx/locksize]);
+        goto RETRY;
+      }
+
+      for(j = 0; j < ASSOC_NUM; j ++){
+        if constexpr (std::is_pointer_v<T>){
+          if (buckets[i][s_idx].token[j] == 1 && (strcmp(buckets[i][s_idx].slot[j].key, key) == 0))
+          {
+	    buckets[i][s_idx].token[j] = 0;
+	    pmemobj_persist(pop ,&buckets[i][s_idx].token[j], sizeof(uint8_t));
+            pmemobj_rwlock_unlock(pop, &mutex[s_idx/locksize]);
+            return true;
+          }
+        }else{
+          if (buckets[i][s_idx].token[j] == 1 && buckets[i][s_idx].slot[j].key == key)
+          {
+	    buckets[i][s_idx].token[j] = 0;
+	    pmemobj_persist(pop ,&buckets[i][s_idx].token[j], sizeof(uint8_t));
+            pmemobj_rwlock_unlock(pop, &mutex[s_idx/locksize]);
+	    return true;
+          }
+        }
+
+        
+      }
+      pmemobj_rwlock_unlock(pop, &mutex[s_idx/locksize]);
+    }
+    f_idx = F_IDX(f_hash, addr_capacity/2);
+    s_idx = S_IDX(s_hash, addr_capacity/2);
+  }
+  return false;
+}
+*/
 
 template<class T>
 bool LevelHashing<T>::Delete(PMEMobjpool *pop, T key) {
@@ -815,7 +916,7 @@ bool LevelHashing<T>::Delete(PMEMobjpool *pop, T key) {
 
   for(i = 0; i < 2; i++){
     {
-      while(pmemobj_rwlock_tryrdlock(pop, &mutex[f_idx/locksize]) != 0){
+      while(pmemobj_rwlock_trywrlock(pop, &mutex[f_idx/locksize]) != 0){
         if (resizing == true)
         {
           goto RETRY;
@@ -850,7 +951,7 @@ bool LevelHashing<T>::Delete(PMEMobjpool *pop, T key) {
       pmemobj_rwlock_unlock(pop, &mutex[f_idx/locksize]);
     }
     {
-      while(pmemobj_rwlock_tryrdlock(pop, &mutex[s_idx/locksize]) != 0){
+      while(pmemobj_rwlock_trywrlock(pop, &mutex[s_idx/locksize]) != 0){
         if (resizing == true)
         {
           goto RETRY;

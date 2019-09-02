@@ -11,9 +11,9 @@
 
 #define LOG(msg) std::cout << msg << "\n"
 #define LAYOUT "_level"
-#define FIXED 1
+//#define FIXED 1
 
-const uint64_t POOLSIZE = (uint64_t)1024*1024*1024*10;
+const uint64_t POOLSIZE = (uint64_t)1024*1024*1024*30;
 
 PMEMobjpool *pop;
 #ifdef FIXED
@@ -78,7 +78,7 @@ void concurr_get(struct range *_range) {
       not_found++;
     }
   }
-  std::cout <<"not_found = "<<not_found<<std::endl;
+  std::cout <<"Get: not_found = "<<not_found<<std::endl;
 }
 
 void concurr_delete(struct range *_range) {
@@ -100,7 +100,7 @@ void concurr_delete(struct range *_range) {
 	    not_found++;
     } 
   }
-  std::cout<<"not found = "<<not_found<<std::endl;
+  std::cout<<"Delete: not found = "<<not_found<<std::endl;
 }
 
 
@@ -114,8 +114,8 @@ int main(int argc, char const *argv[])
 	std::cout<<"The levels is "<<initCap<<std::endl;
 	std::cout<<"The inserted number is "<<insert_num<<std::endl;
 	std::cout<<"The thread number is "<<thread_num<<std::endl;
-	//const char *file = "/mnt/pmem0/pmem_level.data";
-	const char *file = "pmem_level.data";
+	const char *file = "/mnt/pmem0/pmem_level.data";
+	//const char *file = "pmem_level.data";
 	PMEMoid root;
 	struct my_root *rr;
 
@@ -172,7 +172,10 @@ int main(int argc, char const *argv[])
 	rarray[thread_num-1].end = insert_num + 1;
 
 	/* Generate Workload*/
-	Allocator::ZAllocate((void **)&workload, kCacheLineSize, sizeof(uint64_t) * (insert_num + 100) * 4);
+	//Allocator::ZAllocate((void **)&workload, kCacheLineSize, sizeof(uint64_t) * (insert_num + 100) * 4);
+	PMEMoid pm_ptr;
+	auto ret = pmemobj_zalloc(pop, &pm_ptr, sizeof(uint64_t) * (insert_num + 100) * 4, 1000);
+        workload = (uint64_t*)pmemobj_direct(pm_ptr);	
 	int i;
 	unsigned long long init[4] = {0x12345ULL, 0x23456ULL, 0x34567ULL, 0x45678ULL},
 	length = 4;
@@ -217,6 +220,7 @@ int main(int argc, char const *argv[])
 //-----------------------------------------------Concurrent postive Get Test-----------------------------------------------------------------------
 	//std::cout<<"There are "<<eh->GetItemNum()<<" items inserted in the hashing index!"<<std::endl;
 	//rarray[thread_num-1].end = insert_num + 5;
+	/*
 	LOG("Concurrent positive get begin!");
 	gettimeofday(&tv1, NULL);
 	for (int i = 0; i < thread_num; ++i)
@@ -261,14 +265,14 @@ int main(int argc, char const *argv[])
 	         (double) (tv2.tv_usec - tv1.tv_usec) / 1000000 +
 	         (double) (tv2.tv_sec - tv1.tv_sec), insert_num/duration);
 
-	/*-------Delete Test-------*/
+	
 	LOG("Concurrent delete begin!");
 	for (int i = 0; i < thread_num; ++i) {
 		rarray[i].begin = i * chunk_size + 1;
 		rarray[i].end = (i + 1) * chunk_size + 1;
 	}
 	rarray[thread_num - 1].end = insert_num + 1;
-
+	*/
 	gettimeofday(&tv1, NULL);
 	for (int i = 0; i < thread_num; ++i)
 	{
