@@ -2,6 +2,7 @@
 #include "src/allocator.h"
 #include "util/file_access.h"
 #include "util/random.h"
+#include "util/System.hpp"
 #include <sstream>
 #include <cstring>
 #include <assert.h>
@@ -11,7 +12,7 @@
 
 #define LOG(msg) std::cout << msg << "\n"
 #define LAYOUT "_level"
-//#define FIXED 1
+#define FIXED 1
 
 const uint64_t POOLSIZE = (uint64_t)1024*1024*1024*30;
 
@@ -78,7 +79,7 @@ void concurr_get(struct range *_range) {
       not_found++;
     }
   }
-  std::cout <<"Get: not_found = "<<not_found<<std::endl;
+  //std::cout <<"Get: not_found = "<<not_found<<std::endl;
 }
 
 void concurr_delete(struct range *_range) {
@@ -100,7 +101,7 @@ void concurr_delete(struct range *_range) {
 	    not_found++;
     } 
   }
-  std::cout<<"Delete: not found = "<<not_found<<std::endl;
+  //std::cout<<"Delete: not found = "<<not_found<<std::endl;
 }
 
 
@@ -114,8 +115,8 @@ int main(int argc, char const *argv[])
 	std::cout<<"The levels is "<<initCap<<std::endl;
 	std::cout<<"The inserted number is "<<insert_num<<std::endl;
 	std::cout<<"The thread number is "<<thread_num<<std::endl;
-	const char *file = "/mnt/pmem0/pmem_level.data";
-	//const char *file = "pmem_level.data";
+	//const char *file = "/mnt/pmem0/pmem_level.data";
+	const char *file = "pmem_level.data";
 	PMEMoid root;
 	struct my_root *rr;
 
@@ -220,7 +221,6 @@ int main(int argc, char const *argv[])
 //-----------------------------------------------Concurrent postive Get Test-----------------------------------------------------------------------
 	//std::cout<<"There are "<<eh->GetItemNum()<<" items inserted in the hashing index!"<<std::endl;
 	//rarray[thread_num-1].end = insert_num + 5;
-	/*
 	LOG("Concurrent positive get begin!");
 	gettimeofday(&tv1, NULL);
 	for (int i = 0; i < thread_num; ++i)
@@ -272,7 +272,7 @@ int main(int argc, char const *argv[])
 		rarray[i].end = (i + 1) * chunk_size + 1;
 	}
 	rarray[thread_num - 1].end = insert_num + 1;
-	*/
+	//System::profile("Delete", [&](){
 	gettimeofday(&tv1, NULL);
 	for (int i = 0; i < thread_num; ++i)
 	{
@@ -285,6 +285,7 @@ int main(int argc, char const *argv[])
 		delete thread_array[i];
 	}
 	gettimeofday(&tv2, NULL);
+	//});
 	LOG("Concurrent delete done!");
 	duration = (double) (tv2.tv_usec - tv1.tv_usec) / 1000000 + (double) (tv2.tv_sec - tv1.tv_sec);
 	printf ("For %d threads, Delete Total time = %f seconds, the throughput is %f options/s\n", thread_num,

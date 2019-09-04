@@ -7,8 +7,8 @@
 #include "libpmemobj.h"
 #include "utils.h"
 
-#define LINEAR 1
-//#define FIXED 1
+//#define LINEAR 1
+#define FIXED 1
 
 #ifndef LINEAR
 #include "ex_finger.h"
@@ -16,8 +16,8 @@
 #include "lh_finger.h"
 #endif
 
-static const char *pool_name = "/mnt/pmem0/pmem_hash.data";
-//static const char *pool_name = "pmem_hash.data";
+//static const char *pool_name = "/mnt/pmem0/pmem_hash.data";
+static const char *pool_name = "pmem_hash.data";
 static const size_t pool_size = 1024ul * 1024ul * 1024ul * 30ul;
 
 #ifndef LINEAR
@@ -91,7 +91,7 @@ void concurr_get(struct range *_range) {
       not_found++;
     }
   }
-  std::cout <<"not_found = "<<not_found<<std::endl;
+  //std::cout <<"not_found = "<<not_found<<std::endl;
 }
 
 void concurr_delete(struct range *_range) {
@@ -113,7 +113,7 @@ void concurr_delete(struct range *_range) {
 	    not_found++;
     } 
   }
-  std::cout<<"not found = "<<not_found<<std::endl;
+  //std::cout<<"not found = "<<not_found<<std::endl;
 }
 
 int main(int argc, char const *argv[]) {

@@ -7,10 +7,10 @@
 #include "libpmemobj.h"
 #include "../utils.h"
 
-//#define FIXED 1
+#define FIXED 1
 
-static const char *pool_name = "/mnt/pmem0/pmem_cceh.data";
-//static const char *pool_name = "pmem_cceh.data";
+//static const char *pool_name = "/mnt/pmem0/pmem_cceh.data";
+static const char *pool_name = "pmem_cceh.data";
 static const size_t pool_size = 1024ul * 1024ul * 1024ul * 30ul;
 
 #ifdef FIXED
@@ -73,7 +73,7 @@ void concurr_get(struct range *_range) {
       not_found++;
     }
   }
-  std::cout <<"not_found = "<<not_found<<std::endl;
+  //std::cout <<"not_found = "<<not_found<<std::endl;
 }
 
 void concurr_delete(struct range *_range) {
@@ -95,7 +95,7 @@ void concurr_delete(struct range *_range) {
 	    not_found++;
     } 
   }
-  std::cout<<"not found = "<<not_found<<std::endl;
+  //std::cout<<"not found = "<<not_found<<std::endl;
 }
 
 int main(int argc, char const *argv[]) {
@@ -188,6 +188,7 @@ int main(int argc, char const *argv[]) {
   /*-----------------------------------------------Concurrent Get
    * Test-----------------------------------------------------------------------*/
   Allocator::ReInitialize_test_only(pool_name, pool_size);
+
   LOG("Concurrent positive get "
       "begin!------------------------------------------------------------");
   // System::profile("NP_search", [&](){
@@ -213,7 +214,6 @@ int main(int argc, char const *argv[]) {
   //});
   LOG("Concurrent positive get "
       "end!---------------------------------------------------------------");
-
   LOG("Concurrent negative get "
       "begin!-------------------------------------------------------------");
   for (int i = 0; i < thread_num; ++i) {
@@ -262,7 +262,7 @@ int main(int argc, char const *argv[]) {
     delete thread_array[i];
   }
   gettimeofday(&tv2, NULL);
- //});
+  //});
   duration = (double)(tv2.tv_usec - tv1.tv_usec) / 1000000 +
              (double)(tv2.tv_sec - tv1.tv_sec);
   printf(

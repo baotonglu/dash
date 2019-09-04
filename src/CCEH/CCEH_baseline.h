@@ -20,7 +20,7 @@
 #include <libpmemobj.h>
 #endif
 
-//#define PERSISTENT_LOCK 1
+#define PERSISTENT_LOCK 1
 
 #define INPLACE 1
 template<class T>
@@ -106,7 +106,8 @@ struct Segment {
     uint64_t temp = 1;
     while(!CAS(&seg_lock, &temp, 0)){
       temp = 1;
-    }*/
+    }
+    */
     mutex.unlock();
     #endif
   }
@@ -208,7 +209,6 @@ struct Seg_array{
     new (*sa) Seg_array(capacity);
 #endif
   }
-
 };
 
 template<class T>
