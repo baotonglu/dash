@@ -18,6 +18,9 @@ Test_Level: Test_Level_O
 
 Test_Level_O: src/Level/test_level.cpp util/hash.h
 	$(CXX) $(CFLAGS) -g -c src/Level/test_level.cpp -o src/Level/test_level.o -DINPLACE -lpmemobj -lpmem
+
+load_factor: test/load_factor.cc
+	$(CXX) $(CFLAGS) -g -o test/load_factor test/load_factor.cc
 clean:
 	rm -rf src/*.o
 	rm -rf src/CCEH/*.o
