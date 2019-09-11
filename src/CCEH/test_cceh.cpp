@@ -9,8 +9,8 @@
 
 #define FIXED 1
 
-//static const char *pool_name = "/mnt/pmem0/pmem_cceh.data";
-static const char *pool_name = "pmem_cceh.data";
+static const char *pool_name = "/mnt/pmem0/pmem_cceh.data";
+//static const char *pool_name = "pmem_cceh.data";
 static const size_t pool_size = 1024ul * 1024ul * 1024ul * 30ul;
 
 #ifdef FIXED
@@ -131,7 +131,8 @@ int main(int argc, char const *argv[]) {
   rarray[thread_num - 1].end = insert_num + 1;
 
  /* Generate Workload for fixed_length key or variable_length key*/
-  Allocator::ZAllocate((void **)&workload, kCacheLineSize, sizeof(uint64_t) * (insert_num + 100) * 4);
+  //Allocator::ZAllocate((void **)&workload, kCacheLineSize, sizeof(uint64_t) * (insert_num + 100) * 4);
+  workload = (uint64_t*)malloc(sizeof(uint64_t) * (insert_num + 100) * 4);
   int i;
   unsigned long long init[4] = {0x12345ULL, 0x23456ULL, 0x34567ULL, 0x45678ULL},
   length = 4;

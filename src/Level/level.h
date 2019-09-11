@@ -285,20 +285,19 @@ UNIQUE:
 
   int i, j;
   for(i = 0; i < 2; i ++){
-    while(pmemobj_rwlock_trywrlock(pop, &mutex[f_idx/locksize]) != 0){
-      if (resizing == true)
-      {
-        goto RETRY;
-      }
-    }
-
-    if (resizing == true)
-    {
-      pmemobj_rwlock_unlock(pop, &mutex[f_idx/locksize]);
-      goto RETRY;
-    }
-
     for(j = 0; j < ASSOC_NUM; j ++){
+    	while(pmemobj_rwlock_trywrlock(pop, &mutex[f_idx/locksize]) != 0){
+      		if (resizing == true)
+      		{
+        		goto RETRY;
+      		}
+    	}
+
+    	if (resizing == true)
+    	{
+      		pmemobj_rwlock_unlock(pop, &mutex[f_idx/locksize]);
+     	 	goto RETRY;
+    	}
         if(buckets[i][f_idx].token[j] == 0){
           buckets[i][f_idx].slot[j].value = value;
           buckets[i][f_idx].slot[j].key = key;
@@ -312,23 +311,22 @@ UNIQUE:
           pmemobj_rwlock_unlock(pop, &mutex[f_idx/locksize]);
           return;
         }
-    }
-    pmemobj_rwlock_unlock(pop, &mutex[f_idx/locksize]);
+    
+    	pmemobj_rwlock_unlock(pop, &mutex[f_idx/locksize]);
 
-    while(pmemobj_rwlock_trywrlock(pop, &mutex[s_idx/locksize]) != 0){
-      if (resizing == true)
-      {
-        goto RETRY;
-      }
-    }
+    	while(pmemobj_rwlock_trywrlock(pop, &mutex[s_idx/locksize]) != 0){
+      		if (resizing == true)
+      		{
+        		goto RETRY;
+      		}
+    	}
 
-    if (resizing == true)
-    {
-      pmemobj_rwlock_unlock(pop, &mutex[s_idx/locksize]);
-      goto RETRY;
-    }
+    	if (resizing == true)
+    	{
+      		pmemobj_rwlock_unlock(pop, &mutex[s_idx/locksize]);
+      		goto RETRY;
+    	}
 
-    for(j = 0; j < ASSOC_NUM; j ++){
         if(buckets[i][s_idx].token[j] == 0){
           buckets[i][s_idx].slot[j].value = value;
           buckets[i][s_idx].slot[j].key = key;
@@ -340,8 +338,8 @@ UNIQUE:
           pmemobj_rwlock_unlock(pop, &mutex[s_idx/locksize]);
           return;
         }
+    	pmemobj_rwlock_unlock(pop, &mutex[s_idx/locksize]);
     }
-    pmemobj_rwlock_unlock(pop, &mutex[s_idx/locksize]);
 
     f_idx = F_IDX(f_hash, addr_capacity / 2);
     s_idx = S_IDX(s_hash, addr_capacity / 2);
