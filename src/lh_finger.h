@@ -75,7 +75,7 @@ constexpr size_t bucketMask = ((1 << (31 - __builtin_clz(kNumBucket))) - 1);
 //constexpr size_t stashMask = (1 << (int)log2(stashBucket)) -1;
 constexpr size_t stashMask = (1 << (31 - __builtin_clz(stashBucket))) -1;
 constexpr uint8_t stashHighMask = ~((uint8_t)stashMask);
-constexpr uint32_t segmentSize = 256;
+constexpr uint32_t segmentSize = 64;
 //constexpr size_t baseShifBits = static_cast<uint64_t>(log2(segmentSize));
 constexpr size_t baseShifBits = static_cast<uint64_t>(31 - __builtin_clz(segmentSize));
 constexpr uint32_t segmentMask = (1 << baseShifBits) - 1; 
@@ -1917,14 +1917,21 @@ RETRY:
 		}
 
 		auto ret = target_bucket->check_and_get(meta_hash, key, false);
-		if ((ret != NONE) && (!(target_bucket->test_lock_version_change(old_version))))
+		if (target_bucket->test_lock_version_change(old_version)){
+			goto RETRY;
+		}
+
+		if (ret != NONE)
 		{
 			return ret;
 		}
 	  	
 		/*no need for verification procedure, we use the version number of target_bucket to test whether the bucket has ben spliteted*/
 		ret = neighbor_bucket->check_and_get(meta_hash, key, true);
-		if ((ret != NONE) && (!(target_bucket->test_lock_version_change(old_version))))
+		if (neighbor_bucket->test_lock_version_change(old_neighbor_version)){
+			goto RETRY;
+		}
+		if (ret != NONE)
 		{
 			return ret;
 		}

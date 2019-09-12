@@ -382,7 +382,7 @@ int Segment<T>::Insert(PMEMobjpool *pool_addr, T key, Value_t value, size_t loc,
 #ifdef PMEM
         Allocator::Persist(&_[slot], sizeof(_Pair<T>));
 #endif
-        count++;
+        //count++;
         ret = 0;
         break;
       } else {
@@ -398,7 +398,7 @@ int Segment<T>::Insert(PMEMobjpool *pool_addr, T key, Value_t value, size_t loc,
         _[slot].key = key;
         //clflush((char*)&_[slot],sizeof(_Pair<T>));
         Allocator::Persist(&_[slot], sizeof(_Pair<T>));
-        count++;
+        //count++;
         ret = 0;
         break;
       } else {
@@ -490,8 +490,8 @@ Segment<T>* Segment<T>::Split(PMEMobjpool *pool_addr){
         if constexpr (std::is_pointer_v<T>){
           _[i].key = (T)INVALID;
         }
-        split->count++;
-        count--;
+        //split->count++;
+        //count--;
     }
   }
 

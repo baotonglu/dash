@@ -69,7 +69,7 @@ constexpr size_t stashMask = (1 << (int)log2(stashBucket)) - 1;
 constexpr uint8_t stashHighMask = ~((uint8_t)stashMask);
 constexpr uint8_t preNeighborSet = 1 << 7;
 constexpr uint8_t nextNeighborSet = 1 << 6;
-#define BUCKET_INDEX(hash) ((hash >> kFingerBits) % kNumBucket)
+#define BUCKET_INDEX(hash) ((hash >> kFingerBits) & bucketMask)
 #define GET_COUNT(var) ((var)&countMask)
 #define GET_BITMAP(var) (((var) >> 4) & allocMask)
 #define ORG_BITMAP(var) ((~((var)&allocMask)) & allocMask)
@@ -230,6 +230,13 @@ struct Bucket {
         }
       }
     }
+    /*
+    for (int i = 0; i < stashBucket; ++i) {
+          Bucket *curr_bucket = stash + i;
+      if (curr_bucket->check_and_get(meta_hash, key, false) != NONE) {
+        return -1;
+      }
+    }*/
     return 0;
   }
 
@@ -1374,16 +1381,20 @@ RETRY:
   }
 
   auto ret = target_bucket->check_and_get(meta_hash, key, false);
-  if ((ret != NONE) &&
-      (!(target_bucket->test_lock_version_change(old_version)))) {
+  if(target_bucket->test_lock_version_change(old_version)){
+	goto RETRY;
+  }
+  if (ret != NONE){
     return ret;
   }
 
   /*no need for verification procedure, we use the version number of
    * target_bucket to test whether the bucket has ben spliteted*/
   ret = neighbor_bucket->check_and_get(meta_hash, key, true);
-  if ((ret != NONE) &&
-      (!(target_bucket->test_lock_version_change(old_version)))) {
+  if(neighbor_bucket->test_lock_version_change(old_neighbor_version)){
+     goto RETRY;
+  }
+  if (ret != NONE){
     return ret;
   }
 
@@ -1440,6 +1451,7 @@ RETRY:
           }
         }
       }
+      goto FINAL;
     }
   TEST_STASH:
     if (test_stash == true) {
@@ -1456,6 +1468,7 @@ RETRY:
       }
     }
   }
+  FINAL:
   // printf("the x = %lld, the y = %lld, the meta_hash is %d\n", x, y,
   // meta_hash);
   return NONE;

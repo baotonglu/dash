@@ -115,8 +115,8 @@ int main(int argc, char const *argv[])
 	std::cout<<"The levels is "<<initCap<<std::endl;
 	std::cout<<"The inserted number is "<<insert_num<<std::endl;
 	std::cout<<"The thread number is "<<thread_num<<std::endl;
-	//const char *file = "/mnt/pmem0/pmem_level.data";
-	const char *file = "pmem_level.data";
+	const char *file = "/mnt/pmem0/pmem_level.data";
+	//const char *file = "pmem_level.data";
 	PMEMoid root;
 	struct my_root *rr;
 
@@ -175,8 +175,9 @@ int main(int argc, char const *argv[])
 	/* Generate Workload*/
 	//Allocator::ZAllocate((void **)&workload, kCacheLineSize, sizeof(uint64_t) * (insert_num + 100) * 4);
 	PMEMoid pm_ptr;
-	auto ret = pmemobj_zalloc(pop, &pm_ptr, sizeof(uint64_t) * (insert_num + 100) * 4, 1000);
-        workload = (uint64_t*)pmemobj_direct(pm_ptr);	
+	//auto ret = pmemobj_zalloc(pop, &pm_ptr, sizeof(uint64_t) * (insert_num + 100) * 4, 1000);
+        //workload = (uint64_t*)pmemobj_direct(pm_ptr);	
+	workload = (uint64_t*)malloc(sizeof(uint64_t)*(insert_num + 100)*4);
 	int i;
 	unsigned long long init[4] = {0x12345ULL, 0x23456ULL, 0x34567ULL, 0x45678ULL},
 	length = 4;
