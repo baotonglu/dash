@@ -707,6 +707,7 @@ int Table<T>::Insert(T key, Value_t value) {
     return 0;
   }
 
+  
   if (((GET_COUNT(target->bitmap)) == kNumPairPerBucket) &&
       ((GET_COUNT(neighbor->bitmap)) == kNumPairPerBucket)) {
       Bucket<T> *next_neighbor = bucket + ((y + 2) & bucketMask);
@@ -773,6 +774,7 @@ int Table<T>::Insert(T key, Value_t value) {
     target->release_lock();
     neighbor->release_lock();
   }else{
+    
     if(GET_COUNT(neighbor->bitmap) < 14){
       neighbor->Insert(key, value, meta_hash, true);
       target->release_lock();
@@ -803,15 +805,17 @@ int main(int argc, char const *argv[]){
     double *load_factor = new double[test_num];
     double *raw_space = new double[test_num];
     uint64_t *insert_num = new uint64_t[test_num];
-    uint64_t arr_kNumBucket[6];
+    uint64_t arr_kNumBucket[8];
     arr_kNumBucket[0] = 4;
     arr_kNumBucket[1] = 8;
     arr_kNumBucket[2] = 16;
     arr_kNumBucket[3] = 32;
     arr_kNumBucket[4] = 64;
     arr_kNumBucket[5] = 128;
-    uint64_t arr_kStashBucket[6];
-    for(int i = 0; i < 6; ++i){
+    arr_kNumBucket[6] = 256;
+    arr_kNumBucket[7] = 512;
+    uint64_t arr_kStashBucket[8];
+    for(int i = 0; i < 8; ++i){
       arr_kStashBucket[i] = 4;
     }
     int stop = 0;
@@ -821,7 +825,7 @@ int main(int argc, char const *argv[]){
         workload[i] = genrand64_int64();
     }
 
-    for(int k = 0; k < 6; ++k){
+    for(int k = 0; k < 8; ++k){
         table = new Table<Key_t>(arr_kNumBucket[k], arr_kStashBucket[k]);
 
         for(int j = 0; j < test_num; ++j){
