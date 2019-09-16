@@ -1,0 +1,13 @@
+
+ Performance counter stats for process id '7138':
+
+     1,214,230,919      cache-misses:u            #   73.789 % of all cache refs      (57.09%)
+     1,645,535,920      cache-references:u                                            (56.99%)
+       852,020,851      LLC-loads:u                                                   (57.07%)
+        27,432,164      LLC-load-misses:u         #    3.22% of all LL-cache hits     (57.17%)
+       209,136,512      LLC-stores:u                                                  (28.66%)
+            19,374      LLC-store-misses:u                                            (28.60%)
+     1,214,137,254      r412e:u                                                       (42.83%)
+
+      73.426443091 seconds time elapsed
+

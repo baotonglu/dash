@@ -1,0 +1,13 @@
+
+ Performance counter stats for process id '7348':
+
+     1,191,977,134      cache-misses:u            #   72.469 % of all cache refs      (57.09%)
+     1,644,816,502      cache-references:u                                            (57.16%)
+       834,126,901      LLC-loads:u                                                   (57.20%)
+        27,149,055      LLC-load-misses:u         #    3.25% of all LL-cache hits     (57.19%)
+       233,780,897      LLC-stores:u                                                  (28.55%)
+           125,647      LLC-store-misses:u                                            (28.51%)
+     1,192,278,407      r412e:u                                                       (42.81%)
+
+      23.711163661 seconds time elapsed
+

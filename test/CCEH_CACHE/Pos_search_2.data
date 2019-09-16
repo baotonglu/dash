@@ -1,0 +1,13 @@
+
+ Performance counter stats for process id '7632':
+
+     1,291,535,286      cache-misses:u            #   76.193 % of all cache refs      (57.14%)
+     1,695,085,211      cache-references:u                                            (57.14%)
+     1,358,047,703      LLC-loads:u                                                   (57.14%)
+        76,544,008      LLC-load-misses:u         #    5.64% of all LL-cache hits     (57.14%)
+         8,183,635      LLC-stores:u                                                  (28.57%)
+               689      LLC-store-misses:u                                            (28.57%)
+     1,291,501,366      r412e:u                                                       (42.86%)
+
+      65.754954944 seconds time elapsed
+

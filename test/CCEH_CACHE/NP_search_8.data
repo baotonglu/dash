@@ -1,0 +1,13 @@
+
+ Performance counter stats for process id '7718':
+
+     1,832,475,777      cache-misses:u            #   80.871 % of all cache refs      (57.13%)
+     2,265,925,753      cache-references:u                                            (57.14%)
+     2,049,141,930      LLC-loads:u                                                   (57.15%)
+        55,007,215      LLC-load-misses:u         #    2.68% of all LL-cache hits     (57.15%)
+        10,845,813      LLC-stores:u                                                  (28.57%)
+               458      LLC-store-misses:u                                            (28.57%)
+     1,832,449,121      r412e:u                                                       (42.85%)
+
+      21.841770657 seconds time elapsed
+

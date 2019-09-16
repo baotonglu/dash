@@ -8,6 +8,7 @@
 #include "../utils.h"
 
 #define FIXED 1
+//#define TEST_BANDWIDTH 1
 
 static const char *pool_name = "/mnt/pmem0/pmem_cceh.data";
 //static const char *pool_name = "pmem_cceh.data";
@@ -20,6 +21,8 @@ CCEH<char *> *eh;
 #endif
 
 uint64_t *workload;
+uint64_t *persist_workload;
+uint64_t *value_workload;
 struct timeval tv1, tv2;
 
 struct range {
@@ -38,10 +41,11 @@ void concurr_insert(struct range *_range) {
   size_t key;
 #else
   char* key;
-  string_key *var_workload = reinterpret_cast<string_key *>(workload);
+  //string_key *var_workload = reinterpret_cast<string_key *>(workload);
+  string_key *var_workload = reinterpret_cast<string_key *>(persist_workload);
 #endif
-  char arr[64];
-  Value_t value = (Value_t)arr;
+  Value_t value;
+  auto _value_workload = reinterpret_cast<Value_t *>(value_workload);
 
   for (uint64_t i = _range->begin; i < _range->end; ++i) {
 #ifdef FIXED
@@ -49,6 +53,7 @@ void concurr_insert(struct range *_range) {
 #else
     key = reinterpret_cast<char *>(var_workload + i);
 #endif
+    value = _value_workload[i];
     eh->Insert(key, value);
   }
 }
@@ -130,9 +135,24 @@ int main(int argc, char const *argv[]) {
   }
   rarray[thread_num - 1].end = insert_num + 1;
 
+#ifdef TEST_BANDWIDTH
+  struct range rarray_insert[24];
+  int insert_chunk = insert_num / 24;
+  for(int i = 0; i < 24; ++i){
+    rarray_insert[i].index = i;
+    rarray_insert[i].begin = i * insert_chunk + 1;
+    rarray_insert[i].end = (i + 1) * insert_chunk + 1;
+  }
+  rarray_insert[23].end = insert_num + 1;
+#endif
+
  /* Generate Workload for fixed_length key or variable_length key*/
   //Allocator::ZAllocate((void **)&workload, kCacheLineSize, sizeof(uint64_t) * (insert_num + 100) * 4);
-  workload = (uint64_t*)malloc(sizeof(uint64_t) * (insert_num + 100) * 4);
+  workload = (uint64_t*)malloc((insert_num + 100)*sizeof(uint64_t)*4);
+  value_workload = (uint64_t*)malloc((insert_num + 100)*sizeof(uint64_t));
+#ifndef FIXED 
+  Allocator::ZAllocate((void **)&persist_workload, kCacheLineSize, sizeof(uint64_t) * (insert_num + 100) * 2);
+#endif
   int i;
   unsigned long long init[4] = {0x12345ULL, 0x23456ULL, 0x34567ULL, 0x45678ULL},
   length = 4;
@@ -152,16 +172,40 @@ int main(int argc, char const *argv[]) {
 #endif
   }
 
+  for(int i = 0; i < insert_num + 1; ++i){
+    uint64_t _value = genrand64_int64();
+    value_workload[i] = _value;
+  }
+
+#ifndef FIXED
+  string_key *var_workload = reinterpret_cast<string_key *>(workload);
+  string_key *p_var_workload = reinterpret_cast<string_key *>(persist_workload);
+  for(int i = 0; i < insert_num + 1; ++i){
+    strcpy(reinterpret_cast<char *>(p_var_workload + i), reinterpret_cast<char *>(var_workload + i));
+  }
+#endif
   /*-----------------------------------------------Concurrent Insertion
    * Test-----------------------------------------------------------------------*/
-  std::thread *thread_array[thread_num];
+  std::thread *thread_array[1024];
   /* The muli-thread execution begins*/
   eh->getNumber();
 
   LOG("Concurrent insertion "
       "begin-----------------------------------------------------------------");
-  // System::profile("Insertion", [&](){
+std::string insertion = "Insertion_";
+insertion = insertion + std::to_string(thread_num);
+System::profile(insertion, [&](){
+    
   gettimeofday(&tv1, NULL);
+#ifdef TEST_BANDWIDTH
+  for (int i = 0; i < 24; ++i) {
+    thread_array[i] = new std::thread(concurr_insert, &rarray_insert[i]);
+  }
+  for (int i = 0; i < 24; ++i) {
+    thread_array[i]->join();
+    delete thread_array[i];
+  }
+#else
   for (int i = 0; i < thread_num; ++i) {
     thread_array[i] = new std::thread(concurr_insert, &rarray[i]);
   }
@@ -169,7 +213,9 @@ int main(int argc, char const *argv[]) {
     thread_array[i]->join();
     delete thread_array[i];
   }
+#endif
   gettimeofday(&tv2, NULL);
+  });
   duration = (double)(tv2.tv_usec - tv1.tv_usec) / 1000000 +
              (double)(tv2.tv_sec - tv1.tv_sec);
   printf(
@@ -179,7 +225,7 @@ int main(int argc, char const *argv[]) {
       (double)(tv2.tv_usec - tv1.tv_usec) / 1000000 +
           (double)(tv2.tv_sec - tv1.tv_sec),
       insert_num / duration);
-  //});
+  
 
   // printf("the collison check is %d\n", eh->count);
   LOG("Concurrent insertion "
@@ -193,6 +239,9 @@ int main(int argc, char const *argv[]) {
   LOG("Concurrent positive get "
       "begin!------------------------------------------------------------");
   // System::profile("NP_search", [&](){
+    std::string pos= "Pos_search_";
+ pos = pos + std::to_string(thread_num);
+  System::profile(pos, [&](){
   gettimeofday(&tv1, NULL);
   for (int i = 0; i < thread_num; ++i) {
     thread_array[i] = new std::thread(concurr_get, &rarray[i]);
@@ -203,6 +252,7 @@ int main(int argc, char const *argv[]) {
     delete thread_array[i];
   }
   gettimeofday(&tv2, NULL);
+  });
   duration = (double)(tv2.tv_usec - tv1.tv_usec) / 1000000 +
              (double)(tv2.tv_sec - tv1.tv_sec);
   printf(
@@ -212,11 +262,14 @@ int main(int argc, char const *argv[]) {
       (double)(tv2.tv_usec - tv1.tv_usec) / 1000000 +
           (double)(tv2.tv_sec - tv1.tv_sec),
       insert_num / duration);
-  //});
+  
   LOG("Concurrent positive get "
       "end!---------------------------------------------------------------");
   LOG("Concurrent negative get "
       "begin!-------------------------------------------------------------");
+  std::string neg= "NP_search_";
+ neg = neg + std::to_string(thread_num);
+  System::profile(neg, [&](){
   for (int i = 0; i < thread_num; ++i) {
     rarray[i].begin = insert_num + i * chunk_size + 1;
     rarray[i].end = insert_num + (i + 1) * chunk_size + 1;
@@ -235,6 +288,7 @@ int main(int argc, char const *argv[]) {
   gettimeofday(&tv2, NULL);
   duration = (double)(tv2.tv_usec - tv1.tv_usec) / 1000000 +
              (double)(tv2.tv_sec - tv1.tv_sec);
+  });
   printf(
       "For %d threads, Get Total time = %f seconds, the throughput is %f "
       "options/s\n",
@@ -253,6 +307,9 @@ int main(int argc, char const *argv[]) {
   rarray[thread_num - 1].end = insert_num + 1;
 
   //System::profile("Delete", [&](){
+  std::string del = "Delete_";
+  del = del + std::to_string(thread_num);
+  System::profile(del, [&](){
   gettimeofday(&tv1, NULL);
   for (int i = 0; i < thread_num; ++i) {
     thread_array[i] = new std::thread(concurr_delete, &rarray[i]);
@@ -263,7 +320,7 @@ int main(int argc, char const *argv[]) {
     delete thread_array[i];
   }
   gettimeofday(&tv2, NULL);
-  //});
+  });
   duration = (double)(tv2.tv_usec - tv1.tv_usec) / 1000000 +
              (double)(tv2.tv_sec - tv1.tv_sec);
   printf(

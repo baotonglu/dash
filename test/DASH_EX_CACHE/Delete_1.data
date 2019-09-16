@@ -1,0 +1,13 @@
+
+ Performance counter stats for process id '7017':
+
+     1,092,291,277      cache-misses:u            #   73.557 % of all cache refs      (57.14%)
+     1,484,963,141      cache-references:u                                            (57.14%)
+     1,079,898,041      LLC-loads:u                                                   (57.14%)
+        12,117,347      LLC-load-misses:u         #    1.12% of all LL-cache hits     (57.14%)
+        18,200,278      LLC-stores:u                                                  (28.57%)
+               392      LLC-store-misses:u                                            (28.57%)
+     1,092,288,689      r412e:u                                                       (42.86%)
+
+     116.552586444 seconds time elapsed
+
