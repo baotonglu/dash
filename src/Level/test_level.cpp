@@ -3,6 +3,7 @@
 #include "util/file_access.h"
 #include "util/random.h"
 #include "util/System.hpp"
+#include "util/uniform.hpp"
 #include <sstream>
 #include <cstring>
 #include <assert.h>
@@ -13,6 +14,7 @@
 #define LOG(msg) std::cout << msg << "\n"
 #define LAYOUT "_level"
 #define FIXED 1
+#define MIXED_TEST 1
 //#define TEST_BANDWIDTH 1
 
 const uint64_t POOLSIZE = (uint64_t)1024*1024*1024*30;
@@ -33,15 +35,65 @@ struct string_key{
   char key[16];
 };
 
-struct range{
-	uint64_t index;
-	int begin;
-	int end;
-};
-
 struct my_root{
 	PMEMoid _level;
 };
+
+struct range {
+  uint64_t index;
+  uint64_t begin;
+  uint64_t end;
+  uint64_t random_num;
+};
+
+void clear_cache(int insert_num){
+  uint32_t not_found = 0;
+  auto _value_workload = reinterpret_cast<Value_t *>(value_workload);
+  for(int i =0; i < insert_num; ++i){
+    if(_value_workload[i] == NONE){
+      not_found++;
+    }
+  }
+  printf("clear cache: not found = %u\n", not_found);
+}
+
+void mixed(struct range *_range) {
+#ifdef FIXED
+  size_t key;
+#else
+  char* key;
+  //string_key *var_workload = reinterpret_cast<string_key *>(workload);
+  string_key *var_workload = reinterpret_cast<string_key *>(persist_workload);
+#endif
+  UniformRandom rng(_range->random_num);
+  char arr[64];
+  Value_t value;
+  uint32_t random;
+  uint32_t not_found = 0;
+  auto _value_workload = reinterpret_cast<Value_t *>(value_workload);
+
+  for (uint64_t i = _range->begin; i < _range->end; ++i) {
+#ifdef FIXED
+    key = workload[i];
+    //key = i;
+#else
+    key = reinterpret_cast<char *>(var_workload + i);
+#endif
+    random = rng.next_uint32()%10;
+    if(random <= 1){
+      /*Insert operation*/
+      value = _value_workload[i];
+      level->Insert(pop, key, value);
+    }else{
+      /*Search operation*/
+      if (level->Get(pop, key) == NONE)
+      {
+        not_found++;
+      }
+    }  
+  }
+  //std::cout <<"not_found = "<<not_found<<std::endl;
+}
 
 void concurr_insert(struct range *_range) {
 #ifdef FIXED
@@ -118,6 +170,7 @@ int main(int argc, char const *argv[])
 	int initCap = atoi(argv[1]);
 	int insert_num = atoi(argv[2]);
 	int thread_num = atoi(argv[3]);
+	uint32_t mixed_num = 200000000;
 
 	std::cout<<"The levels is "<<initCap<<std::endl;
 	std::cout<<"The inserted number is "<<insert_num<<std::endl;
@@ -169,25 +222,28 @@ int main(int argc, char const *argv[])
 			std::cout<<"Successfully open a pool"<<std::endl;
 		}
 		level->display_size();
+	srand((unsigned)time(NULL)); 
 
-	int chunk_size = insert_num/thread_num;
-	struct range rarray[thread_num];
-	for (int i = 0; i < thread_num; ++i)
-	{
-		rarray[i].begin = i*chunk_size + 1;
-		rarray[i].end = (i+1)*chunk_size + 1;
-	}
-	rarray[thread_num-1].end = insert_num + 1;
+  int chunk_size = insert_num / thread_num;
+  struct range rarray[thread_num];
+  for (int i = 0; i < thread_num; ++i) {
+    rarray[i].index = i;
+    rarray[i].random_num = rand();
+    rarray[i].begin = i * chunk_size + 1;
+    rarray[i].end = (i + 1) * chunk_size + 1;
+  }
+  rarray[thread_num - 1].end = insert_num + 1;
 
 #ifdef TEST_BANDWIDTH
-	struct range rarray_insert[24];
-	int insert_chunk = insert_num / 24;
-	for(int i = 0; i < 24; ++i){
-	rarray_insert[i].index = i;
-	rarray_insert[i].begin = i * insert_chunk + 1;
-	rarray_insert[i].end = (i + 1) * insert_chunk + 1;
-	}
-	rarray_insert[23].end = insert_num + 1;
+  struct range rarray_insert[24];
+  int insert_chunk = insert_num / 24;
+  for(int i = 0; i < 24; ++i){
+    rarray_insert[i].index = i;
+    rarray_insert[i].random_num = rand();
+    rarray_insert[i].begin = i * insert_chunk + 1;
+    rarray_insert[i].end = (i + 1) * insert_chunk + 1;
+  }
+  rarray_insert[23].end = insert_num + 1;
 #endif
 
 	/* Generate Workload*/
@@ -195,10 +251,18 @@ int main(int argc, char const *argv[])
 	PMEMoid pm_ptr;
 	//auto ret = pmemobj_zalloc(pop, &pm_ptr, sizeof(uint64_t) * (insert_num + 100) * 4, 1000);
         //workload = (uint64_t*)pmemobj_direct(pm_ptr);	
-	workload = (uint64_t*)malloc((insert_num + 100)*sizeof(uint64_t)*4);
-    value_workload = (uint64_t*)malloc((insert_num + 100)*sizeof(uint64_t));
+#ifdef MIXED_TEST
+  workload = (uint64_t*)malloc((mixed_num + 100)*sizeof(uint64_t)*4);
+  value_workload = (uint64_t*)malloc((mixed_num + 100)*sizeof(uint64_t));
+#ifndef FIXED 
+  Allocator::ZAllocate((void **)&persist_workload, kCacheLineSize, sizeof(uint64_t) * (mixed_num + 100) * 2);
+#endif
+#else
+  workload = (uint64_t*)malloc((insert_num + 100)*sizeof(uint64_t)*4);
+  value_workload = (uint64_t*)malloc((insert_num + 100)*sizeof(uint64_t));
 #ifndef FIXED 
   Allocator::ZAllocate((void **)&persist_workload, kCacheLineSize, sizeof(uint64_t) * (insert_num + 100) * 2);
+#endif
 #endif
   int i;
   unsigned long long init[4] = {0x12345ULL, 0x23456ULL, 0x34567ULL, 0x45678ULL},
@@ -206,8 +270,13 @@ int main(int argc, char const *argv[])
   init_by_array64(init, length);
 
   /* Generate Workload*/
+int generate_num = insert_num;
+#ifdef MIXED_TEST
+  generate_num = mixed_num;
+#endif
+
   char var_key[24];
-  for(int i = 0; i < insert_num*2 + 2; ++i){
+  for(int i = 0; i < generate_num*2 + 2; ++i){
     uint64_t _key = genrand64_int64();
 #ifdef FIXED
     workload[i] = _key;
@@ -219,7 +288,7 @@ int main(int argc, char const *argv[])
 #endif
   }
 
-  for(int i = 0; i < insert_num + 1; ++i){
+  for(int i = 0; i < generate_num + 1; ++i){
     uint64_t _value = genrand64_int64();
     value_workload[i] = _value;
   }
@@ -227,7 +296,7 @@ int main(int argc, char const *argv[])
 #ifndef FIXED
   string_key *var_workload = reinterpret_cast<string_key *>(workload);
   string_key *p_var_workload = reinterpret_cast<string_key *>(persist_workload);
-  for(int i = 0; i < insert_num + 1; ++i){
+  for(int i = 0; i < generate_num + 1; ++i){
     strcpy(reinterpret_cast<char *>(p_var_workload + i), reinterpret_cast<char *>(var_workload + i));
   }
 #endif
@@ -268,6 +337,8 @@ System::profile(insertion, [&](){
 //-----------------------------------------------Concurrent postive Get Test-----------------------------------------------------------------------
 	//std::cout<<"There are "<<eh->GetItemNum()<<" items inserted in the hashing index!"<<std::endl;
 	//rarray[thread_num-1].end = insert_num + 5;
+	/*
+	clear_cache(insert_num);
 	LOG("Concurrent positive get begin!");
 	std::string pos= "Pos_search_";
  pos = pos + std::to_string(thread_num);
@@ -291,7 +362,44 @@ System::profile(insertion, [&](){
 	         (double) (tv2.tv_usec - tv1.tv_usec) / 1000000 +
 	         (double) (tv2.tv_sec - tv1.tv_sec), insert_num/duration);	
 	//eh->Get_Number();
+	*/
 
+ #ifdef MIXED_TEST
+    clear_cache(insert_num);
+    LOG("Concurrent mixed "
+      "begin!------------------------------------------------------------");
+  chunk_size = mixed_num / thread_num;
+  for (int i = 0; i < thread_num; ++i) {
+    rarray[i].begin = insert_num + i * chunk_size + 1;
+    rarray[i].end = insert_num + (i + 1) * chunk_size + 1;
+  }
+  //rarray[thread_num - 1].end = insert_num + mixed_num + 1;
+  std::string mix = "Mixed_";
+ mix = mix + std::to_string(thread_num);
+ //System::profile(mix, [&](){
+  gettimeofday(&tv1, NULL);
+  for (int i = 0; i < thread_num; ++i) {
+    thread_array[i] = new std::thread(mixed, &rarray[i]);
+  }
+
+  for (int i = 0; i < thread_num; ++i) {
+    thread_array[i]->join();
+    delete thread_array[i];
+  }
+  gettimeofday(&tv2, NULL);
+  duration = (double)(tv2.tv_usec - tv1.tv_usec) / 1000000 +
+             (double)(tv2.tv_sec - tv1.tv_sec);
+  printf(
+      "For %d threads, Mixed Total time = %f seconds, the throughput is %f "
+      "options/s\n",
+      thread_num,
+      (double)(tv2.tv_usec - tv1.tv_usec) / 1000000 +
+          (double)(tv2.tv_sec - tv1.tv_sec),
+      mixed_num / duration);
+  //});
+#endif
+
+/*
 	for (int i = 0; i < thread_num; ++i) {
 		rarray[i].begin = insert_num + i * chunk_size + 1;
 		rarray[i].end = insert_num + (i + 1) * chunk_size + 1;

@@ -10,6 +10,8 @@
 #include <unistd.h>
 #include <signal.h>
 
+#define PROFILE 1
+
 struct System
 {
     static void profile(const std::string& name,std::function<void()> body) {
@@ -17,28 +19,32 @@ struct System
 
         // Launch profiler
         pid_t pid;
-        //std::stringstream s;
-        //s << getpid();
+#ifdef PROFILE
+        std::stringstream s;
+        s << getpid();
+#endif
         int ppid = getpid();
         pid = fork();
         if (pid == 0) {
-            /*
             // perf to generate the record file
+#ifdef PROFILE
             auto fd=open("/dev/null",O_RDWR);
             dup2(fd,1);
             dup2(fd,2);
             exit(execl("/usr/bin/perf","perf","record","-o",filename.c_str(),"-p",s.str().c_str(),nullptr));
-            */
+#else
             // perf the cache misses of the file
             char buf[200];
             sprintf(buf, "perf stat -e cache-misses,cache-references,LLC-loads,LLC-load-misses,LLC-stores,LLC-store-misses,r412e -p %d > %s 2>&1",ppid,filename.c_str());
             execl("/bin/sh", "sh", "-c", buf, NULL);
+#endif
         }
+#ifndef PROFILE
         setpgid(pid, 0);
+#endif
         sleep(1);
         // Run body
         body();
-
         // Kill profiler  
         kill(-pid,SIGINT);
         sleep(1);
