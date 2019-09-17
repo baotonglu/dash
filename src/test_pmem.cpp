@@ -13,7 +13,7 @@
 
 //#define LINEAR 1
 #define FIXED 1
-#define MIXED_TEST 1
+//#define MIXED_TEST 1
 //#define TEST_BANDWIDTH 1
 
 #ifndef LINEAR
@@ -300,63 +300,21 @@ void generate_16B(void *memory_region, int generate_num, bool persist){
   }
 }
 
-void benchInsert(range *rarray, int thread_num){
+void generalBench(range *rarray, int thread_num, std::string profile_name, void (*test_func)(struct range *)){
   std::thread *thread_array[1024];
-  std::string insertion = "Insertion_";
-  insertion = insertion + std::to_string(thread_num);
-  double duration;
-  finished = false;
-  //System::profile(insertion, [&](){
-  
-  for (int i = 0; i < thread_num; ++i) {
-    thread_array[i] = new std::thread(concurr_insert, &rarray[i]);
-  }
-
-  while(LOAD(&bar_b) != 0);//Spin
-  std::unique_lock<std::mutex> lck(mtx);// get the lock of condition variable
-  printf("All threads are ready\n");
-
-  gettimeofday(&tv1, NULL);
-  STORE(&bar_a, 0);//start test
-  while(!finished) cv.wait(lck); // go to sleep and wait for the wake-up from child threads
-  gettimeofday(&tv2, NULL);//test end
-  
-  for (int i = 0; i < thread_num; ++i) {
-    thread_array[i]->join();
-    delete thread_array[i];
-  }
-  duration = (double)(tv2.tv_usec - tv1.tv_usec) / 1000000 +
-             (double)(tv2.tv_sec - tv1.tv_sec);
-  printf(
-      "For %d threads, Insert Total time = %f seconds, the throughput is %f "
-      "options/s\n",
-      thread_num,
-      (double)(tv2.tv_usec - tv1.tv_usec) / 1000000 +
-          (double)(tv2.tv_sec - tv1.tv_sec),
-      insert_num / duration);
-  //});
-}
-
-void benchGet(range *rarray, int thread_num, bool positive){
-  std::thread *thread_array[1024];
-  std::string profile_name;
-  if(positive){
-    profile_name = "Pos_Search_";
-  }else{
-    profile_name = "Neg_Search_";
-  }
   profile_name = profile_name + std::to_string(thread_num);
   double duration;
   finished = false;
+  clear_cache(thread_num);
   //System::profile(profile_name, [&](){
   
   for (int i = 0; i < thread_num; ++i) {
-    thread_array[i] = new std::thread(concurr_get, &rarray[i]);
+    thread_array[i] = new std::thread(*test_func, &rarray[i]);
   }
 
   while(LOAD(&bar_b) != 0);//Spin
   std::unique_lock<std::mutex> lck(mtx);// get the lock of condition variable
-  printf("All threads are ready\n");
+  //printf("All threads are ready\n");
 
   gettimeofday(&tv1, NULL);
   STORE(&bar_a, 0);//start test
@@ -370,81 +328,7 @@ void benchGet(range *rarray, int thread_num, bool positive){
   duration = (double)(tv2.tv_usec - tv1.tv_usec) / 1000000 +
              (double)(tv2.tv_sec - tv1.tv_sec);
   printf(
-      "For %d threads, Get Total time = %f seconds, the throughput is %f "
-      "options/s\n",
-      thread_num,
-      (double)(tv2.tv_usec - tv1.tv_usec) / 1000000 +
-          (double)(tv2.tv_sec - tv1.tv_sec),
-      insert_num / duration);
-  //});
-}
-
-void benchDelete(range *rarray, int thread_num){
-  std::thread *thread_array[1024];
-  std::string profile_name = "Delete_";
-  profile_name = profile_name + std::to_string(thread_num);
-  double duration;
-  finished = false;
-  //System::profile(profile_name, [&](){
-  
-  for (int i = 0; i < thread_num; ++i) {
-    thread_array[i] = new std::thread(concurr_delete, &rarray[i]);
-  }
-
-  while(LOAD(&bar_b) != 0);//Spin
-  std::unique_lock<std::mutex> lck(mtx);// get the lock of condition variable
-  printf("All threads are ready\n");
-
-  gettimeofday(&tv1, NULL);
-  STORE(&bar_a, 0);//start test
-  while(!finished) cv.wait(lck); // go to sleep and wait for the wake-up from child threads
-  gettimeofday(&tv2, NULL);//test end
-  
-  for (int i = 0; i < thread_num; ++i) {
-    thread_array[i]->join();
-    delete thread_array[i];
-  }
-  duration = (double)(tv2.tv_usec - tv1.tv_usec) / 1000000 +
-             (double)(tv2.tv_sec - tv1.tv_sec);
-  printf(
-      "For %d threads, Delete Total time = %f seconds, the throughput is %f "
-      "options/s\n",
-      thread_num,
-      (double)(tv2.tv_usec - tv1.tv_usec) / 1000000 +
-          (double)(tv2.tv_sec - tv1.tv_sec),
-      insert_num / duration);
-  //});
-}
-
-void benchMixed(range *rarray, int thread_num){
-  std::thread *thread_array[1024];
-  std::string profile_name = "Mixed_";
-  profile_name = profile_name + std::to_string(thread_num);
-  double duration;
-  finished = false;
-  //System::profile(profile_name, [&](){
-  
-  for (int i = 0; i < thread_num; ++i) {
-    thread_array[i] = new std::thread(mixed, &rarray[i]);
-  }
-
-  while(LOAD(&bar_b) != 0);//Spin
-  std::unique_lock<std::mutex> lck(mtx);// get the lock of condition variable
-  printf("All threads are ready\n");
-
-  gettimeofday(&tv1, NULL);
-  STORE(&bar_a, 0);//start test
-  while(!finished) cv.wait(lck); // go to sleep and wait for the wake-up from child threads
-  gettimeofday(&tv2, NULL);//test end
-  
-  for (int i = 0; i < thread_num; ++i) {
-    thread_array[i]->join();
-    delete thread_array[i];
-  }
-  duration = (double)(tv2.tv_usec - tv1.tv_usec) / 1000000 +
-             (double)(tv2.tv_sec - tv1.tv_sec);
-  printf(
-      "For %d threads, Mixed Total time = %f seconds, the throughput is %f "
+      "For %d threads,Total time = %f seconds, the throughput is %f "
       "options/s\n",
       thread_num,
       (double)(tv2.tv_usec - tv1.tv_usec) / 1000000 +
@@ -527,7 +411,6 @@ int main(int argc, char const *argv[]) {
   Allocator::Persist(persist_workload, (generate_num+1)*sizeof(string_key));
 #endif
 
-
   /**************************************************Benchmark***********************************************************/
 
   /******************Benchmark for insert***********************/
@@ -541,7 +424,8 @@ int main(int argc, char const *argv[]) {
   benchInsert(rarray_insert, 24);
 #else
   /* normal benchmark for insert operation*/
-  benchInsert(rarray, thread_num);
+  //benchInsert(rarray, thread_num);
+  generalBench(rarray, thread_num, "Insertion_", &concurr_insert);
 #endif
 
   /******************Benchmark for mixed workload************************/
@@ -556,7 +440,8 @@ int main(int argc, char const *argv[]) {
     rarray[i].end = insert_num + (i + 1) * chunk_size + 1;
   }
   rarray[thread_num - 1].end = insert_num + mixed_num + 1;
-  benchMixed(rarray, thread_num);
+  //benchMixed(rarray, thread_num);
+  generalBench(rarray, thread_num, "Mixed_", &mixed);
 #endif
   /******************Benchmark for positive search***********************/
   printf("Pos search workload begin\n");
@@ -570,7 +455,8 @@ int main(int argc, char const *argv[]) {
   }
   rarray[thread_num - 1].end = insert_num + 1;
 
-  benchGet(rarray, thread_num, true);
+  //benchGet(rarray, thread_num, true);
+  generalBench(rarray, thread_num, "Pos_get_", &concurr_get);
   /******************Benchmark for negative search***********************/
   printf("Neg search workload begin\n");
   bar_a = 1;
@@ -583,7 +469,8 @@ int main(int argc, char const *argv[]) {
     rarray[i].end = insert_num + (i + 1) * chunk_size + 1;
   }
   rarray[thread_num - 1].end = insert_num + insert_num + 1;
-  benchGet(rarray, thread_num, false);
+  //benchGet(rarray, thread_num, false);
+  generalBench(rarray, thread_num, "Neg_get_", &concurr_get);
   /*********************Benchmark for delete ****************************/
   printf("Delete workload begin\n");
   bar_a = 1;
@@ -595,179 +482,7 @@ int main(int argc, char const *argv[]) {
     rarray[i].end = (i + 1) * chunk_size + 1;
   }
   rarray[thread_num - 1].end = insert_num + 1;
-  benchDelete(rarray, thread_num);
-
-/*
-  LOG("Concurrent insertion "
-      "begin-----------------------------------------------------------------");
-std::string insertion = "Insertion_";
-insertion = insertion + std::to_string(thread_num);
-//System::profile(insertion, [&](){
-
-    gettimeofday(&tv1, NULL);
-#ifdef TEST_BANDWIDTH
-  for (int i = 0; i < 24; ++i) {
-    thread_array[i] = new std::thread(concurr_insert, &rarray_insert[i]);
-  }
-  for (int i = 0; i < 24; ++i) {
-    thread_array[i]->join();
-    delete thread_array[i];
-  }
-#else
-  for (int i = 0; i < thread_num; ++i) {
-    thread_array[i] = new std::thread(concurr_insert, &rarray[i]);
-  }
-  for (int i = 0; i < thread_num; ++i) {
-    thread_array[i]->join();
-    delete thread_array[i];
-  }
-#endif
-
-  gettimeofday(&tv2, NULL);
-  duration = (double)(tv2.tv_usec - tv1.tv_usec) / 1000000 +
-             (double)(tv2.tv_sec - tv1.tv_sec);
-  printf(
-      "For %d threads, Insert Total time = %f seconds, the throughput is %f "
-      "options/s\n",
-      thread_num,
-      (double)(tv2.tv_usec - tv1.tv_usec) / 1000000 +
-          (double)(tv2.tv_sec - tv1.tv_sec),
-      insert_num / duration);
-  //});
-  // printf("the collison check is %d\n", eh->count);
-  LOG("Concurrent insertion "
-      "end------------------------------------------------------------------");
-  //eh->getNumber();
-  /*
-  clear_cache(insert_num);
-  Allocator::ReInitialize_test_only(pool_name, pool_size);
-  LOG("Concurrent positive get "
-      "begin!------------------------------------------------------------");
-  std::string pos = "Pos_search_";
- pos = pos + std::to_string(thread_num);
- System::profile(pos, [&](){
-  gettimeofday(&tv1, NULL);
-  for (int i = 0; i < thread_num; ++i) {
-    thread_array[i] = new std::thread(concurr_get, &rarray[i]);
-  }
-
-  for (int i = 0; i < thread_num; ++i) {
-    thread_array[i]->join();
-    delete thread_array[i];
-  }
-  gettimeofday(&tv2, NULL);
-  duration = (double)(tv2.tv_usec - tv1.tv_usec) / 1000000 +
-             (double)(tv2.tv_sec - tv1.tv_sec);
-  printf(
-      "For %d threads, Get Total time = %f seconds, the throughput is %f "
-      "options/s\n",
-      thread_num,
-      (double)(tv2.tv_usec - tv1.tv_usec) / 1000000 +
-          (double)(tv2.tv_sec - tv1.tv_sec),
-      insert_num / duration);
-  });
-
-/*
-#ifdef MIXED_TEST
-    clear_cache(insert_num);
-    LOG("Concurrent mixed "
-      "begin!------------------------------------------------------------");
-  chunk_size = mixed_num / thread_num;
-  for (int i = 0; i < thread_num; ++i) {
-    rarray[i].begin = insert_num + i * chunk_size + 1;
-    rarray[i].end = insert_num + (i + 1) * chunk_size + 1;
-  }
-  rarray[thread_num - 1].end = insert_num + mixed_num + 1;
-  std::string mix = "Mixed_";
- mix = mix + std::to_string(thread_num);
- //System::profile(mix, [&](){
-  gettimeofday(&tv1, NULL);
-  for (int i = 0; i < thread_num; ++i) {
-    thread_array[i] = new std::thread(mixed, &rarray[i]);
-  }
-
-  for (int i = 0; i < thread_num; ++i) {
-    thread_array[i]->join();
-    delete thread_array[i];
-  }
-  gettimeofday(&tv2, NULL);
-  duration = (double)(tv2.tv_usec - tv1.tv_usec) / 1000000 +
-             (double)(tv2.tv_sec - tv1.tv_sec);
-  printf(
-      "For %d threads, Mixed Total time = %f seconds, the throughput is %f "
-      "options/s\n",
-      thread_num,
-      (double)(tv2.tv_usec - tv1.tv_usec) / 1000000 +
-          (double)(tv2.tv_sec - tv1.tv_sec),
-      mixed_num / duration);
-  //});
-#endif
-*/
-  /*
-  LOG("Concurrent negative get "
-      "begin!-------------------------------------------------------------");
-  for (int i = 0; i < thread_num; ++i) {
-    rarray[i].begin = insert_num + i * chunk_size + 1;
-    rarray[i].end = insert_num + (i + 1) * chunk_size + 1;
-  }
-  rarray[thread_num - 1].end = insert_num + insert_num + 1;
-
-  std::string neg= "NP_search_";
- neg = neg + std::to_string(thread_num);
-  //System::profile(neg, [&](){
-  gettimeofday(&tv1, NULL);
-  for (int i = 0; i < thread_num; ++i) {
-    thread_array[i] = new std::thread(concurr_get, &rarray[i]);
-  }
-
-  for (int i = 0; i < thread_num; ++i) {
-    thread_array[i]->join();
-    delete thread_array[i];
-  }
-  gettimeofday(&tv2, NULL);
-  duration = (double)(tv2.tv_usec - tv1.tv_usec) / 1000000 +
-             (double)(tv2.tv_sec - tv1.tv_sec);
-  printf(
-      "For %d threads, Get Total time = %f seconds, the throughput is %f "
-      "options/s\n",
-      thread_num,
-      (double)(tv2.tv_usec - tv1.tv_usec) / 1000000 +
-          (double)(tv2.tv_sec - tv1.tv_sec),
-      insert_num / duration);
-  //});
-  LOG("Concurrent negative get "
-      "end!---------------------------------------------------------------");
-  
-  LOG("Concurrent deletion begin-----------------------------------------------------------------");
-  for (int i = 0; i < thread_num; ++i) {
-    rarray[i].begin = i * chunk_size + 1;
-    rarray[i].end = (i + 1) * chunk_size + 1;
-  }
-  rarray[thread_num - 1].end = insert_num + 1;
-
-  std::string del = "Delete_";
-  del = del + std::to_string(thread_num);
-  //System::profile(del, [&](){
-  gettimeofday(&tv1, NULL);
-  for (int i = 0; i < thread_num; ++i) {
-    thread_array[i] = new std::thread(concurr_delete, &rarray[i]);
-  }
-
-  for (int i = 0; i < thread_num; ++i) {
-    thread_array[i]->join();
-    delete thread_array[i];
-  }
-  gettimeofday(&tv2, NULL);
- //});
-  duration = (double)(tv2.tv_usec - tv1.tv_usec) / 1000000 +
-             (double)(tv2.tv_sec - tv1.tv_sec);
-  printf(
-      "For %d threads, Delete Total time = %f seconds, the throughput is %f "
-      "options/s\n",
-      thread_num,
-      (double)(tv2.tv_usec - tv1.tv_usec) / 1000000 +
-          (double)(tv2.tv_sec - tv1.tv_sec),
-      insert_num / duration);
-  LOG("Concurrent deletion end-------------------------------------------------------------------");*/
+  //benchDelete(rarray, thread_num);
+  generalBench(rarray, thread_num, "Delete_", &concurr_delete);
   return 0;
 }
