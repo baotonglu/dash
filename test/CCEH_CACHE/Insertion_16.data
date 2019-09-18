@@ -1,0 +1,13 @@
+
+ Performance counter stats for process id '7768':
+
+     1,805,285,463      cache-misses:u            #   71.521 % of all cache refs      (57.09%)
+     2,524,133,488      cache-references:u                                            (57.16%)
+     2,028,540,725      LLC-loads:u                                                   (57.13%)
+        52,432,272      LLC-load-misses:u         #    2.58% of all LL-cache hits     (57.15%)
+        48,518,262      LLC-stores:u                                                  (28.55%)
+            76,073      LLC-store-misses:u                                            (28.56%)
+     1,805,642,757      r412e:u                                                       (42.85%)
+
+      29.002994431 seconds time elapsed
+

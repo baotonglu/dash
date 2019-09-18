@@ -1,0 +1,13 @@
+
+ Performance counter stats for process id '8286':
+
+     2,073,103,729      cache-misses:u            #   55.918 % of all cache refs      (57.14%)
+     3,707,388,736      cache-references:u                                            (57.14%)
+     2,655,874,493      LLC-loads:u                                                   (57.14%)
+       116,300,773      LLC-load-misses:u         #    4.38% of all LL-cache hits     (57.15%)
+        72,292,550      LLC-stores:u                                                  (28.57%)
+             3,549      LLC-store-misses:u                                            (28.57%)
+     2,072,981,261      r412e:u                                                       (42.85%)
+
+      64.036664748 seconds time elapsed
+

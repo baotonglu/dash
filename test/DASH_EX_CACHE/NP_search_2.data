@@ -1,0 +1,13 @@
+
+ Performance counter stats for process id '7082':
+
+       807,657,135      cache-misses:u            #   67.136 % of all cache refs      (57.13%)
+     1,203,015,934      cache-references:u                                            (57.14%)
+       792,405,552      LLC-loads:u                                                   (57.15%)
+         2,737,735      LLC-load-misses:u         #    0.35% of all LL-cache hits     (57.15%)
+             4,301      LLC-stores:u                                                  (28.57%)
+                87      LLC-store-misses:u                                            (28.57%)
+       807,659,478      r412e:u                                                       (42.85%)
+
+      28.001293166 seconds time elapsed
+

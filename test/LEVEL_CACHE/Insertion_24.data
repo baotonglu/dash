@@ -1,0 +1,13 @@
+
+ Performance counter stats for process id '8597':
+
+     2,306,451,367      cache-misses:u            #   36.090 % of all cache refs      (57.14%)
+     6,390,904,883      cache-references:u                                            (57.15%)
+     4,045,346,911      LLC-loads:u                                                   (57.15%)
+        14,804,511      LLC-load-misses:u         #    0.37% of all LL-cache hits     (57.14%)
+       503,399,586      LLC-stores:u                                                  (28.56%)
+            13,888      LLC-store-misses:u                                            (28.57%)
+     2,306,429,901      r412e:u                                                       (42.86%)
+
+     181.724494100 seconds time elapsed
+

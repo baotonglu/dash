@@ -1,0 +1,13 @@
+
+ Performance counter stats for process id '8033':
+
+     2,111,300,898      cache-misses:u            #   57.622 % of all cache refs      (57.14%)
+     3,664,059,470      cache-references:u                                            (57.14%)
+     2,661,925,701      LLC-loads:u                                                   (57.14%)
+       141,205,947      LLC-load-misses:u         #    5.30% of all LL-cache hits     (57.14%)
+        16,497,340      LLC-stores:u                                                  (28.57%)
+             1,193      LLC-store-misses:u                                            (28.57%)
+     2,111,287,149      r412e:u                                                       (42.86%)
+
+     242.623356505 seconds time elapsed
+

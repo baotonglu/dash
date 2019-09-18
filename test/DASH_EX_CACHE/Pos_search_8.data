@@ -1,0 +1,13 @@
+
+ Performance counter stats for process id '7172':
+
+     1,108,464,679      cache-misses:u            #   73.371 % of all cache refs      (57.13%)
+     1,510,774,159      cache-references:u                                            (57.13%)
+     1,087,853,142      LLC-loads:u                                                   (57.14%)
+         8,624,911      LLC-load-misses:u         #    0.79% of all LL-cache hits     (57.16%)
+             8,936      LLC-stores:u                                                  (28.58%)
+               108      LLC-store-misses:u                                            (28.57%)
+     1,108,575,831      r412e:u                                                       (42.84%)
+
+       9.424819560 seconds time elapsed
+

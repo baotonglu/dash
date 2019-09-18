@@ -1,0 +1,13 @@
+
+ Performance counter stats for process id '8463':
+
+     1,247,533,223      cache-misses:u            #   41.915 % of all cache refs      (57.13%)
+     2,976,327,066      cache-references:u                                            (57.14%)
+     2,256,875,597      LLC-loads:u                                                   (57.15%)
+        55,982,545      LLC-load-misses:u         #    2.48% of all LL-cache hits     (57.16%)
+       274,509,352      LLC-stores:u                                                  (28.57%)
+             5,398      LLC-store-misses:u                                            (28.57%)
+     1,247,377,299      r412e:u                                                       (42.85%)
+
+      18.946628984 seconds time elapsed
+

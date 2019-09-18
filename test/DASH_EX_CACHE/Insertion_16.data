@@ -1,0 +1,13 @@
+
+ Performance counter stats for process id '7220':
+
+     1,199,133,462      cache-misses:u            #   73.055 % of all cache refs      (57.07%)
+     1,641,412,447      cache-references:u                                            (57.02%)
+       840,349,230      LLC-loads:u                                                   (57.07%)
+        27,212,437      LLC-load-misses:u         #    3.24% of all LL-cache hits     (57.24%)
+       224,437,539      LLC-stores:u                                                  (28.67%)
+            80,576      LLC-store-misses:u                                            (28.57%)
+     1,199,164,112      r412e:u                                                       (42.76%)
+
+      29.489270626 seconds time elapsed
+

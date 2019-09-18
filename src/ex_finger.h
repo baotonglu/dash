@@ -87,11 +87,15 @@ struct Bucket {
   }
 
   /*true indicates overflow, needs extra check in the stash*/
-  inline bool test_overflow() { return (overflowCount != 0) ? true : false; }
+  inline bool test_overflow() {
+     //return (overflowCount != 0) ? true : false; 
+     return overflowCount;
+  }
 
   inline bool test_stash_check() {
     int mask = *((int *)membership);
-    return ((mask & overflowSet) != 0) ? true : false;
+    //return ((mask & overflowSet) != 0) ? true : false;
+    return (mask & overflowSet);
   }
 
   inline void clear_stash_check() {
@@ -379,16 +383,19 @@ struct Bucket {
 
   /*if the lock is set, return true*/
   inline bool test_lock_set(uint32_t &version) {
-    auto value = __atomic_load_n(&version_lock, __ATOMIC_ACQUIRE);
-    version = value & lockMask;
-    return (value & lockSet) != 0;
+    //auto value = __atomic_load_n(&version_lock, __ATOMIC_ACQUIRE);
+    //version = value & lockMask;
+    //return (value & lockSet) != 0;
+    version = __atomic_load_n(&version_lock, __ATOMIC_ACQUIRE);
+    return (version & lockSet) != 0;
   }
 
   // test whether the version has change, if change, return true
   inline bool test_lock_version_change(uint32_t old_version) {
+    //auto value = __atomic_load_n(&version_lock, __ATOMIC_ACQUIRE);
+    //return ((value & lockSet) != 0) || ((value & lockMask) != old_version);
     auto value = __atomic_load_n(&version_lock, __ATOMIC_ACQUIRE);
-    auto version = value & lockMask;
-    return ((value & lockSet) != 0) || (version != old_version);
+    return (old_version != value);
   }
 
   int Insert(T key, Value_t value, uint8_t meta_hash, bool probe) {
@@ -1062,7 +1069,7 @@ class Finger_EH {
   int FindAnyway(T key);
   void CheckDepthCount();
   void getNumber() {
-    // printf("the size of the bucket is %lld\n", sizeof(struct Bucket));
+     printf("the size of the bucket is %lld\n", sizeof(struct Bucket<T>));
     // printf("the size of the Table is %lld\n", sizeof(struct Table));
 
     size_t _count = 0;
@@ -1227,7 +1234,7 @@ void Finger_EH<T>::Directory_Doubling(int x, Table<T> *new_b) {
   FixMe
   need safely deallocate the old_directory
   */
-  // printf("Done!!Directory_Doubling towards %lld\n", dir->global_depth);
+   printf("Done!!Directory_Doubling towards %lld\n", dir->global_depth);
 }
 
 template<class T>

@@ -770,6 +770,7 @@ RETRY:
 
 template<class T>
 Value_t CCEH<T>::Get(T key) {
+  //std::cout<<"Begin: Get key "<<key<<std::endl;
   uint64_t key_hash;
   if constexpr (std::is_pointer_v<T>){
     key_hash = h(key, strlen(key));
@@ -785,13 +786,11 @@ RETRY:
   Segment<T>* dir_ = dir_entry[x];
 
 #ifdef INPLACE
-  auto sema = dir_->sema;
-  if (sema == -1)
-  {
+  //dir_->mutex.lock_shared();
+  if(!dir_->try_get_rd_lock(pool_addr)){
     goto RETRY;
   }
-  //dir_->mutex.lock_shared();
-  dir_->get_rd_lock(pool_addr);
+  //dir_->get_rd_lock(pool_addr);
 
   if ((key_hash >> (8*sizeof(key_hash)-dir_->local_depth)) != dir_->pattern || dir_->sema == -1){
     //dir_->mutex.unlock_shared();
@@ -819,6 +818,7 @@ RETRY:
         //dir_->mutex.unlock_shared();
         dir_->release_rd_lock(pool_addr);
   #endif
+        //std::cout<<"End: Get key "<<key<<std::endl;
         return value;
       }
     }      
@@ -828,6 +828,7 @@ RETRY:
   //dir_->mutex.unlock_shared();
   dir_->release_rd_lock(pool_addr);
 #endif
+  //std::cout<<"End: Get key "<<key<<std::endl;
   return NONE;
 }
 /*

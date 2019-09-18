@@ -1,0 +1,13 @@
+
+ Performance counter stats for process id '7573':
+
+     1,313,148,570      cache-misses:u            #   77.430 % of all cache refs      (57.14%)
+     1,695,910,348      cache-references:u                                            (57.14%)
+     1,356,184,334      LLC-loads:u                                                   (57.15%)
+        90,923,105      LLC-load-misses:u         #    6.70% of all LL-cache hits     (57.15%)
+         7,865,590      LLC-stores:u                                                  (28.57%)
+               269      LLC-store-misses:u                                            (28.57%)
+     1,313,136,121      r412e:u                                                       (42.85%)
+
+     125.171137639 seconds time elapsed
+

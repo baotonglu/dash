@@ -1,0 +1,13 @@
+
+ Performance counter stats for process id '8369':
+
+     1,280,591,667      cache-misses:u            #   44.230 % of all cache refs      (57.14%)
+     2,895,321,421      cache-references:u                                            (57.14%)
+     2,273,220,460      LLC-loads:u                                                   (57.15%)
+        73,446,736      LLC-load-misses:u         #    3.23% of all LL-cache hits     (57.15%)
+       176,485,769      LLC-stores:u                                                  (28.57%)
+             5,033      LLC-store-misses:u                                            (28.57%)
+     1,280,560,514      r412e:u                                                       (42.85%)
+
+      32.220365411 seconds time elapsed
+

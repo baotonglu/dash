@@ -1,0 +1,13 @@
+
+ Performance counter stats for process id '8177':
+
+     1,289,989,187      cache-misses:u            #   46.250 % of all cache refs      (57.14%)
+     2,789,171,364      cache-references:u                                            (57.14%)
+     2,280,580,894      LLC-loads:u                                                   (57.14%)
+        81,340,881      LLC-load-misses:u         #    3.57% of all LL-cache hits     (57.14%)
+        62,451,502      LLC-stores:u                                                  (28.57%)
+               868      LLC-store-misses:u                                            (28.57%)
+     1,290,015,186      r412e:u                                                       (42.86%)
+
+     111.900879605 seconds time elapsed
+

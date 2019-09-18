@@ -1,0 +1,13 @@
+
+ Performance counter stats for process id '7669':
+
+     1,831,789,798      cache-misses:u            #   73.448 % of all cache refs      (57.19%)
+     2,493,998,048      cache-references:u                                            (57.08%)
+     2,032,508,106      LLC-loads:u                                                   (57.06%)
+        56,883,253      LLC-load-misses:u         #    2.80% of all LL-cache hits     (57.04%)
+        33,809,702      LLC-stores:u                                                  (28.63%)
+            14,620      LLC-store-misses:u                                            (28.71%)
+     1,831,890,623      r412e:u                                                       (42.96%)
+
+      68.341625948 seconds time elapsed
+
