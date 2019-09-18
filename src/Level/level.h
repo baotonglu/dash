@@ -11,9 +11,9 @@
 #include <atomic>
 #include <libpmemobj.h>
 #include <libpmem.h>
-#include "util/pair.h"
-#include "util/hash.h"
-#include "util/persist.h"
+#include "../../util/pair.h"
+#include "../../util/hash.h"
+#include "../../util/persist.h"
 #include <sys/stat.h>
 #include <inttypes.h> 
 #define ASSOC_NUM 7

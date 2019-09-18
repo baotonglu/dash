@@ -403,13 +403,15 @@ struct Bucket {
 	}
 
 	/*true indicates overflow, needs extra check in the stash*/
-	inline bool test_overflow(){
-		return (overflowCount != 0)?true:false;
+	inline bool test_overflow() {
+		//return (overflowCount != 0) ? true : false; 
+		return overflowCount;
 	}
 
-	inline bool test_stash_check(){
+	inline bool test_stash_check() {
 		int mask = *((int *)membership);
-		return ((mask & overflowSet) != 0)?true:false;
+		//return ((mask & overflowSet) != 0) ? true : false;
+		return (mask & overflowSet);
 	}
 
 	inline void clear_stash_check(){

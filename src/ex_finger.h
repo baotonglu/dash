@@ -76,7 +76,7 @@ constexpr uint8_t nextNeighborSet = 1 << 6;
 #define PROBE_BITMAP(var) ((var)&allocMask)
 
 template<class T>
-struct Bucket {
+struct  Bucket {
   inline int find_empty_slot() {
     if (GET_COUNT(bitmap) == kNumPairPerBucket) {
       return -1;
@@ -763,7 +763,6 @@ struct Table {
     }
     return -1;
   }
-
   char dummy[48];
   Bucket<T> bucket[kNumBucket + stashBucket];
   size_t local_depth;
