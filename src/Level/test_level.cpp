@@ -18,8 +18,8 @@
 //#define MIXED_TEST 1
 //#define TEST_BANDWIDTH 1
 
-static const char *pool_name = "/mnt/pmem0/pmem_level.data";
-//static const char *pool_name = "pmem_cceh.data";
+//static const char *pool_name = "/mnt/pmem0/pmem_level.data";
+static const char *pool_name = "pmem_level.data";
 static const size_t pool_size = 1024ul * 1024ul * 1024ul * 30ul;
 
 PMEMobjpool *pop;
@@ -48,11 +48,6 @@ bool finished = false;
  
 struct my_root{
 	PMEMoid _level;
-};
-
-/*fixed length 16-byte key*/
-struct string_key{
-  char key[16];
 };
 
 struct range {
@@ -295,7 +290,6 @@ void generate_8B(void *memory_region, int generate_num, bool persist){
   }
 }
 
-/*generate random 16-byte string and store it in the memory_region*/
 void generate_16B(void *memory_region, int generate_num, bool persist){
   string_key *var_workload = reinterpret_cast<string_key *>(memory_region);
   char var_key[24];
@@ -303,13 +297,12 @@ void generate_16B(void *memory_region, int generate_num, bool persist){
   for(int i = 0; i < generate_num; ++i){
     uint64_t _key = genrand64_int64();
     snprintf(var_key, 24, "%lld", _key);
-    var_key[15] = '\0';
-    strcpy(reinterpret_cast<char *>(var_workload + i), var_key);
+    memcpy(var_workload + i, var_key, 16);
+    var_workload[i].length = 16;
   }
 
   if(persist){
-    //Allocator::Persist(memory_region, generate_num*sizeof(string_key));
-    pmemobj_persist(pop, memory_region, generate_num*sizeof(string_key));
+    Allocator::Persist(memory_region, generate_num*sizeof(string_key));
   }
 }
 

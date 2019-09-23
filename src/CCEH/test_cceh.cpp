@@ -177,7 +177,7 @@ void concurr_get(struct range *_range) {
       not_found++;
     }
   }
-  //std::cout <<"not_found = "<<not_found<<std::endl;
+  std::cout <<"not_found = "<<not_found<<std::endl;
   /*the last thread notify the main thread to wake up*/
   if (SUB(&bar_c, 1) == 0){
     std::unique_lock<std::mutex> lck(mtx);

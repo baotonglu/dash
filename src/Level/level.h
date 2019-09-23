@@ -21,8 +21,18 @@
 #define LEVEL_TYPE 2000
 #define LOCK_TYPE 3000
 
-#define BATCH 1
+//#define BATCH 1
 #define UNIQUE_CHECK 1
+
+struct string_key{
+  char key[16];
+  int length;
+};
+
+inline bool var_compare(char *str1, char *str2, int len1, int len2){
+   if(len1 != len2) return false;
+   return !memcmp(str1, str2, len1);
+}
 
 template<class T>
 struct Entry {
@@ -116,7 +126,8 @@ class LevelHashing{
 template<class T>
 uint64_t LevelHashing<T>::F_HASH(T key){
   if constexpr (std::is_pointer_v<T>){
-    return h(key, strlen(key), f_seed);
+    //return h(key, strlen(key), f_seed);
+    return h(key, (reinterpret_cast<string_key *>(key))->length, f_seed);
   }else{
     return h(&key, sizeof(Key_t), f_seed);
   }
@@ -125,7 +136,8 @@ uint64_t LevelHashing<T>::F_HASH(T key){
 template<class T>
 uint64_t LevelHashing<T>::S_HASH(T key){
   if constexpr (std::is_pointer_v<T>){
-    return h(key, strlen(key), s_seed);
+    //return h(key, strlen(key), s_seed);
+    return h(key, (reinterpret_cast<string_key *>(key))->length, s_seed);
   }else{
     return h(&key, sizeof(Key_t), s_seed);
   }
@@ -249,7 +261,8 @@ RETRY:
   for(int i = 0; i < 2; ++i){
     for(int j = 0; j < ASSOC_NUM; ++j){
       if constexpr (std::is_pointer_v<T>){
-        if ((buckets[i][f_idx].token[j] == 1) && (strcmp(buckets[i][f_idx].slot[j].key, key) == 0)){
+        //if ((buckets[i][f_idx].token[j] == 1) && (strcmp(buckets[i][f_idx].slot[j].key, key) == 0)){
+        if ((buckets[i][f_idx].token[j] == 1) && var_compare(buckets[i][f_idx].slot[j].key, key, (reinterpret_cast<string_key*>(buckets[i][f_idx].slot[j].key))->length, (reinterpret_cast<string_key*>(key))->length)){
           inserted = true;
           goto UNIQUE;
         }
@@ -479,7 +492,7 @@ void LevelHashing<T>::resize(PMEMobjpool *pop) {
             interim_level_buckets[f_idx].slot[j].value = value;
             interim_level_buckets[f_idx].slot[j].key = key;
 #ifndef BATCH
-            pmemobj_persist(pop, &interim_level_buckets[f_idx].slot[j], sizeof(Entry));
+            pmemobj_persist(pop, &interim_level_buckets[f_idx].slot[j], sizeof(Entry<T>));
             mfence();
 #endif
       interim_level_buckets[f_idx].token[j] = 1;
@@ -496,7 +509,7 @@ void LevelHashing<T>::resize(PMEMobjpool *pop) {
             interim_level_buckets[s_idx].slot[j].value = value;
             interim_level_buckets[s_idx].slot[j].key = key;
 #ifndef BATCH
-            pmemobj_persist(pop, &interim_level_buckets[s_idx].slot[j], sizeof(Entry));
+            pmemobj_persist(pop, &interim_level_buckets[s_idx].slot[j], sizeof(Entry<T>));
             mfence();
 #endif
       interim_level_buckets[s_idx].token[j] = 1;
@@ -740,7 +753,8 @@ RETRY:
 
       for(j = 0; j < ASSOC_NUM; j ++){
         if constexpr (std::is_pointer_v<T>){
-          if (buckets[i][f_idx].token[j] == 1 && (strcmp(buckets[i][f_idx].slot[j].key, key) == 0))
+          if ((buckets[i][f_idx].token[j] == 1) && var_compare(buckets[i][f_idx].slot[j].key, key, (reinterpret_cast<string_key*>(buckets[i][f_idx].slot[j].key))->length, (reinterpret_cast<string_key*>(key))->length))
+        //  if (buckets[i][f_idx].token[j] == 1 && (strcmp(buckets[i][f_idx].slot[j].key, key) == 0))
           {
             //mutex[f_idx/locksize].unlock_shared();
             pmemobj_rwlock_unlock(pop, &mutex[f_idx/locksize]);
@@ -776,7 +790,8 @@ RETRY:
 
       for(j = 0; j < ASSOC_NUM; j ++){
         if constexpr (std::is_pointer_v<T>){
-          if (buckets[i][s_idx].token[j] == 1 && (strcmp(buckets[i][s_idx].slot[j].key, key) == 0))
+          //if (buckets[i][s_idx].token[j] == 1 && (strcmp(buckets[i][s_idx].slot[j].key, key) == 0))
+          if ((buckets[i][s_idx].token[j] == 1) && var_compare(buckets[i][s_idx].slot[j].key, key, (reinterpret_cast<string_key*>(buckets[i][s_idx].slot[j].key))->length, (reinterpret_cast<string_key*>(key))->length))
           {
             pmemobj_rwlock_unlock(pop, &mutex[s_idx/locksize]);
             return buckets[i][s_idx].slot[j].value;
@@ -929,7 +944,8 @@ bool LevelHashing<T>::Delete(PMEMobjpool *pop, T key) {
 
       for(j = 0; j < ASSOC_NUM; j ++){
         if constexpr (std::is_pointer_v<T>){
-          if (buckets[i][f_idx].token[j] == 1 && (strcmp(buckets[i][f_idx].slot[j].key, key) == 0))
+          //if (buckets[i][f_idx].token[j] == 1 && (strcmp(buckets[i][f_idx].slot[j].key, key) == 0))
+          if ((buckets[i][f_idx].token[j] == 1) && var_compare(buckets[i][f_idx].slot[j].key, key, (reinterpret_cast<string_key*>(buckets[i][f_idx].slot[j].key))->length, (reinterpret_cast<string_key*>(key))->length))
           {
             buckets[i][f_idx].token[j] = 0;
             pmemobj_persist(pop, &buckets[i][f_idx].token[j], sizeof(uint8_t));
@@ -964,7 +980,8 @@ bool LevelHashing<T>::Delete(PMEMobjpool *pop, T key) {
 
       for(j = 0; j < ASSOC_NUM; j ++){
         if constexpr (std::is_pointer_v<T>){
-          if (buckets[i][s_idx].token[j] == 1 && (strcmp(buckets[i][s_idx].slot[j].key, key) == 0))
+          //if (buckets[i][s_idx].token[j] == 1 && (strcmp(buckets[i][s_idx].slot[j].key, key) == 0))
+          if ((buckets[i][s_idx].token[j] == 1) && var_compare(buckets[i][s_idx].slot[j].key, key, (reinterpret_cast<string_key*>(buckets[i][s_idx].slot[j].key))->length, (reinterpret_cast<string_key*>(key))->length))
           {
             buckets[i][s_idx].token[j] = 0;
             pmemobj_persist(pop, &buckets[i][s_idx].token[j], sizeof(uint8_t));
