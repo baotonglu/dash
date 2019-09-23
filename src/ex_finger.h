@@ -75,6 +75,16 @@ constexpr uint8_t nextNeighborSet = 1 << 6;
 #define ORG_BITMAP(var) ((~((var)&allocMask)) & allocMask)
 #define PROBE_BITMAP(var) ((var)&allocMask)
 
+struct string_key{
+  char key[16];
+  int length;
+};
+
+inline bool var_compare(char *str1, char *str2, int len1, int len2){
+   if(len1 != len2) return false;
+   return !memcmp(str1, str2, len1);
+}
+
 template<class T>
 struct  Bucket {
   inline int find_empty_slot() {
@@ -254,7 +264,38 @@ struct  Bucket {
     }
 
     if constexpr (std::is_pointer_v<T>){
-        /*loop unrolling*/
+      string_key* _key = reinterpret_cast<string_key *>(key);
+      if (mask != 0) {
+        for (int i = 0; i < 12; i += 4) {
+          //if (CHECK_BIT(mask, i) && (strcmp(_[i].key, key) == 0)) {
+          //  return _[i].value;
+          //}
+          if (CHECK_BIT(mask, i) && (var_compare((char *)(_[i].key), _key->key, (reinterpret_cast<string_key *>(_[i].key))->length, _key->length))) {
+            return _[i].value;
+          }
+
+          if (CHECK_BIT(mask, i+1) && (var_compare((char *)(_[i + 1].key), _key->key, (reinterpret_cast<string_key *>(_[i + 1].key))->length, _key->length))) {
+            return _[i+1].value;
+          }
+
+          if (CHECK_BIT(mask, i+2) && (var_compare((char *)(_[i + 2].key), _key->key, (reinterpret_cast<string_key *>(_[i + 2].key))->length, _key->length))) {
+            return _[i+2].value;
+          }
+
+          if (CHECK_BIT(mask, i+3) && (var_compare((char *)(_[i + 3].key), _key->key, (reinterpret_cast<string_key *>(_[i + 3].key))->length, _key->length))) {
+            return _[i+3].value;
+          }
+        }
+
+        if (CHECK_BIT(mask, 12) && (var_compare((char *)(_[12].key), _key->key, (reinterpret_cast<string_key *>(_[12].key))->length, _key->length))) {
+            return _[12].value;
+        }
+
+        if (CHECK_BIT(mask, 13) && (var_compare((char *)(_[13].key), _key->key, (reinterpret_cast<string_key *>(_[13].key))->length, _key->length))) {
+            return _[13].value;
+        }
+      }
+      /*
       if (mask != 0) {
         for (int i = 0; i < 12; i += 4) {
           if (CHECK_BIT(mask, i) && (strcmp(_[i].key, key) == 0)) {
@@ -281,7 +322,7 @@ struct  Bucket {
         if (CHECK_BIT(mask, 13) && (strcmp(_[13].key, key) == 0)) {
           return _[13].value;
         }
-      }
+      }*/
     }else{
       /*loop unrolling*/
       if (mask != 0) {
@@ -428,39 +469,42 @@ struct  Bucket {
     }
     /*loop unrolling*/
     if constexpr (std::is_pointer_v<T>){
+      string_key* _key = reinterpret_cast<string_key *>(key);
+        /*loop unrolling*/
       if (mask != 0) {
         for (int i = 0; i < 12; i += 4) {
-          if (CHECK_BIT(mask, i) && (strcmp(_[i].key, key) == 0)) {
+          if (CHECK_BIT(mask, i) && (var_compare((char *)(_[i].key), _key->key, (reinterpret_cast<string_key *>(_[i].key))->length, _key->length))) {
             unset_hash(i, false);
             return 0;
           }
 
-          if (CHECK_BIT(mask, i + 1) && (strcmp(_[i + 1].key, key) == 0)) {
-            unset_hash(i + 1, false);
+          if (CHECK_BIT(mask, i+1) && (var_compare((char *)(_[i + 1].key), _key->key, (reinterpret_cast<string_key *>(_[i + 1].key))->length, _key->length))) {
+            unset_hash(i+1, false);
             return 0;
           }
 
-          if (CHECK_BIT(mask, i + 2) && (strcmp(_[i + 2].key, key) == 0)) {
-            unset_hash(i + 2, false);
+          if (CHECK_BIT(mask, i+2) && (var_compare((char *)(_[i + 2].key), _key->key, (reinterpret_cast<string_key *>(_[i + 2].key))->length, _key->length))) {
+            unset_hash(i+2, false);
             return 0;
           }
 
-          if (CHECK_BIT(mask, i + 3) && (strcmp(_[i + 3].key, key) == 0)) {
-            unset_hash(i + 3, false);
+          if (CHECK_BIT(mask, i+3) && (var_compare((char *)(_[i + 3].key), _key->key, (reinterpret_cast<string_key *>(_[i + 3].key))->length, _key->length))) {
+            unset_hash(i+3, false);
             return 0;
           }
         }
 
-        if (CHECK_BIT(mask, 12) && (strcmp(_[12].key, key) == 0)) {
-          unset_hash(12, false);
-          return 0;
+        if (CHECK_BIT(mask, 12) && (var_compare((char *)(_[12].key), _key->key, (reinterpret_cast<string_key *>(_[12].key))->length, _key->length))) {
+            unset_hash(12, false);
+            return 0;
         }
 
-        if (CHECK_BIT(mask, 13) && (strcmp(_[13].key, key) == 0)) {
-          unset_hash(13, false);
-          return 0;
+        if (CHECK_BIT(mask, 13) && (var_compare((char *)(_[13].key), _key->key, (reinterpret_cast<string_key *>(_[13].key))->length, _key->length))) {
+            unset_hash(13, false);
+            return 0;
         }
       }
+
     }else{
       if (mask != 0) {
         for (int i = 0; i < 12; i += 4) {
@@ -990,7 +1034,8 @@ Table<T> *Table<T>::Split(size_t _key_hash) {
     for (int j = 0; j < kNumPairPerBucket; ++j) {
       if (CHECK_BIT(mask, j)) {
         if constexpr (std::is_pointer_v<T>){
-          key_hash = h(curr_bucket->_[j].key, strlen(curr_bucket->_[j].key));
+          //key_hash = h(curr_bucket->_[j].key, strlen(curr_bucket->_[j].key));
+          key_hash = h(curr_bucket->_[j].key, (reinterpret_cast<string_key *>(curr_bucket->_[j].key))->length);
         }else{
           key_hash = h(&(curr_bucket->_[j].key), sizeof(Key_t));
         }
@@ -1016,7 +1061,8 @@ Table<T> *Table<T>::Split(size_t _key_hash) {
     for (int j = 0; j < kNumPairPerBucket; ++j) {
       if (CHECK_BIT(mask, j)) {
         if constexpr (std::is_pointer_v<T>){
-          key_hash = h(curr_bucket->_[j].key, strlen(curr_bucket->_[j].key));
+          //key_hash = h(curr_bucket->_[j].key, strlen(curr_bucket->_[j].key));
+          key_hash = h(curr_bucket->_[j].key, (reinterpret_cast<string_key *>(curr_bucket->_[j].key))->length);
         }else{
           key_hash = h(&(curr_bucket->_[j].key), sizeof(Key_t));
         }
@@ -1264,7 +1310,8 @@ template<class T>
 int Finger_EH<T>::Insert(T key, Value_t value) {
   uint64_t key_hash;
   if constexpr (std::is_pointer_v<T>){
-    key_hash = h(key, strlen(key));
+    //key_hash = h(key, strlen(key));
+    key_hash = h(key, (reinterpret_cast<string_key *>(key))->length);
     //printf("Insert the variable length key = %s\n", key);
   }else{
     key_hash = h(&key, sizeof(key));
@@ -1353,7 +1400,8 @@ template<class T>
 Value_t Finger_EH<T>::Get(T key) {
   uint64_t key_hash;
   if constexpr (std::is_pointer_v<T>){
-    key_hash = h(key, strlen(key));
+    //key_hash = h(key, strlen(key));
+    key_hash = h(key, (reinterpret_cast<string_key *>(key))->length);
     //printf("Get The variable length key = %s, the length is %d\n", key, strlen(key));
   }else{
     key_hash = h(&key, sizeof(key));
@@ -1486,7 +1534,8 @@ bool Finger_EH<T>::Delete(T key) {
   /*Basic delete operation and merge operation*/
   uint64_t key_hash;
   if constexpr (std::is_pointer_v<T>){
-    key_hash = h(key, strlen(key));
+    //key_hash = h(key, strlen(key));
+    key_hash = h(key, (reinterpret_cast<string_key *>(key))->length);
   }else{
     key_hash = h(&key, sizeof(key));
   }

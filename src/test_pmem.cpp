@@ -61,9 +61,9 @@ bool finished = false;
 #define STORE(_p, _v) (__atomic_store_n (_p, _v, __ATOMIC_SEQ_CST))
  
 /*fixed length 16-byte key*/
-struct string_key{
-  char key[16];
-};
+//struct string_key{
+//  char key[16];
+//};
 
 struct range {
   uint32_t index;
@@ -80,7 +80,7 @@ void clear_cache(int insert_num){
       not_found++;
     }
   }
-  printf("clear cache: not found = %u\n", not_found);
+  printf("clear cache: %u\n", not_found);
 }
 
 void mixed(struct range *_range) {
@@ -110,7 +110,8 @@ void mixed(struct range *_range) {
     #ifdef FIXED
         key = workload[i];
     #else
-        key = reinterpret_cast<char *>(var_workload + i);
+        //key = reinterpret_cast<char *>(var_workload + i);
+        key = var_workload[i].key;
     #endif
     random = rng.next_uint32()%10;
     if(random <= 1){
@@ -142,7 +143,6 @@ void concurr_insert(struct range *_range) {
   size_t key; 
  #else
   char* key;
-  //string_key *var_workload = reinterpret_cast<string_key *>(workload);
   string_key *var_workload = reinterpret_cast<string_key *>(persist_workload);
  #endif
   char arr[64];
@@ -157,7 +157,8 @@ void concurr_insert(struct range *_range) {
     key = workload[i];
     //key = i;
  #else
-    key = reinterpret_cast<char *>(var_workload + i);
+    //key = reinterpret_cast<char *>(var_workload + i);
+    key = var_workload[i].key;
  #endif
     value = _value_workload[i];
     eh->Insert(key, value);
@@ -190,16 +191,16 @@ void concurr_get(struct range *_range) {
   for (uint64_t i = _range->begin; i < _range->end; ++i) {
  #ifdef FIXED
     key = workload[i];
-    //key = i;
  #else
-    key = reinterpret_cast<char *>(var_workload + i);
+    //key = reinterpret_cast<char *>(var_workload + i);
+    key = var_workload[i].key;
  #endif
     if (eh->Get(key) == NONE)
     {
       not_found++;
     }
   }
-  //std::cout <<"not_found = "<<not_found<<std::endl;
+  std::cout <<"not_found = "<<not_found<<std::endl;
   /*the last thread notify the main thread to wake up*/
   if (SUB(&bar_c, 1) == 0){
     std::unique_lock<std::mutex> lck(mtx);
@@ -227,15 +228,15 @@ void concurr_delete(struct range *_range) {
   for (uint64_t i = _range->begin; i < _range->end; ++i) {
  #ifdef FIXED
     key = workload[i];
-    //key = i;
  #else
-    key = reinterpret_cast<char *>(var_workload + i);
+    //key = reinterpret_cast<char *>(var_workload + i);
+    key = var_workload[i].key;
  #endif
     if (eh->Delete(key) == false) {
 	    not_found++;
     } 
   }
-  //std::cout<<"not found = "<<not_found<<std::endl;
+  std::cout<<"not found = "<<not_found<<std::endl;
     /*the last thread notify the main thread to wake up*/
   if (SUB(&bar_c, 1) == 0){
     std::unique_lock<std::mutex> lck(mtx);
@@ -291,8 +292,8 @@ void generate_16B(void *memory_region, int generate_num, bool persist){
   for(int i = 0; i < generate_num; ++i){
     uint64_t _key = genrand64_int64();
     snprintf(var_key, 24, "%lld", _key);
-    var_key[15] = '\0';
-    strcpy(reinterpret_cast<char *>(var_workload + i), var_key);
+    memcpy(var_workload + i, var_key, 16);
+    var_workload[i].length = 16;
   }
 
   if(persist){
@@ -351,6 +352,8 @@ int main(int argc, char const *argv[]) {
   length = 4;
   init_by_array64(init, length); /*initialize random number generation*/
 
+  std::cout << "The string key length = "<<sizeof(struct string_key) <<std::endl;
+
   Allocator::Initialize(pool_name, pool_size);
 
   std::cout << "The initCap is " << initCap << std::endl;
@@ -359,7 +362,6 @@ int main(int argc, char const *argv[]) {
 
   srand((unsigned)time(NULL)); 
   initialize_index(initCap);
-
 /*************************************************Generate Workload************************************************************/
   /* Description of the workload*/
   int chunk_size = insert_num / thread_num;
@@ -389,13 +391,18 @@ int main(int argc, char const *argv[]) {
   generate_num = mixed_num;
 #endif
 
-  workload = (uint64_t*)malloc((generate_num + 100)*sizeof(uint64_t)*4);
+#ifdef FIXED
+  workload = (uint64_t*)malloc((generate_num + 100)*sizeof(uint64_t)*2);
+#else
+  workload = (uint64_t*)malloc((generate_num + 100)*sizeof(string_key)*2);
+#endif
   value_workload = (uint64_t*)malloc((generate_num + 100)*sizeof(uint64_t));
+
 #ifndef FIXED 
 #ifdef MIXED_TEST
-  Allocator::ZAllocate((void **)&persist_workload, kCacheLineSize, sizeof(uint64_t) * (generate_num + 100) * 4);
+  Allocator::ZAllocate((void **)&persist_workload, kCacheLineSize, sizeof(string_key) * (generate_num + 100) * 2);
 #else
-  Allocator::ZAllocate((void **)&persist_workload, kCacheLineSize, sizeof(uint64_t) * (generate_num + 100) * 2);
+  Allocator::ZAllocate((void **)&persist_workload, kCacheLineSize, sizeof(string_key) * (generate_num + 100));
 #endif
 #endif
 
@@ -411,7 +418,8 @@ int main(int argc, char const *argv[]) {
   memcpy(persist_workload, workload, (generate_num+1)*sizeof(string_key));
   Allocator::Persist(persist_workload, (generate_num+1)*sizeof(string_key));
 #ifdef MIXED_TEST
-  generate_16B(persist_workload + 2*(generate_num+1), generate_num+1, true);
+  string_key *_persist = reinterpret_cast<string_key *>(persist_workload);
+  generate_16B(&_persist[generate_num + 1], generate_num+1, true);
 #endif
   //string_key *var_workload = reinterpret_cast<string_key *>(workload);
   //string_key *p_var_workload = reinterpret_cast<string_key *>(persist_workload);
