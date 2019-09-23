@@ -301,7 +301,7 @@ void generate_8B(void *memory_region, int generate_num, bool persist){
 
 /*generate random 16-byte string and store it in the memory_region*/
 void generate_16B(void *memory_region, int generate_num, bool persist){
-  string_key *var_workload = reinterpret_cast<string_key *>(workload);
+  string_key *var_workload = reinterpret_cast<string_key *>(memory_region);
   char var_key[24];
 
   for(int i = 0; i < generate_num; ++i){

@@ -10,7 +10,7 @@ base=(0 1000000)
 #{1..6}
 for i in 1
 do 
-	for j in {1..6}
+	for j in 6
 	do
 		echo "Begin: ${base[1]} ${workload[${i}]} ${thread_num[${j}]}"
 		numaarg=""
@@ -30,7 +30,7 @@ do
 		rm -f pmem_hash.data
 		rm -f pmem_cceh.data
 		rm -f pmem_level.data
-		OMP_PLACES=threads OMP_PROC_BIND=true OMP_NESTED=true LD_PRELOAD="./build/pmdk/src/PMDK/src/nondebug/libpmemobj.so.1 ./build/pmdk/src/PMDK/src/nondebug/libpmem.so.1" numactl $numaarg ./build/test_level 13 ${workload[$i]} ${thread_num[$j]} #>> cuckoo_finger.txt
+		OMP_PLACES=threads OMP_PROC_BIND=true OMP_NESTED=true LD_PRELOAD="./build/pmdk/src/PMDK/src/nondebug/libpmemobj.so.1 ./build/pmdk/src/PMDK/src/nondebug/libpmem.so.1" numactl $numaarg ./build/test_pmem 64 ${workload[$i]} ${thread_num[$j]} #>> cuckoo_finger.txt
 		#printf "Done for cceh dm uni: %d %d\n" ${workload[$i]} ${thread_num[$j]}
 	done
 done
