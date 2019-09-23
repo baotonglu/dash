@@ -42,11 +42,6 @@ bool finished = false;
 #define LOAD(_p) (__atomic_load_n (_p, __ATOMIC_SEQ_CST))
 #define STORE(_p, _v) (__atomic_store_n (_p, _v, __ATOMIC_SEQ_CST))
  
-/*fixed length 16-byte key*/
-struct string_key{
-  char key[16];
-};
-
 struct range {
   uint32_t index;
   uint64_t begin;
@@ -62,7 +57,7 @@ void clear_cache(int insert_num){
       not_found++;
     }
   }
-  printf("clear cache: not found = %u\n", not_found);
+  printf("clear cache: %u\n", not_found);
 }
 
 void mixed(struct range *_range) {
@@ -138,7 +133,6 @@ void concurr_insert(struct range *_range) {
   for (uint64_t i = _range->begin; i < _range->end; ++i) {
  #ifdef FIXED
     key = workload[i];
-    //key = i;
  #else
     //key = reinterpret_cast<char *>(var_workload + i);
     key = var_workload[i].key;
@@ -174,7 +168,6 @@ void concurr_get(struct range *_range) {
   for (uint64_t i = _range->begin; i < _range->end; ++i) {
  #ifdef FIXED
     key = workload[i];
-    //key = i;
  #else
     //key = reinterpret_cast<char *>(var_workload + i);
     key = var_workload[i].key;
@@ -212,7 +205,6 @@ void concurr_delete(struct range *_range) {
   for (uint64_t i = _range->begin; i < _range->end; ++i) {
  #ifdef FIXED
     key = workload[i];
-    //key = i;
  #else
     //key = reinterpret_cast<char *>(var_workload + i);
     key = var_workload[i].key;
@@ -263,8 +255,8 @@ void generate_16B(void *memory_region, int generate_num, bool persist){
   for(int i = 0; i < generate_num; ++i){
     uint64_t _key = genrand64_int64();
     snprintf(var_key, 24, "%lld", _key);
-    var_key[15] = '\0';
-    strcpy(reinterpret_cast<char *>(var_workload + i), var_key);
+    memcpy(var_workload + i, var_key, 16);
+    var_workload[i].length = 16;
   }
 
   if(persist){

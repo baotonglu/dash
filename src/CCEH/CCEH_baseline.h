@@ -39,6 +39,16 @@ constexpr size_t kNumCacheLine = 4;
 
 uint64_t clflushCount;
 
+struct string_key{
+  char key[16];
+  int length;
+};
+
+inline bool var_compare(char *str1, char *str2, int len1, int len2){
+   if(len1 != len2) return false;
+   return !memcmp(str1, str2, len1);
+}
+
 template<class T>
 struct Segment {
   static const size_t kNumSlot = kSegmentSize/sizeof(_Pair<T>);
@@ -351,7 +361,8 @@ int Segment<T>::Insert(PMEMobjpool *pool_addr, T key, Value_t value, size_t loc,
   {
     slot = (loc+i)%kNumSlot;
     if constexpr (std::is_pointer_v<T>){
-      if (_[slot].key != (T)INVALID && (strcmp(key, _[slot].key) == 0))
+      //if (_[slot].key != (T)INVALID && (strcmp(key, _[slot].key) == 0))
+      if (_[slot].key != (T)INVALID && (var_compare((reinterpret_cast<string_key*>(key))->key, _[slot].key, (reinterpret_cast<string_key*>(key))->length, (reinterpret_cast<string_key*>(_[slot].key))->length)))
       {
         release_lock(pool_addr);
         return 0;
@@ -368,7 +379,8 @@ int Segment<T>::Insert(PMEMobjpool *pool_addr, T key, Value_t value, size_t loc,
   for (unsigned i = 0; i < kNumPairPerCacheLine * kNumCacheLine; ++i) {
     slot = (loc + i) % kNumSlot;
     if constexpr (std::is_pointer_v<T>){
-      if ((_[slot].key != (T)INVALID) && ((h(_[slot].key,strlen(_[slot].key)) >> (8*sizeof(key_hash)-local_depth)) != pattern)) {
+      //if ((_[slot].key != (T)INVALID) && ((h(_[slot].key,strlen(_[slot].key)) >> (8*sizeof(key_hash)-local_depth)) != pattern)) {
+      if ((_[slot].key != (T)INVALID) && ((h(_[slot].key,(reinterpret_cast<string_key*>(_[slot].key))->length) >> (8*sizeof(key_hash)-local_depth)) != pattern)) {
         _[slot].key = (T)INVALID;
       }
       if (CAS(&_[slot].key, &LOCK, SENTINEL)) {
@@ -478,7 +490,8 @@ Segment<T>* Segment<T>::Split(PMEMobjpool *pool_addr){
     if constexpr (std::is_pointer_v<T>){
       if (_[i].key != (T)INVALID)
        {
-         key_hash = h(_[i].key, strlen(_[i].key));
+         //key_hash = h(_[i].key, strlen(_[i].key));
+         key_hash = h(_[i].key, (reinterpret_cast<string_key*>(_[i].key))->length);
        } 
     }else{
       key_hash = h(&_[i].key, sizeof(Key_t));
@@ -641,7 +654,8 @@ void CCEH<T>::Insert(T key, Value_t value) {
 STARTOVER:
   uint64_t key_hash;
   if constexpr (std::is_pointer_v<T>){
-    key_hash = h(key, strlen(key));
+    //key_hash = h(key, strlen(key));
+    key_hash = h(key, (reinterpret_cast<string_key *>(key))->length);
   }else{
     key_hash = h(&key, sizeof(key));
   }
@@ -711,7 +725,8 @@ template<class T>
 bool CCEH<T>::Delete(T key) {
   uint64_t key_hash;
   if constexpr (std::is_pointer_v<T>){
-    key_hash = h(key, strlen(key));
+    //key_hash = h(key, strlen(key));
+    key_hash = h(key, (reinterpret_cast<string_key *>(key))->length);
   }else{
     key_hash = h(&key, sizeof(key));
   }
@@ -742,7 +757,8 @@ RETRY:
   for (unsigned i = 0; i < kNumPairPerCacheLine * kNumCacheLine; ++i) {
     auto slot = (y+i) % Segment<T>::kNumSlot;
     if constexpr (std::is_pointer_v<T>){
-      if ((dir_->_[slot].key != (T)INVALID) && (strcmp(dir_->_[slot].key, key) == 0))
+      //if ((dir_->_[slot].key != (T)INVALID) && (strcmp(dir_->_[slot].key, key) == 0))
+      if ((dir_->_[slot].key != (T)INVALID) && (var_compare((reinterpret_cast<string_key*>(key))->key, dir_->_[slot].key, (reinterpret_cast<string_key*>(key))->length, (reinterpret_cast<string_key*>(dir_->_[slot].key)->length))))
       {
          dir_->_[slot].key = (T)INVALID;
          Allocator::Persist(&dir_->_[slot], sizeof(_Pair<T>));
@@ -773,7 +789,8 @@ Value_t CCEH<T>::Get(T key) {
   //std::cout<<"Begin: Get key "<<key<<std::endl;
   uint64_t key_hash;
   if constexpr (std::is_pointer_v<T>){
-    key_hash = h(key, strlen(key));
+    //key_hash = h(key, strlen(key));
+    key_hash = h(key, (reinterpret_cast<string_key *>(key))->length);
   }else{
     key_hash = h(&key, sizeof(key));
   }
@@ -802,7 +819,8 @@ RETRY:
   for (unsigned i = 0; i < kNumPairPerCacheLine * kNumCacheLine; ++i) {
     auto slot = (y+i) % Segment<T>::kNumSlot;
     if constexpr (std::is_pointer_v<T>){
-      if ((dir_->_[slot].key != (T)INVALID) && (strcmp(dir_->_[slot].key, key) == 0))
+      //if ((dir_->_[slot].key != (T)INVALID) && (strcmp(dir_->_[slot].key, key) == 0))
+      if ((dir_->_[slot].key != (T)INVALID) && (var_compare((reinterpret_cast<string_key*>(key))->key, dir_->_[slot].key, (reinterpret_cast<string_key*>(key))->length, (reinterpret_cast<string_key*>(dir_->_[slot].key)->length))))
       {
          auto value = dir_->_[slot].value;
   #ifdef INPLACE
