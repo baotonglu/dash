@@ -295,34 +295,6 @@ struct  Bucket {
             return _[13].value;
         }
       }
-      /*
-      if (mask != 0) {
-        for (int i = 0; i < 12; i += 4) {
-          if (CHECK_BIT(mask, i) && (strcmp(_[i].key, key) == 0)) {
-            return _[i].value;
-          }
-
-          if (CHECK_BIT(mask, i + 1) && (strcmp(_[i + 1].key, key) == 0)) {
-            return _[i + 1].value;
-          }
-
-          if (CHECK_BIT(mask, i + 2) && (strcmp(_[i + 2].key, key) == 0)) {
-            return _[i + 2].value;
-          }
-
-          if (CHECK_BIT(mask, i + 3) && (strcmp(_[i + 3].key, key) == 0)) {
-            return _[i + 3].value;
-          }
-        }
-
-        if (CHECK_BIT(mask, 12) && (strcmp(_[12].key, key) == 0)) {
-          return _[12].value;
-        }
-
-        if (CHECK_BIT(mask, 13) && (strcmp(_[13].key, key) == 0)) {
-          return _[13].value;
-        }
-      }*/
     }else{
       /*loop unrolling*/
       if (mask != 0) {

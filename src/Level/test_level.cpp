@@ -18,8 +18,8 @@
 //#define MIXED_TEST 1
 //#define TEST_BANDWIDTH 1
 
-//static const char *pool_name = "/mnt/pmem0/pmem_level.data";
-static const char *pool_name = "pmem_level.data";
+static const char *pool_name = "/mnt/pmem0/pmem_level.data";
+//static const char *pool_name = "pmem_level.data";
 static const size_t pool_size = 1024ul * 1024ul * 1024ul * 30ul;
 
 PMEMobjpool *pop;
@@ -184,7 +184,7 @@ void concurr_get(struct range *_range) {
       not_found++;
     }
   }
-  //std::cout <<"not_found = "<<not_found<<std::endl;
+  std::cout <<"not_found = "<<not_found<<std::endl;
   /*the last thread notify the main thread to wake up*/
   if (SUB(&bar_c, 1) == 0){
     std::unique_lock<std::mutex> lck(mtx);
