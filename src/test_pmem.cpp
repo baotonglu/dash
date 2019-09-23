@@ -389,9 +389,12 @@ int main(int argc, char const *argv[]) {
   workload = (uint64_t*)malloc((generate_num + 100)*sizeof(uint64_t)*4);
   value_workload = (uint64_t*)malloc((generate_num + 100)*sizeof(uint64_t));
 #ifndef FIXED 
+#ifdef MIXED_TEST
+  Allocator::ZAllocate((void **)&persist_workload, kCacheLineSize, sizeof(uint64_t) * (generate_num + 100) * 4);
+#else
   Allocator::ZAllocate((void **)&persist_workload, kCacheLineSize, sizeof(uint64_t) * (generate_num + 100) * 2);
 #endif
-
+#endif
 
 #ifdef FIXED
   generate_8B(workload, generate_num*2+2, false);
@@ -402,13 +405,16 @@ int main(int argc, char const *argv[]) {
   generate_8B(value_workload, generate_num+1, false);
 
 #ifndef FIXED
-  string_key *var_workload = reinterpret_cast<string_key *>(workload);
-  string_key *p_var_workload = reinterpret_cast<string_key *>(persist_workload);
-  for(int i = 0; i < generate_num + 1; ++i){
-    strcpy(reinterpret_cast<char *>(p_var_workload + i), reinterpret_cast<char *>(var_workload + i));
-  }
-
+  memcpy(persist_workload, workload, (generate_num+1)*sizeof(string_key));
   Allocator::Persist(persist_workload, (generate_num+1)*sizeof(string_key));
+#ifdef MIXED_TEST
+  generate_16B(persist_workload + 2*(generate_num+1), generate_num+1, true);
+#endif
+  //string_key *var_workload = reinterpret_cast<string_key *>(workload);
+  //string_key *p_var_workload = reinterpret_cast<string_key *>(persist_workload);
+  //for(int i = 0; i < generate_num + 1; ++i){
+  //  strcpy(reinterpret_cast<char *>(p_var_workload + i), reinterpret_cast<char *>(var_workload + i));
+  //}
 #endif
 
   /**************************************************Benchmark***********************************************************/

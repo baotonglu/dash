@@ -14,13 +14,9 @@
 
 #define LOG(msg) std::cout << msg << "\n"
 #define LAYOUT "_level"
-#define FIXED 1
+//#define FIXED 1
 //#define MIXED_TEST 1
 //#define TEST_BANDWIDTH 1
-
-//const uint64_t POOLSIZE = (uint64_t)1024*1024*1024*30;
-
-//const char *file = "/mnt/pmem0/pmem_level.data";
 
 static const char *pool_name = "/mnt/pmem0/pmem_level.data";
 //static const char *pool_name = "pmem_cceh.data";
@@ -405,10 +401,15 @@ int main(int argc, char const *argv[]) {
 
   workload = (uint64_t*)malloc((generate_num + 100)*sizeof(uint64_t)*4);
   value_workload = (uint64_t*)malloc((generate_num + 100)*sizeof(uint64_t));
-#ifndef FIXED 
-  Allocator::ZAllocate((void **)&persist_workload, kCacheLineSize, sizeof(uint64_t) * (generate_num + 100) * 2);
+#ifndef FIXED
+  PMEMoid pm_ptr;
+#ifdef MIXED_TEST
+  pmemobj_zalloc(pop, &pm_ptr, sizeof(uint64_t) * (generate_num + 100) * 4, LEVEL_TYPE);
+#else
+  pmemobj_zalloc(pop, &pm_ptr, sizeof(uint64_t) * (generate_num + 100) * 2, LEVEL_TYPE);
 #endif
-
+  persist_workload = reinterpret_cast<uint64_t *>(pmemobj_direct(pm_ptr));
+#endif
 
 #ifdef FIXED
   generate_8B(workload, generate_num*2+2, false);
@@ -419,14 +420,16 @@ int main(int argc, char const *argv[]) {
   generate_8B(value_workload, generate_num+1, false);
 
 #ifndef FIXED
-  string_key *var_workload = reinterpret_cast<string_key *>(workload);
-  string_key *p_var_workload = reinterpret_cast<string_key *>(persist_workload);
-  for(int i = 0; i < generate_num + 1; ++i){
-    strcpy(reinterpret_cast<char *>(p_var_workload + i), reinterpret_cast<char *>(var_workload + i));
-  }
-
-  //Allocator::Persist(persist_workload, (generate_num+1)*sizeof(string_key));
+  memcpy(persist_workload, workload, (generate_num+1)*sizeof(string_key));
   pmemobj_persist(pop, persist_workload, (generate_num+1)*sizeof(string_key));
+#ifdef MIXED_TEST
+  generate_16B(persist_workload + 2*(generate_num+1), generate_num+1, true);
+#endif
+  //string_key *var_workload = reinterpret_cast<string_key *>(workload);
+  //string_key *p_var_workload = reinterpret_cast<string_key *>(persist_workload);
+  //for(int i = 0; i < generate_num + 1; ++i){
+  //  strcpy(reinterpret_cast<char *>(p_var_workload + i), reinterpret_cast<char *>(var_workload + i));
+  //}
 #endif
 
   /**************************************************Benchmark***********************************************************/
