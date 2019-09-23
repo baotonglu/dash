@@ -10,7 +10,7 @@
 #include <unistd.h>
 #include <signal.h>
 
-#define PROFILE 1
+//#define PROFILE 1
 
 struct System
 {
@@ -35,18 +35,22 @@ struct System
 #else
             // perf the cache misses of the file
             char buf[200];
-            sprintf(buf, "perf stat -e cache-misses,cache-references,LLC-loads,LLC-load-misses,LLC-stores,LLC-store-misses,r412e -p %d > %s 2>&1",ppid,filename.c_str());
+            sprintf(buf, "perf stat -e cache-misses,cache-references,L1-dcache-load-misses,LLC-loads,LLC-load-misses,LLC-stores,LLC-store-misses,r412e -p %d > %s 2>&1",ppid,filename.c_str());
             execl("/bin/sh", "sh", "-c", buf, NULL);
 #endif
         }
 #ifndef PROFILE
         setpgid(pid, 0);
 #endif
-        sleep(1);
+        sleep(3);
         // Run body
         body();
         // Kill profiler  
-        kill(-pid,SIGINT);
+#ifdef PROFILE
+        kill(pid, SIGINT);
+#else
+        kill(-pid, SIGINT);
+#endif
         sleep(1);
         //waitpid(pid,nullptr,0);
     }
