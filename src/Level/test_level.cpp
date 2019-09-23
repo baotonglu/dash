@@ -319,6 +319,9 @@ void generalBench(range *rarray, int thread_num, std::string profile_name, void 
   double duration;
   finished = false;
   clear_cache(thread_num);
+  bar_a = 1;
+  bar_b = thread_num;
+  bar_c = thread_num;
   //System::profile(profile_name, [&](){
   
   for (int i = 0; i < thread_num; ++i) {
@@ -434,41 +437,28 @@ int main(int argc, char const *argv[]) {
 
   /**************************************************Benchmark***********************************************************/
 
-  /******************Benchmark for insert***********************/
+   /******************Benchmark for insert***********************/
   printf("Insert workload begin\n");
-  bar_a = 1;
-  bar_b = thread_num;
-  bar_c = thread_num;
 #ifdef TEST_BANDWIDTH
-  bar_b = 24;
-  bar_c = 24;
-  benchInsert(rarray_insert, 24);
+  generalBench(rarray_insert, 24, "Insertion_", &concurr_insert);
 #else
   /* normal benchmark for insert operation*/
-  //benchInsert(rarray, thread_num);
   generalBench(rarray, thread_num, "Insertion_", &concurr_insert);
 #endif
 
   /******************Benchmark for mixed workload************************/
 #ifdef MIXED_TEST
   printf("Mixed workload begin\n");
-  bar_a = 1;
-  bar_b = thread_num;
-  bar_c = thread_num;
   chunk_size = mixed_num / thread_num;
   for (int i = 0; i < thread_num; ++i) {
     rarray[i].begin = insert_num + i * chunk_size + 1;
     rarray[i].end = insert_num + (i + 1) * chunk_size + 1;
   }
   rarray[thread_num - 1].end = insert_num + mixed_num + 1;
-  //benchMixed(rarray, thread_num);
   generalBench(rarray, thread_num, "Mixed_", &mixed);
 #endif
   /******************Benchmark for positive search***********************/
   printf("Pos search workload begin\n");
-  bar_a = 1;
-  bar_b = thread_num;
-  bar_c = thread_num;
   chunk_size = insert_num / thread_num;
   for (int i = 0; i < thread_num; ++i) {
     rarray[i].begin = i * chunk_size + 1;
@@ -476,13 +466,9 @@ int main(int argc, char const *argv[]) {
   }
   rarray[thread_num - 1].end = insert_num + 1;
 
-  //benchGet(rarray, thread_num, true);
   generalBench(rarray, thread_num, "Pos_get_", &concurr_get);
   /******************Benchmark for negative search***********************/
   printf("Neg search workload begin\n");
-  bar_a = 1;
-  bar_b = thread_num;
-  bar_c = thread_num;
 
   chunk_size = insert_num / thread_num;
   for (int i = 0; i < thread_num; ++i) {
@@ -490,20 +476,15 @@ int main(int argc, char const *argv[]) {
     rarray[i].end = insert_num + (i + 1) * chunk_size + 1;
   }
   rarray[thread_num - 1].end = insert_num + insert_num + 1;
-  //benchGet(rarray, thread_num, false);
   generalBench(rarray, thread_num, "Neg_get_", &concurr_get);
   /*********************Benchmark for delete ****************************/
   printf("Delete workload begin\n");
-  bar_a = 1;
-  bar_b = thread_num;
-  bar_c = thread_num;
 
   for (int i = 0; i < thread_num; ++i) {
     rarray[i].begin = i * chunk_size + 1;
     rarray[i].end = (i + 1) * chunk_size + 1;
   }
   rarray[thread_num - 1].end = insert_num + 1;
-  //benchDelete(rarray, thread_num);
   generalBench(rarray, thread_num, "Delete_", &concurr_delete);
   return 0;
 }
