@@ -258,31 +258,25 @@ struct overflowBucket{
 		int mask = 0;
   		SSE_CMP8(finger_array, meta_hash);
   		mask = mask & GET_BITMAP(bitmap);
-
   		if constexpr (std::is_pointer_v<T>){
 			if (mask != 0) {
 				for (int i = 0; i < 12; i += 4) {
 					if (CHECK_BIT(mask, i) && (strcmp(_[i].key, key) == 0)) {
 						return _[i].value;
 					}
-
 					if (CHECK_BIT(mask, i + 1) && (strcmp(_[i + 1].key, key) == 0)) {
 						return _[i + 1].value;
 					}
-
 					if (CHECK_BIT(mask, i + 2) && (strcmp(_[i + 2].key, key) == 0)) {
 						return _[i + 2].value;
 					}
-
 					if (CHECK_BIT(mask, i + 3) && (strcmp(_[i + 3].key, key) == 0)) {
 						return _[i + 3].value;
 					}
 				}
-
 				if (CHECK_BIT(mask, 12) && (strcmp(_[12].key, key) == 0)) {
 				return _[12].value;
 				}
-
 				if (CHECK_BIT(mask, 13) && (strcmp(_[13].key, key) == 0)) {
 				return _[13].value;
 				}
@@ -293,24 +287,19 @@ struct overflowBucket{
 					if (CHECK_BIT(mask, i) && (_[i].key == key)) {
 						return _[i].value;
 					}
-
 					if (CHECK_BIT(mask, i + 1) && (_[i + 1].key == key)) {
 						return _[i + 1].value;
 					}
-
 					if (CHECK_BIT(mask, i + 2) && (_[i + 2].key == key)) {
 						return _[i + 2].value;
 					}
-
 					if (CHECK_BIT(mask, i + 3) && (_[i + 3].key == key)) {
 						return _[i + 3].value;
 					}
 				}
-
 				if (CHECK_BIT(mask, 12) && (_[12].key == key)) {
 				return _[12].value;
 				}
-
 				if (CHECK_BIT(mask, 13) && (_[13].key == key)) {
 				return _[13].value;
 				}
@@ -1341,7 +1330,7 @@ void Table<T>::Split(Table<T> *org_table, Table<T> *expand_table, uint64_t base_
 			{
 				if constexpr (std::is_pointer_v<T>){
           			//key_hash = h(next_bucket->_[i].key, strlen(next_bucket->_[i].key));
-					key_hash = h(curr_bucket->_[i].key, (reinterpret_cast<string_key *>(curr_bucket->_[i].key))->length);
+					key_hash = h(next_bucket->_[i].key, (reinterpret_cast<string_key *>(next_bucket->_[i].key))->length);
         		}else{
           			key_hash = h(&(next_bucket->_[i].key), sizeof(Key_t));
         		}
@@ -1784,6 +1773,15 @@ class Linear{
 //		printf("the average length = %lf\n", (double)(prev_length+after_length)/(next+N));
 //    	printf("the overflow access is %lu\n", overflow_access);
     }
+    /*
+    inline void MemoryAllocate(uint64_t partiton_idx, uint64_t dir_idx, uint64_t bucket_idx){
+        Table<T>* RESERVED = reinterpret_cast<Table<T> *>(-1);
+        if ((dir[partiton_idx]._[dir_idx] != NULL) && (dir[partiton_idx]._[dir_idx] != RESERVED)){
+            return;
+        }
+
+
+    }*/
 
     inline void Expand(uint64_t partiton_idx, uint32_t numBuckets){
    	RE_EXPAND:

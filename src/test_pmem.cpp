@@ -12,7 +12,7 @@
 #include <condition_variable>
 
 #define LINEAR 1
-//#define FIXED 1
+#define FIXED 1
 //#define MIXED_TEST 1
 //#define TEST_BANDWIDTH 1
 
@@ -450,16 +450,7 @@ int main(int argc, char const *argv[]) {
   rarray[thread_num - 1].end = insert_num + mixed_num + 1;
   generalBench(rarray, thread_num, "Mixed_", &mixed);
 #endif
-  /******************Benchmark for positive search***********************/
-  printf("Pos search workload begin\n");
-  chunk_size = insert_num / thread_num;
-  for (int i = 0; i < thread_num; ++i) {
-    rarray[i].begin = i * chunk_size + 1;
-    rarray[i].end = (i + 1) * chunk_size + 1;
-  }
-  rarray[thread_num - 1].end = insert_num + 1;
-
-  generalBench(rarray, thread_num, "Pos_get_", &concurr_get);
+  
   /******************Benchmark for negative search***********************/
   printf("Neg search workload begin\n");
 
@@ -470,6 +461,18 @@ int main(int argc, char const *argv[]) {
   }
   rarray[thread_num - 1].end = insert_num + insert_num + 1;
   generalBench(rarray, thread_num, "Neg_get_", &concurr_get);
+
+  /******************Benchmark for positive search***********************/
+  printf("Pos search workload begin\n");
+  chunk_size = insert_num / thread_num;
+  for (int i = 0; i < thread_num; ++i) {
+    rarray[i].begin = i * chunk_size + 1;
+    rarray[i].end = (i + 1) * chunk_size + 1;
+  }
+  rarray[thread_num - 1].end = insert_num + 1;
+
+  generalBench(rarray, thread_num, "Pos_get_", &concurr_get);
+
   /*********************Benchmark for delete ****************************/
   printf("Delete workload begin\n");
 
