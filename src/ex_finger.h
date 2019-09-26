@@ -1408,7 +1408,7 @@ RETRY:
 
   auto ret = target_bucket->check_and_get(meta_hash, key, false);
   if(target_bucket->test_lock_version_change(old_version)){
-	goto RETRY;
+	  goto RETRY;
   }
   if (ret != NONE){
     return ret;

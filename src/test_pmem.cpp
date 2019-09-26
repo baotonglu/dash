@@ -12,7 +12,7 @@
 #include <condition_variable>
 
 #define LINEAR 1
-#define FIXED 1
+//#define FIXED 1
 //#define MIXED_TEST 1
 //#define TEST_BANDWIDTH 1
 
@@ -25,6 +25,7 @@
 static const char *pool_name = "/mnt/pmem0/pmem_hash.data";
 //static const char *pool_name = "pmem_hash.data";
 static const size_t pool_size = 1024ul * 1024ul * 1024ul * 30ul;
+#define BILLION 1E9
 
 #ifndef LINEAR
 
@@ -47,6 +48,8 @@ uint64_t *workload;
 uint64_t *persist_workload;
 uint64_t *value_workload;
 struct timeval tv1, tv2;
+clock_t start,finish;
+struct timespec requestStart, requestEnd;
 int insert_num;
 int bar_a;
 int bar_b;
@@ -144,6 +147,7 @@ void concurr_insert(struct range *_range) {
  #else
   char* key;
   string_key *var_workload = reinterpret_cast<string_key *>(persist_workload);
+  //string_key *var_workload = reinterpret_cast<string_key *>(workload);
  #endif
   char arr[64];
   Value_t value;
@@ -193,7 +197,7 @@ void concurr_get(struct range *_range) {
     key = workload[i];
  #else
     //key = reinterpret_cast<char *>(var_workload + i);
-    key = var_workload[i].key;
+    key = (char*)&(var_workload[i].key);
  #endif
     if (eh->Get(key) == NONE)
     {
@@ -290,9 +294,12 @@ void generate_16B(void *memory_region, int generate_num, bool persist){
   char var_key[24];
 
   for(int i = 0; i < generate_num; ++i){
-    uint64_t _key = genrand64_int64();
-    snprintf(var_key, 24, "%lld", _key);
-    memcpy(var_workload + i, var_key, 16);
+    //uint64_t _key = genrand64_int64();
+    //snprintf(var_key, 24, "%lld", _key);
+    //memcpy(var_workload + i, var_key, 16);
+    uint64_t* key = reinterpret_cast<uint64_t *>(var_workload[i].key);
+    key[0] =  genrand64_int64();
+    key[1] =  genrand64_int64();
     var_workload[i].length = 16;
   }
 
@@ -310,7 +317,7 @@ void generalBench(range *rarray, int thread_num, std::string profile_name, void 
   bar_a = 1;
   bar_b = thread_num;
   bar_c = thread_num;
-  //System::profile(profile_name, [&](){
+  System::profile(profile_name, [&](){
   
   for (int i = 0; i < thread_num; ++i) {
     thread_array[i] = new std::thread(*test_func, &rarray[i]);
@@ -338,7 +345,7 @@ void generalBench(range *rarray, int thread_num, std::string profile_name, void 
       (double)(tv2.tv_usec - tv1.tv_usec) / 1000000 +
           (double)(tv2.tv_sec - tv1.tv_sec),
       insert_num / duration);
-  //});
+  });
 }
 
 int main(int argc, char const *argv[]) {
@@ -452,6 +459,7 @@ int main(int argc, char const *argv[]) {
 #endif
   
   /******************Benchmark for negative search***********************/
+  
   printf("Neg search workload begin\n");
 
   chunk_size = insert_num / thread_num;
@@ -474,6 +482,7 @@ int main(int argc, char const *argv[]) {
   generalBench(rarray, thread_num, "Pos_get_", &concurr_get);
 
   /*********************Benchmark for delete ****************************/
+  /*
   printf("Delete workload begin\n");
 
   for (int i = 0; i < thread_num; ++i) {
@@ -481,6 +490,6 @@ int main(int argc, char const *argv[]) {
     rarray[i].end = (i + 1) * chunk_size + 1;
   }
   rarray[thread_num - 1].end = insert_num + 1;
-  generalBench(rarray, thread_num, "Delete_", &concurr_delete);
+  generalBench(rarray, thread_num, "Delete_", &concurr_delete);*/
   return 0;
 }

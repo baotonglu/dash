@@ -1779,8 +1779,6 @@ class Linear{
         if ((dir[partiton_idx]._[dir_idx] != NULL) && (dir[partiton_idx]._[dir_idx] != RESERVED)){
             return;
         }
-
-
     }*/
 
     inline void Expand(uint64_t partiton_idx, uint32_t numBuckets){
