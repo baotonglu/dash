@@ -69,6 +69,7 @@ constexpr size_t stashMask = (1 << (int)log2(stashBucket)) - 1;
 constexpr uint8_t stashHighMask = ~((uint8_t)stashMask);
 constexpr uint8_t preNeighborSet = 1 << 7;
 constexpr uint8_t nextNeighborSet = 1 << 6;
+const uint64_t recoverBit = 1 << 63;
 #define BUCKET_INDEX(hash) ((hash >> kFingerBits) & bucketMask)
 #define GET_COUNT(var) ((var)&countMask)
 #define GET_BITMAP(var) (((var) >> 4) & allocMask)
@@ -606,6 +607,10 @@ struct  Bucket {
 		return ((overflowMember & nextNeighborSet) != 0);
 	}
 
+  inline void resetLock(){
+    version_lock = 0;
+  }
+
   uint32_t version_lock;
   int bitmap;               // allocation bitmap + pointer bitmao + counter
   uint8_t finger_array[20]; /*only use the first 14 bytes, can be accelerated by
@@ -779,6 +784,16 @@ struct Table {
     }
     return -1;
   }
+
+  void recoverMetadata(){
+    int bucketNum = kNumBucket + stashBucket;
+    Bucket<T>* curr_bucket;
+    for(int i = 0; i < bucketNum; ++i){
+      curr_bucket = bucket + i;
+      curr_bucket->resetLock();
+    }
+  }
+
   char dummy[48];
   Bucket<T> bucket[kNumBucket + stashBucket];
   size_t local_depth;
@@ -1112,6 +1127,8 @@ class Finger_EH {
            (double)(_count * 16) / (seg_count * sizeof(Table<T>)));
   }
 
+  void recoverTable(Table<T> **target_table);
+
   inline bool Acquire(void) {
     int unlocked = 0;
     return CAS(&lock, &unlocked, 1);
@@ -1130,7 +1147,6 @@ class Finger_EH {
   int lock;
 #ifdef PMEM
   PMEMobjpool *pool_addr;
-
   /* directory allocation will write to here first,
    * in oder to perform safe directory allocation
    * */
@@ -1279,6 +1295,12 @@ void Finger_EH<T>::Directory_Update(Directory<T> *_sa, int x, Table<T> *new_b) {
 }
 
 template<class T>
+void Finger_EH<T>::recoverTable(Table<T> **target_table){
+  (*target_table)->recoverMetadata();
+  *target_table = (Table<T>*)(((uint64_t)(*target_table)) & (~recoverBit));
+}
+
+template<class T>
 int Finger_EH<T>::Insert(T key, Value_t value) {
   uint64_t key_hash;
   if constexpr (std::is_pointer_v<T>){
@@ -1372,12 +1394,9 @@ template<class T>
 Value_t Finger_EH<T>::Get(T key) {
   uint64_t key_hash;
   if constexpr (std::is_pointer_v<T>){
-    //key_hash = h(key, strlen(key));
     key_hash = h(key, (reinterpret_cast<string_key *>(key))->length);
-    //printf("Get The variable length key = %s, the length is %d\n", key, strlen(key));
   }else{
     key_hash = h(&key, sizeof(key));
-    //printf("Get The fixed length key = %lld\n", key);
   }
   auto meta_hash = ((uint8_t)(key_hash & kMask));  // the last 8 bits
 RETRY:
@@ -1386,6 +1405,10 @@ RETRY:
   auto y = BUCKET_INDEX(key_hash);
   auto dir_entry = old_sa->_;
   Table<T> *target = dir_entry[x];
+
+  if (((uint64_t)target & recoverBit)){
+    recoverTable(&dir_entry[x]);
+  }
 
   uint32_t old_version;
   uint32_t old_neighbor_version;

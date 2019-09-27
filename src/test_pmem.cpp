@@ -11,7 +11,7 @@
 #include <mutex>
 #include <condition_variable>
 
-#define LINEAR 1
+//#define LINEAR 1
 //#define FIXED 1
 //#define MIXED_TEST 1
 //#define TEST_BANDWIDTH 1
@@ -66,6 +66,7 @@ bool finished = false;
 /*fixed length 16-byte key*/
 //struct string_key{
 //  char key[16];
+//  int length;
 //};
 
 struct range {
