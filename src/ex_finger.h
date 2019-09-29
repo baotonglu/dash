@@ -69,7 +69,7 @@ constexpr size_t stashMask = (1 << (int)log2(stashBucket)) - 1;
 constexpr uint8_t stashHighMask = ~((uint8_t)stashMask);
 constexpr uint8_t preNeighborSet = 1 << 7;
 constexpr uint8_t nextNeighborSet = 1 << 6;
-const uint64_t recoverBit = 1 << 63;
+const uint64_t recoverBit = 1UL << 63;
 #define BUCKET_INDEX(hash) ((hash >> kFingerBits) & bucketMask)
 #define GET_COUNT(var) ((var)&countMask)
 #define GET_BITMAP(var) (((var) >> 4) & allocMask)
