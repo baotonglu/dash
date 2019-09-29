@@ -7,18 +7,12 @@
 /*
  * file_exists -- checks if file exists
  */
-static inline int
-file_exists(char const *file)
-{
-  return access(file, F_OK);
-}
+static inline int file_exists(char const *file) { return access(file, F_OK); }
 
 /*
  * find_last_set_64 -- returns last set bit position or -1 if set bit not found
  */
-static inline int
-find_last_set_64(uint64_t val)
-{
+static inline int find_last_set_64(uint64_t val) {
   return 64 - __builtin_clzll(val) - 1;
 }
 
@@ -33,18 +27,12 @@ find_last_set_64(uint64_t val)
 /*
  * file_exists -- checks if file exists
  */
-static inline int
-file_exists(char const *file)
-{
-  return _access(file, 0);
-}
+static inline int file_exists(char const *file) { return _access(file, 0); }
 
 /*
  * find_last_set_64 -- returns last set bit position or -1 if set bit not found
  */
-static inline int
-find_last_set_64(uint64_t val)
-{
+static inline int find_last_set_64(uint64_t val) {
   DWORD lz = 0;
 
   if (BitScanReverse64(&lz, val))

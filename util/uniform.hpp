@@ -5,29 +5,24 @@ class UniformRandom {
   UniformRandom() : seed_(0) {}
   explicit UniformRandom(uint64_t seed) : seed_(seed) {}
 
-  uint64_t get_current_seed() const {
-    return seed_;
-  }
-  void set_current_seed(uint64_t seed) {
-    seed_ = seed;
-  }
+  uint64_t get_current_seed() const { return seed_; }
+  void set_current_seed(uint64_t seed) { seed_ = seed; }
 
   /**
    * @brief Fill up the give memory with random data.
    * @details
-   * Call this to pre-calculate many random numbers. When the function we test is very fast,
-   * generating random numbers might become the bottleneck. This method is to avoid it.
-   * Use this like following:
+   * Call this to pre-calculate many random numbers. When the function we test
+   * is very fast, generating random numbers might become the bottleneck. This
+   * method is to avoid it. Use this like following:
    * @code{.cpp}
-   * UniformRandom random(context->get_thread_id());  // or any other random seed
-   * AlignedMemory memory;
+   * UniformRandom random(context->get_thread_id());  // or any other random
+   * seed AlignedMemory memory;
    * CHECK_ERROR(context->get_thread_memory()->get_node_memory()->allocate_numa_memory(
    *      (1 << 16) * sizeof(uint32_t), &memory));
    * random.fill_memory(&memory);
-   * const uint32_t *randoms = reinterpret_cast<const uint32_t*>(memory.get_block());
-   * <start the experiment timer>
-   * for (int i = 0; i < TRIALS; ++i) {
-   *   uint32_t value = randoms[i & 0xFFFF];
+   * const uint32_t *randoms = reinterpret_cast<const
+   * uint32_t*>(memory.get_block()); <start the experiment timer> for (int i =
+   * 0; i < TRIALS; ++i) { uint32_t value = randoms[i & 0xFFFF];
    *   ...
    * @endcode
    */
