@@ -717,7 +717,6 @@ struct Table {
     auto callback = [](PMEMobjpool *pool, void *ptr, void *arg) {
       auto value_ptr = reinterpret_cast<std::pair<size_t, Table<T> *> *>(arg);
       auto table_ptr = reinterpret_cast<Table<T> *>(ptr);
-      memset(ptr, 0, sizeof(Table<T>));
       table_ptr->local_depth = value_ptr->first;
       table_ptr->next = value_ptr->second;
       pmemobj_persist(pool, ptr, sizeof(Table<T>));
