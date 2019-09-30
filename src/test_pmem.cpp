@@ -324,7 +324,7 @@ void generalBench(range *rarray, int thread_num, std::string profile_name,
   bar_a = 1;
   bar_b = thread_num;
   bar_c = thread_num;
-  // System::profile(profile_name, [&]() {
+  System::profile(profile_name, [&]() {
   for (int i = 0; i < thread_num; ++i) {
     thread_array[i] = new std::thread(*test_func, &rarray[i]);
   }
@@ -353,7 +353,7 @@ void generalBench(range *rarray, int thread_num, std::string profile_name,
       (double)(tv2.tv_usec - tv1.tv_usec) / 1000000 +
           (double)(tv2.tv_sec - tv1.tv_sec),
       insert_num / duration);
-  //});
+  });
 }
 
 int main(int argc, char const *argv[]) {

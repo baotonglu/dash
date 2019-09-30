@@ -705,7 +705,8 @@ struct Directory {
       dir_ptr->global_depth =
           static_cast<size_t>(log2(std::get<0>(*value_ptr)));
       size_t cap = std::get<0>(*value_ptr);
-      memset(&dir_ptr->_, 0, sizeof(table_p) * cap);
+      //memset(&dir_ptr->_, 0, sizeof(table_p) * cap);
+      pmemobj_persist(pool, dir_ptr, sizeof(Directory<T>));
       return 0;
     };
     std::tuple callback_args = {capacity, version};
@@ -727,9 +728,22 @@ struct Table {
     auto callback = [](PMEMobjpool *pool, void *ptr, void *arg) {
       auto value_ptr = reinterpret_cast<std::pair<size_t, Table<T> *> *>(arg);
       auto table_ptr = reinterpret_cast<Table<T> *>(ptr);
+      /*
+      int sumBucket = kNumBucket + stashBucket;
+      for(int i = 0; i < sumBucket; ++i){
+        auto curr_bucket = table_ptr->bucket + i;
+        memset(curr_bucket, 0, 64);
+      }*/
       table_ptr->local_depth = value_ptr->first;
       table_ptr->next = value_ptr->second;
-      pmemobj_persist(pool, ptr, sizeof(Table<T>));
+
+      int sumBucket = kNumBucket + stashBucket;
+      for(int i = 0; i < sumBucket; ++i){
+        auto curr_bucket = table_ptr->bucket + i;
+        memset(curr_bucket, 0, 64);
+      }
+      
+      pmemobj_persist(pool, table_ptr, sizeof(Table<T>));
       return 0;
     };
     std::pair callback_para(depth, pp);
@@ -1090,8 +1104,16 @@ Table<T> *Table<T>::Split(size_t _key_hash) {
   // printf("my pattern is %lld, my load factor is %f\n", pattern,
   // ((double)number)/(kNumBucket*kNumPairPerBucket+kNumPairPerBucket));
   state = -2;
-
+  auto old_next = next;
   Table<T>::New(&next, local_depth + 1, next);
+  /*
+  next->local_depth = local_depth + 1;
+  next->next = old_next;
+  int sumBucket = kNumBucket + stashBucket;
+  for(int i = 0; i < sumBucket; ++i){
+    auto curr_bucket = next->bucket + i;
+    memset(curr_bucket, 0, 64);
+  }*/
 
   next->state = -2;
   next->bucket->get_lock(); /* get the first lock of the new bucket to avoid it
