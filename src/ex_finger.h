@@ -266,87 +266,87 @@ struct Bucket {
       mask = mask & GET_BITMAP(bitmap) & ((*(int *)membership) & allocMask);
     }
 
+    if (mask == 0) {
+      return NONE;
+    }
+
     if constexpr (std::is_pointer_v<T>) {
       string_key *_key = reinterpret_cast<string_key *>(key);
-      if (mask != 0) {
-        for (int i = 0; i < 12; i += 4) {
-          // if (CHECK_BIT(mask, i) && (strcmp(_[i].key, key) == 0)) {
-          //  return _[i].value;
-          //}
-          if (CHECK_BIT(mask, i) &&
-              (var_compare((char *)(_[i].key), _key->key,
-                           (reinterpret_cast<string_key *>(_[i].key))->length,
-                           _key->length))) {
-            return _[i].value;
-          }
-
-          if (CHECK_BIT(mask, i + 1) &&
-              (var_compare(
-                  (char *)(_[i + 1].key), _key->key,
-                  (reinterpret_cast<string_key *>(_[i + 1].key))->length,
-                  _key->length))) {
-            return _[i + 1].value;
-          }
-
-          if (CHECK_BIT(mask, i + 2) &&
-              (var_compare(
-                  (char *)(_[i + 2].key), _key->key,
-                  (reinterpret_cast<string_key *>(_[i + 2].key))->length,
-                  _key->length))) {
-            return _[i + 2].value;
-          }
-
-          if (CHECK_BIT(mask, i + 3) &&
-              (var_compare(
-                  (char *)(_[i + 3].key), _key->key,
-                  (reinterpret_cast<string_key *>(_[i + 3].key))->length,
-                  _key->length))) {
-            return _[i + 3].value;
-          }
-        }
-
-        if (CHECK_BIT(mask, 12) &&
-            (var_compare((char *)(_[12].key), _key->key,
-                         (reinterpret_cast<string_key *>(_[12].key))->length,
+      for (int i = 0; i < 12; i += 4) {
+        // if (CHECK_BIT(mask, i) && (strcmp(_[i].key, key) == 0)) {
+        //  return _[i].value;
+        //}
+        if (CHECK_BIT(mask, i) &&
+            (var_compare((char *)(_[i].key), _key->key,
+                         (reinterpret_cast<string_key *>(_[i].key))->length,
                          _key->length))) {
-          return _[12].value;
+          return _[i].value;
         }
 
-        if (CHECK_BIT(mask, 13) &&
-            (var_compare((char *)(_[13].key), _key->key,
-                         (reinterpret_cast<string_key *>(_[13].key))->length,
-                         _key->length))) {
-          return _[13].value;
+        if (CHECK_BIT(mask, i + 1) &&
+            (var_compare(
+                (char *)(_[i + 1].key), _key->key,
+                (reinterpret_cast<string_key *>(_[i + 1].key))->length,
+                _key->length))) {
+          return _[i + 1].value;
         }
+
+        if (CHECK_BIT(mask, i + 2) &&
+            (var_compare(
+                (char *)(_[i + 2].key), _key->key,
+                (reinterpret_cast<string_key *>(_[i + 2].key))->length,
+                _key->length))) {
+          return _[i + 2].value;
+        }
+
+        if (CHECK_BIT(mask, i + 3) &&
+            (var_compare(
+                (char *)(_[i + 3].key), _key->key,
+                (reinterpret_cast<string_key *>(_[i + 3].key))->length,
+                _key->length))) {
+          return _[i + 3].value;
+        }
+      }
+
+      if (CHECK_BIT(mask, 12) &&
+          (var_compare((char *)(_[12].key), _key->key,
+                       (reinterpret_cast<string_key *>(_[12].key))->length,
+                       _key->length))) {
+        return _[12].value;
+      }
+
+      if (CHECK_BIT(mask, 13) &&
+          (var_compare((char *)(_[13].key), _key->key,
+                       (reinterpret_cast<string_key *>(_[13].key))->length,
+                       _key->length))) {
+        return _[13].value;
       }
     } else {
       /*loop unrolling*/
-      if (mask != 0) {
-        for (int i = 0; i < 12; i += 4) {
-          if (CHECK_BIT(mask, i) && (_[i].key == key)) {
-            return _[i].value;
-          }
-
-          if (CHECK_BIT(mask, i + 1) && (_[i + 1].key == key)) {
-            return _[i + 1].value;
-          }
-
-          if (CHECK_BIT(mask, i + 2) && (_[i + 2].key == key)) {
-            return _[i + 2].value;
-          }
-
-          if (CHECK_BIT(mask, i + 3) && (_[i + 3].key == key)) {
-            return _[i + 3].value;
-          }
+      for (int i = 0; i < 12; i += 4) {
+        if (CHECK_BIT(mask, i) && (_[i].key == key)) {
+          return _[i].value;
         }
 
-        if (CHECK_BIT(mask, 12) && (_[12].key == key)) {
-          return _[12].value;
+        if (CHECK_BIT(mask, i + 1) && (_[i + 1].key == key)) {
+          return _[i + 1].value;
         }
 
-        if (CHECK_BIT(mask, 13) && (_[13].key == key)) {
-          return _[13].value;
+        if (CHECK_BIT(mask, i + 2) && (_[i + 2].key == key)) {
+          return _[i + 2].value;
         }
+
+        if (CHECK_BIT(mask, i + 3) && (_[i + 3].key == key)) {
+          return _[i + 3].value;
+        }
+      }
+
+      if (CHECK_BIT(mask, 12) && (_[12].key == key)) {
+        return _[12].value;
+      }
+
+      if (CHECK_BIT(mask, 13) && (_[13].key == key)) {
+        return _[13].value;
       }
     }
     return NONE;
