@@ -394,28 +394,33 @@ struct Bucket {
   }
 
   inline void get_lock() {
-    auto old_value = version_lock & lockMask;
-    auto new_value = version_lock | lockSet;
-    while (!CAS(&version_lock, &old_value, new_value)) {
-      old_value = version_lock & lockMask;
-      new_value = version_lock | lockSet;
-    }
+    uint32_t new_value = 0;
+    uint32_t old_value = 0;
+    do {
+      while (true) {
+        old_value = __atomic_load_n(&version_lock, __ATOMIC_ACQUIRE);
+        if (!(old_value & lockSet)) {
+          old_value &= lockMask;
+          break;
+        }
+      }
+      new_value = old_value | lockSet;
+    } while (!CAS(&version_lock, &old_value, new_value));
   }
 
   inline bool try_get_lock() {
-    auto old_value = version_lock & lockMask;
-    auto new_value = version_lock | lockSet;
+    uint32_t v = __atomic_load_n(&version_lock, __ATOMIC_ACQUIRE);
+    if (v & lockSet) {
+      return false;
+    }
+    auto old_value = v & lockMask;
+    auto new_value = v | lockSet;
     return CAS(&version_lock, &old_value, new_value);
   }
 
   inline void release_lock() {
-    auto old_value = version_lock;
-    auto new_value = ((old_value & lockMask) + 1) & lockMask;
-
-    while (!CAS(&version_lock, &old_value, new_value)) {
-      old_value = version_lock;
-      new_value = ((old_value & lockMask) + 1) & lockMask;
-    }
+    uint32_t v = version_lock;
+    __atomic_store_n(&version_lock, v + 1 - lockSet, __ATOMIC_RELEASE);
   }
 
   /*if the lock is set, return true*/
@@ -1041,10 +1046,8 @@ Table<T> *Table<T>::Split(size_t _key_hash) {
   size_t new_pattern = (pattern << 1) + 1;
   size_t old_pattern = pattern << 1;
 
-  Bucket<T> *curr_bucket;
   for (int i = 1; i < kNumBucket; ++i) {
-    curr_bucket = bucket + i;
-    curr_bucket->get_lock();
+    (bucket + i)->get_lock();
   }
   // printf("my pattern is %lld, my load factor is %f\n", pattern,
   // ((double)number)/(kNumBucket*kNumPairPerBucket+kNumPairPerBucket));
@@ -1057,7 +1060,7 @@ Table<T> *Table<T>::Split(size_t _key_hash) {
                                is operated(split or merge) by other threads*/
   size_t key_hash;
   for (int i = 0; i < kNumBucket; ++i) {
-    curr_bucket = bucket + i;
+    auto *curr_bucket = bucket + i;
     auto mask = GET_BITMAP(curr_bucket->bitmap);
     for (int j = 0; j < kNumPairPerBucket; ++j) {
       if (CHECK_BIT(mask, j)) {
@@ -1086,7 +1089,7 @@ Table<T> *Table<T>::Split(size_t _key_hash) {
 
   /*split the stash bucket, the stash must be full, right?*/
   for (int i = 0; i < stashBucket; ++i) {
-    curr_bucket = bucket + kNumBucket + i;
+    auto *curr_bucket = bucket + kNumBucket + i;
     auto mask = GET_BITMAP(curr_bucket->bitmap);
     for (int j = 0; j < kNumPairPerBucket; ++j) {
       if (CHECK_BIT(mask, j)) {
@@ -1456,14 +1459,11 @@ RETRY:
   }
 
   uint32_t old_version;
-  uint32_t old_neighbor_version;
   Bucket<T> *target_bucket = target->bucket + y;
-  Bucket<T> *neighbor_bucket = target->bucket + ((y + 1) & bucketMask);
   // printf("Get key %lld, x = %d, y = %d, meta_hash = %d\n", key, x,
   // BUCKET_INDEX(key_hash), meta_hash);
 
-  if (target_bucket->test_lock_set(old_version) ||
-      neighbor_bucket->test_lock_set(old_neighbor_version)) {
+  if (target_bucket->test_lock_set(old_version)) {
     goto RETRY;
   }
 
@@ -1484,6 +1484,11 @@ RETRY:
 
   /*no need for verification procedure, we use the version number of
    * target_bucket to test whether the bucket has ben spliteted*/
+  Bucket<T> *neighbor_bucket = target->bucket + ((y + 1) & bucketMask);
+  uint32_t old_neighbor_version;
+  if (neighbor_bucket->test_lock_set(old_neighbor_version)) {
+    goto RETRY;
+  }
   ret = neighbor_bucket->check_and_get(meta_hash, key, true);
   if (neighbor_bucket->test_lock_version_change(old_neighbor_version)) {
     goto RETRY;
