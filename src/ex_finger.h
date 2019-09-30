@@ -723,10 +723,11 @@ struct Directory {
 /* the meta hash-table referenced by the directory*/
 template <class T>
 struct Table {
-  static void New(Table<T> **tbl, size_t depth, Table<T> *pp) {
+  //static void New(Table<T> **tbl, size_t depth, Table<T> *pp) {
+  static void New(PMEMoid *tbl, size_t depth, PMEMoid pp) {
 #ifdef PMEM
     auto callback = [](PMEMobjpool *pool, void *ptr, void *arg) {
-      auto value_ptr = reinterpret_cast<std::pair<size_t, Table<T> *> *>(arg);
+      auto value_ptr = reinterpret_cast<std::pair<size_t, PMEMoid> *>(arg);
       auto table_ptr = reinterpret_cast<Table<T> *>(ptr);
       /*
       int sumBucket = kNumBucket + stashBucket;
@@ -747,6 +748,26 @@ struct Table {
       return 0;
     };
     std::pair callback_para(depth, pp);
+    Allocator::Allocate(tbl, kCacheLineSize, sizeof(Table<T>),
+                        callback, reinterpret_cast<void *>(&callback_para));
+#else
+    Allocator::ZAllocate((void **)tbl, kCacheLineSize, sizeof(Table<T>));
+    (*tbl)->local_depth = depth;
+    (*tbl)->next = pp;
+#endif
+  };
+/*
+  static void New(Table<T> **tbl, size_t depth, Table<T> *pp) {
+#ifdef PMEM
+    auto callback = [](PMEMobjpool *pool, void *ptr, void *arg) {
+      auto value_ptr = reinterpret_cast<std::pair<size_t, Table<T> *> *>(arg);
+      auto table_ptr = reinterpret_cast<Table<T> *>(ptr);
+      table_ptr->local_depth = value_ptr->first;
+      table_ptr->next = value_ptr->second;
+      pmemobj_persist(pool, ptr, sizeof(Table<T>));
+      return 0;
+    };
+    std::pair callback_para(depth, pp);
     Allocator::Allocate((void **)tbl, kCacheLineSize, sizeof(Table<T>),
                         callback, reinterpret_cast<void *>(&callback_para));
 #else
@@ -755,7 +776,7 @@ struct Table {
     (*tbl)->next = pp;
 #endif
   };
-
+*/
   ~Table(void) {}
 
   int Insert(T key, Value_t value, size_t key_hash, uint8_t meta_hash,
@@ -896,7 +917,8 @@ struct Table {
   size_t local_depth;
   size_t pattern;
   int number;
-  Table<T> *next;
+  //Table<T> *next;
+  PMEMoid next;
   int state; /*-1 means this bucket is merging, -2 means this bucket is
                 splitting, so we cannot count the depth_count on it during
                 scanning operation*/
@@ -1104,19 +1126,11 @@ Table<T> *Table<T>::Split(size_t _key_hash) {
   // printf("my pattern is %lld, my load factor is %f\n", pattern,
   // ((double)number)/(kNumBucket*kNumPairPerBucket+kNumPairPerBucket));
   state = -2;
-  auto old_next = next;
   Table<T>::New(&next, local_depth + 1, next);
-  /*
-  next->local_depth = local_depth + 1;
-  next->next = old_next;
-  int sumBucket = kNumBucket + stashBucket;
-  for(int i = 0; i < sumBucket; ++i){
-    auto curr_bucket = next->bucket + i;
-    memset(curr_bucket, 0, 64);
-  }*/
+  Table<T> *next_table = reinterpret_cast<Table<T> *>(pmemobj_direct(next));
 
-  next->state = -2;
-  next->bucket->get_lock(); /* get the first lock of the new bucket to avoid it
+  next_table->state = -2;
+  next_table->bucket->get_lock(); /* get the first lock of the new bucket to avoid it
                                is operated(split or merge) by other threads*/
   size_t key_hash;
   for (int i = 0; i < kNumBucket; ++i) {
@@ -1134,7 +1148,7 @@ Table<T> *Table<T>::Split(size_t _key_hash) {
         }
 
         if ((key_hash >> (64 - local_depth - 1)) == new_pattern) {
-          next->Insert4split(
+          next_table->Insert4split(
               curr_bucket->_[j].key, curr_bucket->_[j].value, key_hash,
               curr_bucket->finger_array[j]); /*this shceme may destory the
                                                 balanced segment*/
@@ -1162,7 +1176,7 @@ Table<T> *Table<T>::Split(size_t _key_hash) {
           key_hash = h(&(curr_bucket->_[j].key), sizeof(Key_t));
         }
         if ((key_hash >> (64 - local_depth - 1)) == new_pattern) {
-          next->Insert4split(
+          next_table->Insert4split(
               curr_bucket->_[j].key, curr_bucket->_[j].value, key_hash,
               curr_bucket->finger_array[j]); /*this shceme may destory the
                                                 balanced segment*/
@@ -1180,16 +1194,16 @@ Table<T> *Table<T>::Split(size_t _key_hash) {
       }
     }
   }
-  next->pattern = new_pattern;
+  next_table->pattern = new_pattern;
   pattern = old_pattern;
 
 #ifdef PMEM
-  Allocator::Persist(next, sizeof(Table));
+  Allocator::Persist(next_table, sizeof(Table));
   // if constexpr (std::is_pointer_v<T>) {
   Allocator::Persist(this, sizeof(Table));
   //}
 #endif
-  return next;
+  return next_table;
 }
 
 template <class T>
@@ -1267,12 +1281,15 @@ template <class T>
 Finger_EH<T>::Finger_EH(size_t initCap) {
   Directory<T>::New(&dir, initCap, 0);
   lock = 0;
+  PMEMoid ptr;
+  Table<T>::New(&ptr, dir->global_depth, OID_NULL);
+  dir->_[initCap - 1] = (Table<T>*)pmemobj_direct(ptr);
 
-  Table<T>::New(dir->_ + initCap - 1, dir->global_depth, nullptr);
   dir->_[initCap - 1]->pattern = initCap - 1;
   /* Initilize the Directory*/
   for (int i = initCap - 2; i >= 0; --i) {
-    Table<T>::New(dir->_ + i, dir->global_depth, dir->_[i + 1]);
+    Table<T>::New(&ptr, dir->global_depth, ptr);
+    dir->_[i] = (Table<T>*)pmemobj_direct(ptr);
     dir->_[i]->pattern = i;
   }
   dir->depth_count = initCap;

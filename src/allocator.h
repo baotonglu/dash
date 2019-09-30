@@ -57,6 +57,17 @@ struct Allocator {
     *ptr = pmemobj_direct(pm_ptr);
   }
 
+  static void Allocate(PMEMoid *pm_ptr, uint32_t alignment, size_t size,
+                       int (*alloc_constr)(PMEMobjpool* pool, void* ptr,
+                                           void* arg),
+                       void* arg) {
+    auto ret = pmemobj_alloc(instance_->pm_pool_, pm_ptr, size,
+                             TOID_TYPE_NUM(char), alloc_constr, arg);
+    if (ret) {
+      LOG_FATAL("allocation error");
+    }
+  }
+
   static void* GetRoot(size_t size) {
     return pmemobj_direct(pmemobj_root(instance_->pm_pool_, size));
   }
@@ -106,6 +117,17 @@ struct Allocator {
     posix_memalign(ptr, alignment, size);
     memset(*ptr, 0, size);
 #endif
+  }
+
+  static void ZAllocate(PMEMoid *pm_ptr, uint32_t alignment, size_t size) {
+    auto ret =
+        pmemobj_zalloc(instance_->pm_pool_, pm_ptr, size, TOID_TYPE_NUM(char));
+
+    if (ret) {
+      LOG_FATAL("allocation error");
+    }
+    /* FIXME: this should happen in a transaction
+     */
   }
 
   static void Free(void* ptr) {
