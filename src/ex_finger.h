@@ -71,6 +71,7 @@ constexpr uint8_t stashHighMask = ~((uint8_t)stashMask);
 constexpr uint8_t preNeighborSet = 1 << 7;
 constexpr uint8_t nextNeighborSet = 1 << 6;
 const uint64_t recoverBit = 1UL << 63;
+const uint64_t lockBit = 1UL << 62;
 #define BUCKET_INDEX(hash) ((hash >> kFingerBits) & bucketMask)
 #define GET_COUNT(var) ((var)&countMask)
 #define GET_BITMAP(var) (((var) >> 4) & allocMask)
@@ -284,26 +285,23 @@ struct Bucket {
         }
 
         if (CHECK_BIT(mask, i + 1) &&
-            (var_compare(
-                (char *)(_[i + 1].key), _key->key,
-                (reinterpret_cast<string_key *>(_[i + 1].key))->length,
-                _key->length))) {
+            (var_compare((char *)(_[i + 1].key), _key->key,
+                         (reinterpret_cast<string_key *>(_[i + 1].key))->length,
+                         _key->length))) {
           return _[i + 1].value;
         }
 
         if (CHECK_BIT(mask, i + 2) &&
-            (var_compare(
-                (char *)(_[i + 2].key), _key->key,
-                (reinterpret_cast<string_key *>(_[i + 2].key))->length,
-                _key->length))) {
+            (var_compare((char *)(_[i + 2].key), _key->key,
+                         (reinterpret_cast<string_key *>(_[i + 2].key))->length,
+                         _key->length))) {
           return _[i + 2].value;
         }
 
         if (CHECK_BIT(mask, i + 3) &&
-            (var_compare(
-                (char *)(_[i + 3].key), _key->key,
-                (reinterpret_cast<string_key *>(_[i + 3].key))->length,
-                _key->length))) {
+            (var_compare((char *)(_[i + 3].key), _key->key,
+                         (reinterpret_cast<string_key *>(_[i + 3].key))->length,
+                         _key->length))) {
           return _[i + 3].value;
         }
       }
@@ -657,6 +655,14 @@ struct Bucket {
 
   inline void resetLock() { version_lock = 0; }
 
+  inline void resetOverflowFP() {
+    finger_array[18] = 0;
+    finger_array[19] = 0;
+    overflowMember = 0;
+    overflowCount = 0;
+    clear_stash_check();
+  }
+
   uint32_t version_lock;
   int bitmap;               // allocation bitmap + pointer bitmao + counter
   uint8_t finger_array[20]; /*only use the first 14 bytes, can be accelerated by
@@ -677,7 +683,7 @@ struct Table;
 
 template <class T>
 struct Directory {
-  typedef Table<T>* table_p;
+  typedef Table<T> *table_p;
   uint32_t global_depth;
   uint32_t version;
   uint32_t depth_count;
@@ -703,7 +709,8 @@ struct Directory {
       return 0;
     };
     std::tuple callback_args = {capacity, version};
-    Allocator::Allocate((void **)dir, kCacheLineSize, sizeof(Directory<T>) + sizeof(table_p) * capacity,
+    Allocator::Allocate((void **)dir, kCacheLineSize,
+                        sizeof(Directory<T>) + sizeof(table_p) * capacity,
                         callback, reinterpret_cast<void *>(&callback_args));
 #else
     Allocator::Allocate((void **)dir, kCacheLineSize, sizeof(Directory<T>));
@@ -832,12 +839,42 @@ struct Table {
   }
 
   void recoverMetadata() {
-    int bucketNum = kNumBucket + stashBucket;
     Bucket<T> *curr_bucket;
-    for (int i = 0; i < bucketNum; ++i) {
+    /*reset the lock and overflow meta-data*/
+    for (int i = 0; i < kNumBucket; ++i) {
+      // printf("start: recover bucket %d\n",i);
       curr_bucket = bucket + i;
       curr_bucket->resetLock();
+      curr_bucket->resetOverflowFP();
+      // printf("recover bucket %d\n",i);
     }
+
+    /*scan the stash buckets and re-insert the overflow FP to initial buckets*/
+    for (int i = 0; i < stashBucket; ++i) {
+      curr_bucket = bucket + kNumBucket + i;
+      uint64_t key_hash;
+      auto mask = GET_BITMAP(curr_bucket->bitmap);
+      for (int j = 0; j < kNumPairPerBucket; ++j) {
+        if (CHECK_BIT(mask, j)) {
+          if constexpr (std::is_pointer_v<T>) {
+            key_hash = h(curr_bucket->_[j].key,
+                         (reinterpret_cast<string_key *>(curr_bucket->_[j].key))
+                             ->length);
+          } else {
+            key_hash = h(&(curr_bucket->_[j].key), sizeof(Key_t));
+          }
+          /*compute the initial bucket*/
+          auto bucket_ix = BUCKET_INDEX(key_hash);
+          auto meta_hash = ((uint8_t)(key_hash & kMask));  // the last 8 bits
+          auto org_bucket = bucket + bucket_ix;
+          auto neighbor_bucket = bucket + ((bucket_ix + 1) & bucketMask);
+          org_bucket->set_indicator(meta_hash, neighbor_bucket, i);
+        }
+      }
+    }
+    /* No need to flush these meta-data because persistent or not does not
+     * influence the correctness*/
+    /*fix the duplicates between the neighbor buckets*/
   }
 
   char dummy[48];
@@ -849,6 +886,8 @@ struct Table {
   int state; /*-1 means this bucket is merging, -2 means this bucket is
                 splitting, so we cannot count the depth_count on it during
                 scanning operation*/
+  int dirty_bit;
+  int lock_bit;
 };
 
 /* it needs to verify whether this bucket has been deleted...*/
@@ -861,7 +900,6 @@ RETRY:
   Bucket<T> *target = bucket + y;
   Bucket<T> *neighbor = bucket + ((y + 1) & bucketMask);
   // printf("for key %lld, target bucket is %lld, meta_hash is %d\n", key,
-  // BUCKET_INDEX(key_hash), meta_hash);
   target->get_lock();
   if (!neighbor->try_get_lock()) {
     target->release_lock();
@@ -1125,9 +1163,9 @@ Table<T> *Table<T>::Split(size_t _key_hash) {
 
 #ifdef PMEM
   Allocator::Persist(next, sizeof(Table));
-  if constexpr (std::is_pointer_v<T>) {
-    Allocator::Persist(this, sizeof(Table));
-  }
+  // if constexpr (std::is_pointer_v<T>) {
+  Allocator::Persist(this, sizeof(Table));
+  //}
 #endif
   return next;
 }
@@ -1176,6 +1214,7 @@ class Finger_EH {
   }
 
   void recoverTable(Table<T> **target_table);
+  void Recovery();
 
   inline bool Acquire(void) {
     int unlocked = 0;
@@ -1344,20 +1383,55 @@ void Finger_EH<T>::Directory_Update(Directory<T> *_sa, int x, Table<T> *new_b) {
 
 template <class T>
 void Finger_EH<T>::recoverTable(Table<T> **target_table) {
-  (*target_table)->recoverMetadata();
-  *target_table = (Table<T> *)(((uint64_t)(*target_table)) & (~recoverBit));
+  /*Set the lockBit to ahieve the mutal exclusion of the recover process*/
+  uint64_t snapshot = (uint64_t)*target_table;
+  Table<T> *target = (Table<T> *)(snapshot & (~recoverBit));
+
+  if (!target->dirty_bit) {
+    /*reset the recovery bit of the pointer*/
+    *target_table = target;
+    return;
+  }
+
+  auto old_lock = target->lock_bit;
+  if (old_lock) return;
+  // uint64_t old_value = (snapshot & (~lockBit)) | recoverBit;
+  // uint64_t new_value = snapshot | lockBit;
+  int new_lock = 1;
+
+  if (!CAS(&target->lock_bit, &old_lock, new_lock)) {
+    return; /*fail to set the lock*/
+  }
+
+  target->recoverMetadata();
+  target->dirty_bit = 0;
+  *target_table = target;
+  /*No need to reset the lock since the data has been recovered*/
+}
+
+template <class T>
+void Finger_EH<T>::Recovery() {
+  /*scan the directory, set the clear bit, and also set the dirty bit in the
+   * segment to indicate that this segment is clean*/
+  auto dir_entry = dir->_;
+  int length = pow(2, dir->global_depth);
+  Table<T> *target;
+  for (int i = 0; i < length; ++i) {
+    // printf("reset %d\n", i);
+    dir_entry[i] = (Table<T> *)((uint64_t)dir_entry[i] | recoverBit);
+    target = (Table<T> *)((uint64_t)dir_entry[i] & (~recoverBit));
+    target->dirty_bit = 1;
+    target->lock_bit = 0;
+  }
 }
 
 template <class T>
 int Finger_EH<T>::Insert(T key, Value_t value) {
   uint64_t key_hash;
   if constexpr (std::is_pointer_v<T>) {
-    // key_hash = h(key, strlen(key));
     key_hash = h(key, (reinterpret_cast<string_key *>(key))->length);
-    // printf("Insert the variable length key = %s\n", key);
   } else {
     key_hash = h(&key, sizeof(key));
-    // printf("Insert the fixed length key = %lld\n", key);
   }
   auto meta_hash = ((uint8_t)(key_hash & kMask));  // the last 8 bits
 RETRY:
@@ -1365,6 +1439,10 @@ RETRY:
   auto x = (key_hash >> (8 * sizeof(key_hash) - old_sa->global_depth));
   auto dir_entry = old_sa->_;
   Table<T> *target = dir_entry[x];
+  if (((uint64_t)target & recoverBit)) {
+    recoverTable(&dir_entry[x]);
+    goto RETRY;
+  }
 
   // printf("insert key %lld, x = %d, y = %d, meta_hash = %d\n", key, x,
   // BUCKET_INDEX(key_hash), meta_hash);
@@ -1456,6 +1534,7 @@ RETRY:
 
   if (((uint64_t)target & recoverBit)) {
     recoverTable(&dir_entry[x]);
+    goto RETRY;
   }
 
   uint32_t old_version;
@@ -1590,6 +1669,11 @@ RETRY:
   auto x = (key_hash >> (8 * sizeof(key_hash) - old_sa->global_depth));
   auto dir_entry = old_sa->_;
   Table<T> *target_table = dir_entry[x];
+
+  if (((uint64_t)target_table & recoverBit)) {
+    recoverTable(&dir_entry[x]);
+    goto RETRY;
+  }
 
   /*we need to first do the locking and then do the verify*/
   auto y = BUCKET_INDEX(key_hash);

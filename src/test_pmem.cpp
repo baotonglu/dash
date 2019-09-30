@@ -12,7 +12,7 @@
 #include "utils.h"
 
 //#define LINEAR 1
-//#define FIXED 1
+#define FIXED 1
 //#define MIXED_TEST 1
 //#define TEST_BANDWIDTH 1
 
@@ -324,37 +324,36 @@ void generalBench(range *rarray, int thread_num, std::string profile_name,
   bar_a = 1;
   bar_b = thread_num;
   bar_c = thread_num;
-  System::profile(profile_name, [&]() {
-    for (int i = 0; i < thread_num; ++i) {
-      thread_array[i] = new std::thread(*test_func, &rarray[i]);
-    }
+  // System::profile(profile_name, [&]() {
+  for (int i = 0; i < thread_num; ++i) {
+    thread_array[i] = new std::thread(*test_func, &rarray[i]);
+  }
 
-    while (LOAD(&bar_b) != 0)
-      ;  // Spin
-    std::unique_lock<std::mutex> lck(
-        mtx);  // get the lock of condition variable
-    // printf("All threads are ready\n");
+  while (LOAD(&bar_b) != 0)
+    ;                                     // Spin
+  std::unique_lock<std::mutex> lck(mtx);  // get the lock of condition variable
+  // printf("All threads are ready\n");
 
-    gettimeofday(&tv1, NULL);
-    STORE(&bar_a, 0);  // start test
-    while (!finished)
-      cv.wait(lck);  // go to sleep and wait for the wake-up from child threads
-    gettimeofday(&tv2, NULL);  // test end
+  gettimeofday(&tv1, NULL);
+  STORE(&bar_a, 0);  // start test
+  while (!finished)
+    cv.wait(lck);  // go to sleep and wait for the wake-up from child threads
+  gettimeofday(&tv2, NULL);  // test end
 
-    for (int i = 0; i < thread_num; ++i) {
-      thread_array[i]->join();
-      delete thread_array[i];
-    }
-    duration = (double)(tv2.tv_usec - tv1.tv_usec) / 1000000 +
-               (double)(tv2.tv_sec - tv1.tv_sec);
-    printf(
-        "For %d threads,Total time = %f seconds, the throughput is %f "
-        "operations/s\n",
-        thread_num,
-        (double)(tv2.tv_usec - tv1.tv_usec) / 1000000 +
-            (double)(tv2.tv_sec - tv1.tv_sec),
-        insert_num / duration);
-  });
+  for (int i = 0; i < thread_num; ++i) {
+    thread_array[i]->join();
+    delete thread_array[i];
+  }
+  duration = (double)(tv2.tv_usec - tv1.tv_usec) / 1000000 +
+             (double)(tv2.tv_sec - tv1.tv_sec);
+  printf(
+      "For %d threads,Total time = %f seconds, the throughput is %f "
+      "operations/s\n",
+      thread_num,
+      (double)(tv2.tv_usec - tv1.tv_usec) / 1000000 +
+          (double)(tv2.tv_sec - tv1.tv_sec),
+      insert_num / duration);
+  //});
 }
 
 int main(int argc, char const *argv[]) {
@@ -495,6 +494,17 @@ int main(int argc, char const *argv[]) {
 
   generalBench(rarray, thread_num, "Pos_get_", &concurr_get);
 
+  /*Test the recovery of the hash table*/
+  eh->Recovery();
+
+  printf("Pos search workload begin\n");
+  chunk_size = insert_num / thread_num;
+  for (int i = 0; i < thread_num; ++i) {
+    rarray[i].begin = i * chunk_size + 1;
+    rarray[i].end = (i + 1) * chunk_size + 1;
+  }
+  rarray[thread_num - 1].end = insert_num + 1;
+  generalBench(rarray, thread_num, "Pos_get_", &concurr_get);
   /*********************Benchmark for delete ****************************/
   /*
   printf("Delete workload begin\n");
