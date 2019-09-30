@@ -672,38 +672,37 @@ struct Table;
 
 template <class T>
 struct Directory {
-  Table<T> **_;
-  size_t global_depth;
-  size_t version;
-  size_t depth_count;
-  Directory(size_t capacity, size_t _version, Table<T> **tables) {
+  typedef Table<T>* table_p;
+  uint32_t global_depth;
+  uint32_t version;
+  uint32_t depth_count;
+  table_p _[0];
+
+  Directory(size_t capacity, size_t _version) {
     version = _version;
     global_depth = static_cast<size_t>(log2(capacity));
-    _ = tables;
     depth_count = 0;
   }
 
   static void New(Directory<T> **dir, size_t capacity, size_t version) {
     Table<T> **tables{nullptr};
-    Allocator::ZAllocate((void **)&tables, kCacheLineSize,
-                         sizeof(uint64_t) * capacity);
-    // tables = reinterpret_cast<Table**>(malloc(sizeof(uint64_t) * capacity));
 #ifdef PMEM
     auto callback = [](PMEMobjpool *pool, void *ptr, void *arg) {
-      auto value_ptr =
-          reinterpret_cast<std::tuple<size_t, size_t, Table<T> **> *>(arg);
+      auto value_ptr = reinterpret_cast<std::tuple<size_t, size_t> *>(arg);
       auto dir_ptr = reinterpret_cast<Directory *>(ptr);
       dir_ptr->version = std::get<1>(*value_ptr);
       dir_ptr->global_depth =
           static_cast<size_t>(log2(std::get<0>(*value_ptr)));
-      dir_ptr->_ = std::get<2>(*value_ptr);
+      size_t cap = std::get<0>(*value_ptr);
+      printf("Cap=%d\n", cap);
+      memset(&dir_ptr->_, 0, sizeof(table_p) * cap);
       return 0;
     };
-    std::tuple callback_args = {capacity, version, tables};
-    Allocator::Allocate((void **)dir, kCacheLineSize, sizeof(Directory<T>),
+    std::tuple callback_args = {capacity, version};
+    Allocator::Allocate((void **)dir, kCacheLineSize, sizeof(Directory<T>) + sizeof(table_p) * capacity,
                         callback, reinterpret_cast<void *>(&callback_args));
 #else
-    Allocator::ZAllocate((void **)dir, kCacheLineSize, sizeof(Directory<T>));
+    Allocator::Allocate((void **)dir, kCacheLineSize, sizeof(Directory<T>));
     new (*dir) Directory(capacity, version, tables);
 #endif
   }
