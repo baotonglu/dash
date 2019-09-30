@@ -76,6 +76,17 @@ struct range {
   uint64_t random_num;
 };
 
+void set_affinity(uint32_t idx) {
+  cpu_set_t my_set;
+  CPU_ZERO(&my_set);
+  if (idx < 24) {
+    CPU_SET(idx, &my_set);
+  } else {
+    CPU_SET(idx + 24, &my_set);
+  }
+  sched_setaffinity(0, sizeof(cpu_set_t), &my_set);
+}
+
 void clear_cache(int insert_num) {
   uint32_t not_found = 0;
   auto _value_workload = reinterpret_cast<Value_t *>(value_workload);
@@ -88,10 +99,7 @@ void clear_cache(int insert_num) {
 }
 
 void mixed(struct range *_range) {
-  cpu_set_t my_set;
-  CPU_ZERO(&my_set);
-  CPU_SET(_range->index, &my_set);
-  sched_setaffinity(0, sizeof(cpu_set_t), &my_set);
+  set_affinity(_range->index);
 
 #ifdef FIXED
   size_t key;
@@ -138,10 +146,7 @@ void mixed(struct range *_range) {
 }
 
 void concurr_insert(struct range *_range) {
-  cpu_set_t my_set;
-  CPU_ZERO(&my_set);
-  CPU_SET(_range->index, &my_set);
-  sched_setaffinity(0, sizeof(cpu_set_t), &my_set);
+  set_affinity(_range->index);
 
 #ifdef FIXED
   size_t key;
@@ -179,10 +184,7 @@ void concurr_insert(struct range *_range) {
 }
 
 void concurr_get(struct range *_range) {
-  cpu_set_t my_set;
-  CPU_ZERO(&my_set);
-  CPU_SET(_range->index, &my_set);
-  sched_setaffinity(0, sizeof(cpu_set_t), &my_set);
+  set_affinity(_range->index);
 
 #ifdef FIXED
   size_t key;
@@ -216,10 +218,7 @@ void concurr_get(struct range *_range) {
 }
 
 void concurr_delete(struct range *_range) {
-  cpu_set_t my_set;
-  CPU_ZERO(&my_set);
-  CPU_SET(_range->index, &my_set);
-  sched_setaffinity(0, sizeof(cpu_set_t), &my_set);
+  set_affinity(_range->index);
 
 #ifdef FIXED
   size_t key;
@@ -350,7 +349,7 @@ void generalBench(range *rarray, int thread_num, std::string profile_name,
                (double)(tv2.tv_sec - tv1.tv_sec);
     printf(
         "For %d threads,Total time = %f seconds, the throughput is %f "
-        "options/s\n",
+        "operations/s\n",
         thread_num,
         (double)(tv2.tv_usec - tv1.tv_usec) / 1000000 +
             (double)(tv2.tv_sec - tv1.tv_sec),
