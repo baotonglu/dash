@@ -694,7 +694,6 @@ struct Directory {
       dir_ptr->global_depth =
           static_cast<size_t>(log2(std::get<0>(*value_ptr)));
       size_t cap = std::get<0>(*value_ptr);
-      printf("Cap=%d\n", cap);
       memset(&dir_ptr->_, 0, sizeof(table_p) * cap);
       return 0;
     };
