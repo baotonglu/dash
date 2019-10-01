@@ -114,21 +114,17 @@ void generate_16B(void *memory_region, int generate_num, int length,
 }
 
 template <class T>
-void Load(int kv_num, Finger_EH<T> *index, int length) {
+void Load(int kv_num, Finger_EH<T> *index, int length, void *workload) {
   if (kv_num == 0) return;
   std::string fixed("fixed");
+  T *_worklod = reinterpret_cast<T *>(workload);
   T key;
   if constexpr (!std::is_pointer_v<T>) {
     for (int i = 0; i < kv_num; ++i) {
-      key = genrand64_int64();
-      index->Insert(key, DEFAULT);
+      index->Insert(_worklod[i], DEFAULT);
     }
   } else { /*genereate 16B key*/
-    char *persist_workload;
-    Allocator::ZAllocate((void **)&persist_workload, kCacheLineSize,
-                         (sizeof(string_key) + length) * kv_num);
-    generate_16B(persist_workload, kv_num, length, true);
-
+    char *persist_workload = reinterpret_cast<char *>(workload);
     int string_key_size = sizeof(string_key) + length;
     for (int i = 0; i < kv_num; ++i) {
       key = reinterpret_cast<T>(persist_workload + i * string_key_size);
@@ -136,6 +132,20 @@ void Load(int kv_num, Finger_EH<T> *index, int length) {
     }
   }
   std::cout << "Finish loading " << kv_num << " keys" << std::endl;
+}
+
+inline void spin_wait() {
+  SUB(&bar_b, 1);
+  while (LOAD(&bar_a) == 1)
+    ; /*spinning*/
+}
+
+inline void end_notify() {
+  if (SUB(&bar_c, 1) == 0) {
+    std::unique_lock<std::mutex> lck(mtx);
+    finished = true;
+    cv.notify_one();
+  }
 }
 
 template <class T>
@@ -146,9 +156,7 @@ void concurr_insert(struct range *_range, Finger_EH<T> *index) {
   char *workload = reinterpret_cast<char *>(_range->workload);
   T key;
 
-  SUB(&bar_b, 1);
-  while (LOAD(&bar_a) == 1)
-    ; /*spinning*/
+  spin_wait();
 
   // if(key_type == "fixed"){/*fixed length key benchmark*/
   if constexpr (!std::is_pointer_v<T>) {
@@ -165,11 +173,73 @@ void concurr_insert(struct range *_range, Finger_EH<T> *index) {
     }
   }
 
-  if (SUB(&bar_c, 1) == 0) {
-    std::unique_lock<std::mutex> lck(mtx);
-    finished = true;
-    cv.notify_one();
+  end_notify();
+}
+
+template <class T>
+void concurr_search(struct range *_range, Finger_EH<T> *index) {
+  set_affinity(_range->index);
+  int begin = _range->begin;
+  int end = _range->end;
+  char *workload = reinterpret_cast<char *>(_range->workload);
+  T key;
+  uint64_t not_found = 0;
+
+  spin_wait();
+
+  // if(key_type == "fixed"){/*fixed length key benchmark*/
+  if constexpr (!std::is_pointer_v<T>) {
+    T *key_array = reinterpret_cast<T *>(workload);
+    for (int i = begin; i < end; ++i) {
+      if (index->Get(key_array[i]) == NONE) {
+        not_found++;
+      }
+    }
+  } else {
+    T var_key;
+    int string_key_size = sizeof(string_key) + _range->length;
+    for (int i = begin; i < end; ++i) {
+      var_key = reinterpret_cast<T>(workload + string_key_size * i);
+      if (index->Get(var_key) == NONE) {
+        not_found++;
+      }
+    }
   }
+  std::cout << "not_found = " << not_found << std::endl;
+  end_notify();
+}
+
+template <class T>
+void concurr_delete(struct range *_range, Finger_EH<T> *index) {
+  set_affinity(_range->index);
+  int begin = _range->begin;
+  int end = _range->end;
+  char *workload = reinterpret_cast<char *>(_range->workload);
+  T key;
+  uint64_t not_found = 0;
+
+  spin_wait();
+
+  // if(key_type == "fixed"){/*fixed length key benchmark*/
+  if constexpr (!std::is_pointer_v<T>) {
+    T *key_array = reinterpret_cast<T *>(workload);
+    for (int i = begin; i < end; ++i) {
+      if (index->Delete(key_array[i]) == false) {
+        not_found++;
+      }
+    }
+  } else {
+    T var_key;
+    int string_key_size = sizeof(string_key) + _range->length;
+    for (int i = begin; i < end; ++i) {
+      var_key = reinterpret_cast<T>(workload + string_key_size * i);
+      if (index->Delete(var_key) == false) {
+        not_found++;
+      }
+    }
+  }
+  std::cout << "not_found = " << not_found << std::endl;
+  end_notify();
 }
 
 template <class T>
@@ -235,6 +305,7 @@ void GeneralBench(range *rarray, Finger_EH<T> *index, int thread_num,
   bar_b = thread_num;
   bar_c = thread_num;
 
+  std::cout << profile_name << " Begin" << std::endl;
   // System::profile(profile_name, [&]() {
   for (int i = 0; i < thread_num; ++i) {
     thread_array[i] = new std::thread(*test_func, &rarray[i], index);
@@ -264,6 +335,7 @@ void GeneralBench(range *rarray, Finger_EH<T> *index, int thread_num,
           (double)(tv2.tv_sec - tv1.tv_sec),
       operation_num / duration);
   //});
+  std::cout << profile_name << " End" << std::endl;
 }
 
 void *GenerateWorkload(int generate_num, int length) {
@@ -290,20 +362,33 @@ void Run() {
   /* Initialize Index*/
   Finger_EH<T> *index = InitializeIndex<T>(initCap);
 
-  /* Load Phase, first generate workload, if the key is variable length key, we
-   * use 16B key to represent*/
-  Load<T>(load_num, index, 16);
-
+  int generate_num = operation_num + load_num;
   /* Generate the workload and corresponding range array*/
-  void *workload = GenerateWorkload(operation_num * 2, 16);
+  void *workload = GenerateWorkload(generate_num * 2, 16);
   void *insert_workload;
-  if (key_type == "variable") {
+  if (key_type != "fixed") {
     Allocator::ZAllocate((void **)&insert_workload, kCacheLineSize,
-                         (sizeof(string_key) + 16) * operation_num * 2);
+                         (sizeof(string_key) + 16) * generate_num * 2);
     memcpy(insert_workload, workload,
-           (sizeof(string_key) + 16) * operation_num * 2);
+           (sizeof(string_key) + 16) * generate_num * 2);
   } else {
     insert_workload = workload;
+  }
+
+  Load<T>(load_num, index, 16, insert_workload);
+  void *not_used_workload;
+  void *not_used_insert_workload;
+
+  if (key_type == "fixed") {
+    uint64_t *key_array = reinterpret_cast<uint64_t *>(workload);
+    not_used_workload = reinterpret_cast<void *>(key_array + load_num);
+    not_used_insert_workload = not_used_workload;
+  } else {
+    char *key_array = reinterpret_cast<char *>(workload);
+    char *persist_key_array = reinterpret_cast<char *>(insert_workload);
+    not_used_workload = key_array + (sizeof(string_key) + 16) * load_num;
+    not_used_insert_workload =
+        persist_key_array + (sizeof(string_key) + 16) * load_num;
   }
 
   /* Description of the workload*/
@@ -317,36 +402,78 @@ void Run() {
     rarray[i].begin = i * chunk_size;
     rarray[i].end = (i + 1) * chunk_size;
     rarray[i].length = 16;
-    rarray[i].workload = workload;
+    rarray[i].workload = not_used_workload;
   }
   rarray[thread_num - 1].end = operation_num;
 
   /* Benchmark Phase */
   if (operation == "insert") {
     for (int i = 0; i < thread_num; ++i) {
-      rarray[i].workload = insert_workload;
+      rarray[i].workload = not_used_insert_workload;
     }
     GeneralBench<T>(rarray, index, thread_num, operation_num, "Insert",
                     &concurr_insert);
   } else if (operation == "pos") {
-  } else if (operation == "neg") {
-  } else if (operation == "delete") {
-  } else if (operation == "mixed") { /*mixed workload, the default setting is
-                                        read 80%, insert 20%*/
-    for (int i = 0; i < thread_num; ++i) {
-      rarray[i].workload = insert_workload;
+    if (!load_num) {
+      std::cout << "Please first specify the # pre_load keys!" << std::endl;
+      return;
     }
-    GeneralBench<T>(rarray, index, thread_num, operation_num, "Insert", &mixed);
+    for (int i = 0; i < thread_num; ++i) {
+      rarray[i].workload = workload;
+    }
+    GeneralBench<T>(rarray, index, thread_num, operation_num, "Pos_search",
+                    &concurr_search);
+  } else if (operation == "neg") {
+    if (!load_num) {
+      std::cout << "Please first specify the # pre_load keys!" << std::endl;
+      return;
+    }
+    GeneralBench<T>(rarray, index, thread_num, operation_num, "Neg_search",
+                    &concurr_search);
+  } else if (operation == "delete") {
+    if (!load_num) {
+      std::cout << "Please first specify the # pre_load keys!" << std::endl;
+      return;
+    }
+    for (int i = 0; i < thread_num; ++i) {
+      rarray[i].workload = workload;
+    }
+    GeneralBench<T>(rarray, index, thread_num, operation_num, "Delete",
+                    &concurr_delete);
+  } else if (operation == "mixed") {
+    for (int i = 0; i < thread_num; ++i) {
+      rarray[i].workload = not_used_insert_workload;
+    }
+    GeneralBench<T>(rarray, index, thread_num, operation_num, "Mixed", &mixed);
   } else { /*do the benchmark for all single operations*/
     for (int i = 0; i < thread_num; ++i) {
-      rarray[i].workload = insert_workload;
+      rarray[i].workload = not_used_insert_workload;
     }
     GeneralBench<T>(rarray, index, thread_num, operation_num, "Insert",
                     &concurr_insert);
     for (int i = 0; i < thread_num; ++i) {
-      rarray[i].workload = workload;
+      rarray[i].workload = not_used_workload;
     }
+    GeneralBench<T>(rarray, index, thread_num, operation_num, "Pos_search",
+                    &concurr_search);
+    for (int i = 0; i < thread_num; ++i) {
+      rarray[i].begin = operation_num + i * chunk_size;
+      rarray[i].end = operation_num + (i + 1) * chunk_size;
+    }
+    rarray[thread_num - 1].end = 2 * operation_num;
+    GeneralBench<T>(rarray, index, thread_num, operation_num, "Neg_search",
+                    &concurr_search);
+
+    for (int i = 0; i < thread_num; ++i) {
+      rarray[i].begin = i * chunk_size;
+      rarray[i].end = (i + 1) * chunk_size;
+    }
+    rarray[thread_num - 1].end = operation_num;
+    GeneralBench<T>(rarray, index, thread_num, operation_num, "Delete",
+                    &concurr_delete);
   }
+
+  /*TODO Free the workload memory*/
 }
 
 bool check_ratio() {
