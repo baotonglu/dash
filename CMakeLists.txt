@@ -13,7 +13,7 @@ set(CMAKE_ENABLE_COMPILE_COMMANDS "ON")
 
 if (${CMAKE_BUILD_TYPE} STREQUAL "Release")
   message("-- Release mode, all optimizations enabled")
-  set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} -O3 -Ofast -g -march=native")
+  set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} -O3 -Ofast -march=native")
 endif ()
 
 ##################### PMDK ####################
@@ -41,7 +41,7 @@ endif ()
 option(USE_PMEM "enable persistent memory support" ON)
 
 set(libs_to_link
-        pthread)
+        pthread gflags)
 
 if (USE_PMEM MATCHES "ON")
   message(STATUS "persistent memory support enabled, going to build with PMDK")
