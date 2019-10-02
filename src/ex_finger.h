@@ -15,8 +15,8 @@
 #include "../util/hash.h"
 #include "../util/pair.h"
 #include "../util/persist.h"
-#include "allocator.h"
 #include "Hash.h"
+#include "allocator.h"
 
 #ifdef PMEM
 #include <libpmemobj.h>
@@ -274,28 +274,32 @@ struct Bucket {
         //  return _[i].value;
         //}
         if (CHECK_BIT(mask, i) &&
-            (var_compare((reinterpret_cast<string_key *>(_[i].key))->key, _key->key,
+            (var_compare((reinterpret_cast<string_key *>(_[i].key))->key,
+                         _key->key,
                          (reinterpret_cast<string_key *>(_[i].key))->length,
                          _key->length))) {
           return _[i].value;
         }
 
         if (CHECK_BIT(mask, i + 1) &&
-            (var_compare((reinterpret_cast<string_key *>(_[i + 1].key))->key, _key->key,
+            (var_compare((reinterpret_cast<string_key *>(_[i + 1].key))->key,
+                         _key->key,
                          (reinterpret_cast<string_key *>(_[i + 1].key))->length,
                          _key->length))) {
           return _[i + 1].value;
         }
 
         if (CHECK_BIT(mask, i + 2) &&
-            (var_compare((reinterpret_cast<string_key *>(_[i + 2].key))->key, _key->key,
+            (var_compare((reinterpret_cast<string_key *>(_[i + 2].key))->key,
+                         _key->key,
                          (reinterpret_cast<string_key *>(_[i + 2].key))->length,
                          _key->length))) {
           return _[i + 2].value;
         }
 
         if (CHECK_BIT(mask, i + 3) &&
-            (var_compare((reinterpret_cast<string_key *>(_[i + 3].key))->key, _key->key,
+            (var_compare((reinterpret_cast<string_key *>(_[i + 3].key))->key,
+                         _key->key,
                          (reinterpret_cast<string_key *>(_[i + 3].key))->length,
                          _key->length))) {
           return _[i + 3].value;
@@ -303,14 +307,16 @@ struct Bucket {
       }
 
       if (CHECK_BIT(mask, 12) &&
-          (var_compare((reinterpret_cast<string_key *>(_[12].key))->key, _key->key,
+          (var_compare((reinterpret_cast<string_key *>(_[12].key))->key,
+                       _key->key,
                        (reinterpret_cast<string_key *>(_[12].key))->length,
                        _key->length))) {
         return _[12].value;
       }
 
       if (CHECK_BIT(mask, 13) &&
-          (var_compare((reinterpret_cast<string_key *>(_[13].key))->key, _key->key,
+          (var_compare((reinterpret_cast<string_key *>(_[13].key))->key,
+                       _key->key,
                        (reinterpret_cast<string_key *>(_[13].key))->length,
                        _key->length))) {
         return _[13].value;
@@ -469,7 +475,8 @@ struct Bucket {
       if (mask != 0) {
         for (int i = 0; i < 12; i += 4) {
           if (CHECK_BIT(mask, i) &&
-              (var_compare((reinterpret_cast<string_key *>(_[i].key))->key, _key->key,
+              (var_compare((reinterpret_cast<string_key *>(_[i].key))->key,
+                           _key->key,
                            (reinterpret_cast<string_key *>(_[i].key))->length,
                            _key->length))) {
             unset_hash(i, false);
@@ -505,7 +512,8 @@ struct Bucket {
         }
 
         if (CHECK_BIT(mask, 12) &&
-            (var_compare(reinterpret_cast<string_key *>(_[12].key)->key, _key->key,
+            (var_compare(reinterpret_cast<string_key *>(_[12].key)->key,
+                         _key->key,
                          (reinterpret_cast<string_key *>(_[12].key))->length,
                          _key->length))) {
           unset_hash(12, false);
@@ -513,7 +521,8 @@ struct Bucket {
         }
 
         if (CHECK_BIT(mask, 13) &&
-            (var_compare(reinterpret_cast<string_key *>(_[13].key)->key, _key->key,
+            (var_compare(reinterpret_cast<string_key *>(_[13].key)->key,
+                         _key->key,
                          (reinterpret_cast<string_key *>(_[13].key))->length,
                          _key->length))) {
           unset_hash(13, false);
@@ -701,7 +710,7 @@ struct Directory {
       dir_ptr->global_depth =
           static_cast<size_t>(log2(std::get<0>(*value_ptr)));
       size_t cap = std::get<0>(*value_ptr);
-      //memset(&dir_ptr->_, 0, sizeof(table_p) * cap);
+      // memset(&dir_ptr->_, 0, sizeof(table_p) * cap);
       pmemobj_persist(pool, dir_ptr, sizeof(Directory<T>));
       return 0;
     };
@@ -719,7 +728,7 @@ struct Directory {
 /* the meta hash-table referenced by the directory*/
 template <class T>
 struct Table {
-  //static void New(Table<T> **tbl, size_t depth, Table<T> *pp) {
+  // static void New(Table<T> **tbl, size_t depth, Table<T> *pp) {
   static void New(PMEMoid *tbl, size_t depth, PMEMoid pp) {
 #ifdef PMEM
     auto callback = [](PMEMobjpool *pool, void *ptr, void *arg) {
@@ -735,44 +744,44 @@ struct Table {
       table_ptr->next = value_ptr->second;
 
       int sumBucket = kNumBucket + stashBucket;
-      for(int i = 0; i < sumBucket; ++i){
+      for (int i = 0; i < sumBucket; ++i) {
         auto curr_bucket = table_ptr->bucket + i;
         memset(curr_bucket, 0, 64);
       }
-      
+
       pmemobj_persist(pool, table_ptr, sizeof(Table<T>));
       return 0;
     };
     std::pair callback_para(depth, pp);
-    Allocator::Allocate(tbl, kCacheLineSize, sizeof(Table<T>),
-                        callback, reinterpret_cast<void *>(&callback_para));
+    Allocator::Allocate(tbl, kCacheLineSize, sizeof(Table<T>), callback,
+                        reinterpret_cast<void *>(&callback_para));
 #else
     Allocator::ZAllocate((void **)tbl, kCacheLineSize, sizeof(Table<T>));
     (*tbl)->local_depth = depth;
     (*tbl)->next = pp;
 #endif
   };
-/*
-  static void New(Table<T> **tbl, size_t depth, Table<T> *pp) {
-#ifdef PMEM
-    auto callback = [](PMEMobjpool *pool, void *ptr, void *arg) {
-      auto value_ptr = reinterpret_cast<std::pair<size_t, Table<T> *> *>(arg);
-      auto table_ptr = reinterpret_cast<Table<T> *>(ptr);
-      table_ptr->local_depth = value_ptr->first;
-      table_ptr->next = value_ptr->second;
-      pmemobj_persist(pool, ptr, sizeof(Table<T>));
-      return 0;
+  /*
+    static void New(Table<T> **tbl, size_t depth, Table<T> *pp) {
+  #ifdef PMEM
+      auto callback = [](PMEMobjpool *pool, void *ptr, void *arg) {
+        auto value_ptr = reinterpret_cast<std::pair<size_t, Table<T> *> *>(arg);
+        auto table_ptr = reinterpret_cast<Table<T> *>(ptr);
+        table_ptr->local_depth = value_ptr->first;
+        table_ptr->next = value_ptr->second;
+        pmemobj_persist(pool, ptr, sizeof(Table<T>));
+        return 0;
+      };
+      std::pair callback_para(depth, pp);
+      Allocator::Allocate((void **)tbl, kCacheLineSize, sizeof(Table<T>),
+                          callback, reinterpret_cast<void *>(&callback_para));
+  #else
+      Allocator::ZAllocate((void **)tbl, kCacheLineSize, sizeof(Table<T>));
+      (*tbl)->local_depth = depth;
+      (*tbl)->next = pp;
+  #endif
     };
-    std::pair callback_para(depth, pp);
-    Allocator::Allocate((void **)tbl, kCacheLineSize, sizeof(Table<T>),
-                        callback, reinterpret_cast<void *>(&callback_para));
-#else
-    Allocator::ZAllocate((void **)tbl, kCacheLineSize, sizeof(Table<T>));
-    (*tbl)->local_depth = depth;
-    (*tbl)->next = pp;
-#endif
-  };
-*/
+  */
   ~Table(void) {}
 
   int Insert(T key, Value_t value, size_t key_hash, uint8_t meta_hash,
@@ -912,7 +921,7 @@ struct Table {
   size_t local_depth;
   size_t pattern;
   int number;
-  //Table<T> *next;
+  // Table<T> *next;
   PMEMoid next;
   int state; /*-1 means this bucket is merging, -2 means this bucket is
                 splitting, so we cannot count the depth_count on it during
@@ -1125,8 +1134,9 @@ Table<T> *Table<T>::Split(size_t _key_hash) {
   Table<T> *next_table = reinterpret_cast<Table<T> *>(pmemobj_direct(next));
 
   next_table->state = -2;
-  next_table->bucket->get_lock(); /* get the first lock of the new bucket to avoid it
-                               is operated(split or merge) by other threads*/
+  next_table->bucket
+      ->get_lock(); /* get the first lock of the new bucket to avoid it
+                 is operated(split or merge) by other threads*/
   size_t key_hash;
   for (int i = 0; i < kNumBucket; ++i) {
     auto *curr_bucket = bucket + i;
@@ -1136,10 +1146,11 @@ Table<T> *Table<T>::Split(size_t _key_hash) {
         if constexpr (std::is_pointer_v<T>) {
           // key_hash = h(curr_bucket->_[j].key, strlen(curr_bucket->_[j].key));
           auto curr_key = curr_bucket->_[j].key;
-            key_hash = h(curr_key->key, curr_key->length);
-          //key_hash = h(
+          key_hash = h(curr_key->key, curr_key->length);
+          // key_hash = h(
           //    curr_bucket->_[j].key,
-          //    (reinterpret_cast<string_key *>(curr_bucket->_[j].key))->length);
+          //    (reinterpret_cast<string_key
+          //    *>(curr_bucket->_[j].key))->length);
         } else {
           key_hash = h(&(curr_bucket->_[j].key), sizeof(Key_t));
         }
@@ -1168,9 +1179,10 @@ Table<T> *Table<T>::Split(size_t _key_hash) {
           // key_hash = h(curr_bucket->_[j].key, strlen(curr_bucket->_[j].key));
           auto curr_key = curr_bucket->_[j].key;
           key_hash = h(curr_key->key, curr_key->length);
-          //key_hash = h(
+          // key_hash = h(
           //    curr_bucket->_[j].key,
-          //    (reinterpret_cast<string_key *>(curr_bucket->_[j].key))->length);
+          //    (reinterpret_cast<string_key
+          //    *>(curr_bucket->_[j].key))->length);
         } else {
           key_hash = h(&(curr_bucket->_[j].key), sizeof(Key_t));
         }
@@ -1204,7 +1216,6 @@ Table<T> *Table<T>::Split(size_t _key_hash) {
 #endif
   return next_table;
 }
-
 
 template <class T>
 class Finger_EH : public Hash<T> {
@@ -1283,13 +1294,13 @@ Finger_EH<T>::Finger_EH(size_t initCap) {
   lock = 0;
   PMEMoid ptr;
   Table<T>::New(&ptr, dir->global_depth, OID_NULL);
-  dir->_[initCap - 1] = (Table<T>*)pmemobj_direct(ptr);
+  dir->_[initCap - 1] = (Table<T> *)pmemobj_direct(ptr);
 
   dir->_[initCap - 1]->pattern = initCap - 1;
   /* Initilize the Directory*/
   for (int i = initCap - 2; i >= 0; --i) {
     Table<T>::New(&ptr, dir->global_depth, ptr);
-    dir->_[i] = (Table<T>*)pmemobj_direct(ptr);
+    dir->_[i] = (Table<T> *)pmemobj_direct(ptr);
     dir->_[i]->pattern = i;
   }
   dir->depth_count = initCap;
@@ -1455,20 +1466,40 @@ void Finger_EH<T>::Recovery() {
   auto dir_entry = dir->_;
   int length = pow(2, dir->global_depth);
   Table<T> *target;
-  for (int i = 0; i < length; ++i) {
-    // printf("reset %d\n", i);
+  size_t i = 0, global_depth = dir->global_depth, depth_cur, stride, buddy;
+
+  while (i < length) {
     dir_entry[i] = (Table<T> *)((uint64_t)dir_entry[i] | recoverBit);
     target = (Table<T> *)((uint64_t)dir_entry[i] & (~recoverBit));
     target->dirty_bit = 1;
     target->lock_bit = 0;
+    depth_cur = target->local_depth;
+    stride = pow(2, global_depth - depth_cur);
+    buddy = i + stride;
+    for (int j = buddy - 1; j > i; j--) {
+      dir_entry[j] = (Table<T> *)((uint64_t)dir_entry[j] | recoverBit);
+      target = (Table<T> *)((uint64_t)dir_entry[j] & (~recoverBit));
+      target->dirty_bit = 1;
+      target->lock_bit = 0;
+      if (dir_entry[j] != dir_entry[i]) {
+        dir_entry[j] = dir_entry[i];
+        target->state =
+            -3; /*means that this bucket needs to fix its right link*/
+      }
+    }
+    i = i + stride;
   }
+
+#ifdef PMEM
+  Allocator::Persist(dir_entry, sizeof(uint64_t) * length);
+#endif
 }
 
 template <class T>
 int Finger_EH<T>::Insert(T key, Value_t value) {
   uint64_t key_hash;
   if constexpr (std::is_pointer_v<T>) {
-    //key_hash = h(key, (reinterpret_cast<string_key *>(key))->length);
+    // key_hash = h(key, (reinterpret_cast<string_key *>(key))->length);
     key_hash = h(key->key, key->length);
   } else {
     key_hash = h(&key, sizeof(key));
@@ -1560,7 +1591,7 @@ template <class T>
 Value_t Finger_EH<T>::Get(T key) {
   uint64_t key_hash;
   if constexpr (std::is_pointer_v<T>) {
-    //key_hash = h(key, (reinterpret_cast<string_key *>(key))->length);
+    // key_hash = h(key, (reinterpret_cast<string_key *>(key))->length);
     key_hash = h(key->key, key->length);
   } else {
     key_hash = h(&key, sizeof(key));
@@ -1699,7 +1730,7 @@ bool Finger_EH<T>::Delete(T key) {
   /*Basic delete operation and merge operation*/
   uint64_t key_hash;
   if constexpr (std::is_pointer_v<T>) {
-    //key_hash = h(key, (reinterpret_cast<string_key *>(key))->length);
+    // key_hash = h(key, (reinterpret_cast<string_key *>(key))->length);
     key_hash = h(key->key, key->length);
   } else {
     key_hash = h(&key, sizeof(key));

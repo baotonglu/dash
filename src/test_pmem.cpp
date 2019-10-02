@@ -464,13 +464,22 @@ void Run() {
     GeneralBench<T>(rarray, index, thread_num, operation_num, "Neg_search",
                     &concurr_search);
 
+    index->Recovery();
+    for (int i = 0; i < thread_num; ++i) {
+      rarray[i].begin = i * chunk_size;
+      rarray[i].end = (i + 1) * chunk_size;
+    }
+    rarray[thread_num - 1].end = operation_num;
+    GeneralBench<T>(rarray, index, thread_num, operation_num, "Pos_search",
+                    &concurr_search);
+    /*
     for (int i = 0; i < thread_num; ++i) {
       rarray[i].begin = i * chunk_size;
       rarray[i].end = (i + 1) * chunk_size;
     }
     rarray[thread_num - 1].end = operation_num;
     GeneralBench<T>(rarray, index, thread_num, operation_num, "Delete",
-                    &concurr_delete);
+                    &concurr_delete);*/
   }
 
   /*TODO Free the workload memory*/
