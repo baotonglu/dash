@@ -786,7 +786,9 @@ struct Table {
   int Insert(T key, Value_t value, size_t key_hash, uint8_t meta_hash,
              Directory<T> **);
   void Insert4split(T key, Value_t value, size_t key_hash, uint8_t meta_hash);
-  Table *Split(size_t);
+  void Insert4merge(T key, Value_t value, size_t key_hash,uint8_t meta_hash);
+  Table<T> *Split(size_t);
+  void Merge(Table<T>*);
   int Delete(T key, size_t key_hash, uint8_t meta_hash, Directory<T> **_dir);
   int Next_displace(Bucket<T> *target, Bucket<T> *neighbor,
                     Bucket<T> *next_neighbor, T key, Value_t value,
@@ -1119,6 +1121,81 @@ void Table<T>::Insert4split(T key, Value_t value, size_t key_hash,
 }
 
 template <class T>
+void Table<T>::Insert4merge(T key, Value_t value, size_t key_hash,
+                            uint8_t meta_hash) {
+   auto y = BUCKET_INDEX(key_hash);
+  Bucket<T> *target = bucket + y;
+  Bucket<T> *neighbor = bucket + ((y + 1) & bucketMask);
+  // auto insert_target =
+  // (target->count&lowCountMask)<=(neighbor->count&lowCountMask)?target:neighbor;
+  Bucket<T> *insert_target;
+  bool probe = false;
+  if (GET_COUNT(target->bitmap) <= GET_COUNT(neighbor->bitmap)) {
+    insert_target = target;
+  } else {
+    insert_target = neighbor;
+    probe = true;
+  }
+
+  // assert(insert_target->count < kNumPairPerBucket);
+  /*some bucket may be overflowed?*/
+  if (GET_COUNT(insert_target->bitmap) < kNumPairPerBucket) {
+    insert_target->Insert(key, value, meta_hash, false);
+#ifdef COUNTING
+    ++number;
+#endif
+  } else {
+    /*do the displacement or insertion in the stash*/
+    Bucket<T> *next_neighbor = bucket + ((y + 2) & bucketMask);
+    int displace_index;
+    displace_index = neighbor->Find_org_displacement();
+    if (((GET_COUNT(next_neighbor->bitmap)) != kNumPairPerBucket) &&
+        (displace_index != -1)) {
+      // printf("do the displacement in next bucket, the displaced key is %lld,
+      // the new key is %lld\n", neighbor->_[displace_index].key, key);
+      next_neighbor->Insert_with_noflush(
+          neighbor->_[displace_index].key, neighbor->_[displace_index].value,
+          neighbor->finger_array[displace_index], true);
+      neighbor->unset_hash(displace_index);
+      neighbor->Insert_displace_with_noflush(key, value, meta_hash,
+                                             displace_index, true);
+#ifdef COUNTING
+      ++number;
+#endif
+      return;
+    }
+    Bucket<T> *prev_neighbor;
+    int prev_index;
+    if (y == 0) {
+      prev_neighbor = bucket + kNumBucket - 1;
+      prev_index = kNumBucket - 1;
+    } else {
+      prev_neighbor = bucket + y - 1;
+      prev_index = y - 1;
+    }
+
+    displace_index = target->Find_probe_displacement();
+    if (((GET_COUNT(prev_neighbor->bitmap)) != kNumPairPerBucket) &&
+        (displace_index != -1)) {
+      // printf("do the displacement in previous bucket,the displaced key is
+      // %lld, the new key is %lld\n", target->_[displace_index].key, key);
+      prev_neighbor->Insert_with_noflush(
+          target->_[displace_index].key, target->_[displace_index].value,
+          target->finger_array[displace_index], false);
+      target->unset_hash(displace_index);
+      target->Insert_displace_with_noflush(key, value, meta_hash,
+                                           displace_index, false);
+#ifdef COUNTING
+      ++number;
+#endif
+      return;
+    }
+
+    Stash_insert(target, neighbor, key, value, meta_hash, y & stashMask);
+  }
+}
+
+template <class T>
 Table<T> *Table<T>::Split(size_t _key_hash) {
   size_t new_pattern = (pattern << 1) + 1;
   size_t old_pattern = pattern << 1;
@@ -1137,24 +1214,22 @@ Table<T> *Table<T>::Split(size_t _key_hash) {
       ->get_lock(); /* get the first lock of the new bucket to avoid it
                  is operated(split or merge) by other threads*/
   size_t key_hash;
+  int invalid_array[kNumBucket + stashBucket];
   for (int i = 0; i < kNumBucket; ++i) {
     auto *curr_bucket = bucket + i;
     auto mask = GET_BITMAP(curr_bucket->bitmap);
+    int invalid_mask = 0;
     for (int j = 0; j < kNumPairPerBucket; ++j) {
       if (CHECK_BIT(mask, j)) {
         if constexpr (std::is_pointer_v<T>) {
-          // key_hash = h(curr_bucket->_[j].key, strlen(curr_bucket->_[j].key));
           auto curr_key = curr_bucket->_[j].key;
           key_hash = h(curr_key->key, curr_key->length);
-          // key_hash = h(
-          //    curr_bucket->_[j].key,
-          //    (reinterpret_cast<string_key
-          //    *>(curr_bucket->_[j].key))->length);
         } else {
           key_hash = h(&(curr_bucket->_[j].key), sizeof(Key_t));
         }
 
         if ((key_hash >> (64 - local_depth - 1)) == new_pattern) {
+          invalid_mask = invalid_mask | (1 << (j + 4));
           next_table->Insert4split(
               curr_bucket->_[j].key, curr_bucket->_[j].value, key_hash,
               curr_bucket->finger_array[j]); /*this shceme may destory the
@@ -1166,26 +1241,24 @@ Table<T> *Table<T>::Split(size_t _key_hash) {
         }
       }
     }
+    invalid_array[i] = invalid_mask;
   }
 
   /*split the stash bucket, the stash must be full, right?*/
   for (int i = 0; i < stashBucket; ++i) {
     auto *curr_bucket = bucket + kNumBucket + i;
     auto mask = GET_BITMAP(curr_bucket->bitmap);
+    int invalid_mask = 0;
     for (int j = 0; j < kNumPairPerBucket; ++j) {
       if (CHECK_BIT(mask, j)) {
         if constexpr (std::is_pointer_v<T>) {
-          // key_hash = h(curr_bucket->_[j].key, strlen(curr_bucket->_[j].key));
           auto curr_key = curr_bucket->_[j].key;
           key_hash = h(curr_key->key, curr_key->length);
-          // key_hash = h(
-          //    curr_bucket->_[j].key,
-          //    (reinterpret_cast<string_key
-          //    *>(curr_bucket->_[j].key))->length);
         } else {
           key_hash = h(&(curr_bucket->_[j].key), sizeof(Key_t));
         }
         if ((key_hash >> (64 - local_depth - 1)) == new_pattern) {
+          invalid_mask = invalid_mask | (1 << (j + 4));
           next_table->Insert4split(
               curr_bucket->_[j].key, curr_bucket->_[j].value, key_hash,
               curr_bucket->finger_array[j]); /*this shceme may destory the
@@ -1203,17 +1276,70 @@ Table<T> *Table<T>::Split(size_t _key_hash) {
         }
       }
     }
+    invalid_array[kNumBucket + i] = invalid_mask; 
   }
   next_table->pattern = new_pattern;
   pattern = old_pattern;
 
 #ifdef PMEM
   Allocator::Persist(next_table, sizeof(Table));
+/*
+  size_t sumBucket = kNumBucket + stashBucket;
+  for(int i = 0; i < sumBucket; ++i){
+    auto curr_bucket = bucket + i;
+    curr_bucket->bitmap = curr_bucket->bitmap & (~invalid_array[i]);
+  }
+*/
   // if constexpr (std::is_pointer_v<T>) {
   Allocator::Persist(this, sizeof(Table));
   //}
 #endif
   return next_table;
+}
+
+template<class T>
+void Table<T>::Merge(Table<T> *neighbor){
+  /*Restore the split/merge procedure*/
+  size_t key_hash;
+  for (int i = 0; i < kNumBucket; ++i) {
+    auto *curr_bucket = neighbor->bucket + i;
+    auto mask = GET_BITMAP(curr_bucket->bitmap);
+    for (int j = 0; j < kNumPairPerBucket; ++j) {
+      if (CHECK_BIT(mask, j)) {
+        if constexpr (std::is_pointer_v<T>) {
+          auto curr_key = curr_bucket->_[j].key;
+          key_hash = h(curr_key->key, curr_key->length);
+        } else {
+          key_hash = h(&(curr_bucket->_[j].key), sizeof(Key_t));
+        }
+
+        Insert4merge(
+            curr_bucket->_[j].key, curr_bucket->_[j].value, key_hash,
+            curr_bucket->finger_array[j]); /*this shceme may destory the
+                                              balanced segment*/
+      }
+    }
+  }
+
+  /*split the stash bucket, the stash must be full, right?*/
+  for (int i = 0; i < stashBucket; ++i) {
+    auto *curr_bucket = neighbor->bucket + kNumBucket + i;
+    auto mask = GET_BITMAP(curr_bucket->bitmap);
+    for (int j = 0; j < kNumPairPerBucket; ++j) {
+      if (CHECK_BIT(mask, j)) {
+        if constexpr (std::is_pointer_v<T>) {
+          auto curr_key = curr_bucket->_[j].key;
+          key_hash = h(curr_key->key, curr_key->length);
+        } else {
+          key_hash = h(&(curr_bucket->_[j].key), sizeof(Key_t));
+        }
+        Insert4merge(
+            curr_bucket->_[j].key, curr_bucket->_[j].value, key_hash,
+            curr_bucket->finger_array[j]); /*this shceme may destory the
+                                              balanced segment*/
+      }
+    }
+  }
 }
 
 template <class T>
@@ -1463,6 +1589,19 @@ void Finger_EH<T>::recoverTable(Table<T> **target_table) {
   }
 
   target->recoverMetadata();
+  if(target->state != 0){
+    /*the link has been fixed, need to handle the on-going split/merge*/
+    Table<T> *next_table = (Table<T>*)pmemobj_direct(target->next);
+    target->Merge(next_table);
+    Allocator::Persist(target, sizeof(Table<T>));
+    target->next = next_table->next;
+    Allocator::Free(next_table);
+    target->state = 0;
+    /*FixMe
+      Put in a transaction
+    */
+  }
+
   target->dirty_bit = 0;
   *target_table = target;
   /*No need to reset the lock since the data has been recovered*/
@@ -1552,7 +1691,6 @@ RETRY:
 #else
     target->local_depth += 1;
 #endif
-
     /* update directory*/
   REINSERT:
     // the following three statements may be unnecessary...
@@ -1579,6 +1717,7 @@ RETRY:
       Unlock_Directory();
     }
     /*release the lock for the target bucket and the new bucket*/
+
     target->state = 0;
     new_b->state = 0;
     Bucket<T> *curr_bucket;
