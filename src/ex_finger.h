@@ -700,8 +700,7 @@ struct Directory {
     depth_count = 0;
   }
 
-  static void New(Directory<T> **dir, size_t capacity, size_t version) {
-    Table<T> **tables{nullptr};
+  static void New(PMEMoid *dir, size_t capacity, size_t version) {
 #ifdef PMEM
     auto callback = [](PMEMobjpool *pool, void *ptr, void *arg) {
       auto value_ptr = reinterpret_cast<std::tuple<size_t, size_t> *>(arg);
@@ -711,11 +710,11 @@ struct Directory {
           static_cast<size_t>(log2(std::get<0>(*value_ptr)));
       size_t cap = std::get<0>(*value_ptr);
       // memset(&dir_ptr->_, 0, sizeof(table_p) * cap);
-      pmemobj_persist(pool, dir_ptr, sizeof(Directory<T>));
+      pmemobj_persist(pool, dir_ptr, sizeof(Directory<T>) + sizeof(uint64_t) * cap);
       return 0;
     };
     std::tuple callback_args = {capacity, version};
-    Allocator::Allocate((void **)dir, kCacheLineSize,
+    Allocator::Allocate(dir, kCacheLineSize,
                         sizeof(Directory<T>) + sizeof(table_p) * capacity,
                         callback, reinterpret_cast<void *>(&callback_args));
 #else
@@ -1284,13 +1283,15 @@ class Finger_EH : public Hash<T> {
   /* directory allocation will write to here first,
    * in oder to perform safe directory allocation
    * */
-  Directory<T> *alloc_dir;
+  PMEMoid back_dir;
 #endif
 };
 
 template <class T>
 Finger_EH<T>::Finger_EH(size_t initCap) {
-  Directory<T>::New(&dir, initCap, 0);
+  Directory<T>::New(&back_dir, initCap, 0);
+  dir = reinterpret_cast<Directory<T> *>(pmemobj_direct(back_dir));
+  back_dir = OID_NULL;
   lock = 0;
   PMEMoid ptr;
   Table<T>::New(&ptr, dir->global_depth, OID_NULL);
@@ -1380,11 +1381,11 @@ void Finger_EH<T>::Directory_Doubling(int x, Table<T> *new_b) {
   auto global_depth = dir->global_depth;
   printf("Directory_Doubling towards %lld\n", global_depth + 1);
 
-  Directory<T> *new_sa;
-  Directory<T>::New(&new_sa, 2 * pow(2, global_depth), dir->version + 1);
+  auto capacity = pow(2, global_depth);
+  Directory<T>::New(&back_dir, 2*capacity, dir->version + 1);
+  Directory<T> *new_sa = reinterpret_cast<Directory<T> *>(pmemobj_direct(back_dir));
   auto dd = new_sa->_;
 
-  auto capacity = pow(2, global_depth);
   for (unsigned i = 0; i < capacity; ++i) {
     dd[2 * i] = d[i];
     dd[2 * i + 1] = d[i];
@@ -1393,9 +1394,13 @@ void Finger_EH<T>::Directory_Doubling(int x, Table<T> *new_b) {
   // new_sa->depth_count = 2;
 
 #ifdef PMEM
-  Allocator::Persist(new_sa, sizeof(Directory<T>));
-  Allocator::NTWrite64(reinterpret_cast<uint64_t *>(&dir),
-                       reinterpret_cast<uint64_t>(new_sa));
+  Allocator::Persist(new_sa, sizeof(Directory<T>) + sizeof(uint64_t) * 2 * capacity);
+  /*FixMe
+  put in a transaction*/
+  dir = new_sa;
+  back_dir = OID_NULL;
+  //Allocator::NTWrite64(reinterpret_cast<uint64_t *>(&dir),
+  //                     reinterpret_cast<uint64_t>(new_sa));
 #else
   dir = new_sa;
 #endif
@@ -1416,16 +1421,20 @@ void Finger_EH<T>::Directory_Update(Directory<T> *_sa, int x, Table<T> *new_b) {
   if (depth_diff == 0) {
     if (x % 2 == 0) {
       dir_entry[x + 1] = new_b;
+      Allocator::Persist(&dir_entry[x+1], sizeof(uint64_t));
     } else {
       dir_entry[x] = new_b;
+      Allocator::Persist(&dir_entry[x], sizeof(uint64_t));
     }
     //_sa->depth_count += 2;
     __sync_fetch_and_add(&_sa->depth_count, 2);
   } else {
     int chunk_size = pow(2, global_depth - (new_b->local_depth - 1));
     x = x - (x % chunk_size);
-    for (unsigned i = 0; i < chunk_size / 2; ++i) {
-      dir_entry[x + chunk_size / 2 + i] = new_b;
+    int base = chunk_size / 2;
+    for(int i = base -1; i >=0 ; --i){
+     dir_entry[x + base + i] = new_b;
+     Allocator::Persist(&dir_entry[x + base + i], sizeof(uint64_t));
     }
   }
   // printf("Done!directory update for %d\n", x);
