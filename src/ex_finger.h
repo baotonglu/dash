@@ -1234,7 +1234,7 @@ Table<T> *Table<T>::Split(size_t _key_hash) {
               curr_bucket->_[j].key, curr_bucket->_[j].value, key_hash,
               curr_bucket->finger_array[j]); /*this shceme may destory the
                                                 balanced segment*/
-          curr_bucket->unset_hash(j);
+          //curr_bucket->unset_hash(j);
 #ifdef COUNTING
           number--;
 #endif
@@ -1269,7 +1269,7 @@ Table<T> *Table<T>::Split(size_t _key_hash) {
           org_bucket->unset_indicator(curr_bucket->finger_array[j],
                                       neighbor_bucket, curr_bucket->_[j].key,
                                       i);
-          curr_bucket->unset_hash(j);
+          //curr_bucket->unset_hash(j);
 #ifdef COUNTING
           number--;
 #endif
@@ -1283,13 +1283,20 @@ Table<T> *Table<T>::Split(size_t _key_hash) {
 
 #ifdef PMEM
   Allocator::Persist(next_table, sizeof(Table));
-/*
   size_t sumBucket = kNumBucket + stashBucket;
   for(int i = 0; i < sumBucket; ++i){
     auto curr_bucket = bucket + i;
     curr_bucket->bitmap = curr_bucket->bitmap & (~invalid_array[i]);
+    auto count = __builtin_popcount(invalid_array[i]);
+    curr_bucket->bitmap = curr_bucket->bitmap - count;
+
+    *((int *)curr_bucket->membership) =
+        (~(invalid_array[i] >> 4)) &
+        (*((int *)curr_bucket->membership)); /*since they are in the same cacheline,
+                                   therefore no performance influence?*/
+
   }
-*/
+
   // if constexpr (std::is_pointer_v<T>) {
   Allocator::Persist(this, sizeof(Table));
   //}
