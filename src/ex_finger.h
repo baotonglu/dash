@@ -1639,6 +1639,7 @@ void Finger_EH<T>::Recovery() {
       target->lock_bit = 0;
       if (dir_entry[j] != dir_entry[i]) {
         dir_entry[j] = dir_entry[i];
+        target->pattern = i >> 1;
         target->state =
             -3; /*means that this bucket needs to fix its right link*/
       }
