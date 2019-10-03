@@ -24,6 +24,7 @@
 
 #define _INVALID 0 /* we use 0 as the invalid key*/
 #define SINGLE 1
+#define MERGE 1
 //#define COUNTING 1
 
 #define SIMD 1
@@ -1459,7 +1460,7 @@ void Finger_EH<T>::Unlock_Directory() {
   }
 }
 
-/*
+
 template<class T>
 void Finger_EH<T>::Halve_Directory() {
   printf("Begin::Directory_Halving towards %lld\n", dir->global_depth);
@@ -1467,10 +1468,10 @@ void Finger_EH<T>::Halve_Directory() {
 
   Directory<T> *new_dir;
 #ifdef PMEM
-  Directory::New(&alloc_dir, pow(2, dir->global_depth - 1), dir->version + 1);
-  new_dir = alloc_dir;
+  Directory<T>::New(&back_dir, pow(2, dir->global_depth - 1), dir->version + 1);
+  new_dir = reinterpret_cast<Directory<T> *>(pmemobj_direct(back_dir));
 #else
-  Directory::New(&new_dir, pow(2, dir->global_depth - 1), dir->version + 1);
+  Directory<T>::New(&new_dir, pow(2, dir->global_depth - 1), dir->version + 1);
 #endif
 
   auto _dir = new_dir->_;
@@ -1496,17 +1497,19 @@ void Finger_EH<T>::Halve_Directory() {
   }
 
 #ifdef PMEM
-  Allocator::Persist(new_dir, sizeof(Directory));
+  Allocator::Persist(new_dir, sizeof(Directory<T>) + sizeof(uint64_t) * capacity);
   Allocator::NTWrite64(reinterpret_cast<uint64_t *>(dir),
                        reinterpret_cast<uint64_t>(new_dir));
-  alloc_dir = nullptr;
+  back_dir = OID_NULL;
+  /*
+  FixMe: put in a transaction
+  */
 #else
   dir = new_dir;
 #endif
   printf("End::Directory_Halving towards %lld\n", dir->global_depth);
   delete d;
 }
-*/
 
 template <class T>
 void Finger_EH<T>::Directory_Doubling(int x, Table<T> *new_b) {
@@ -1524,7 +1527,7 @@ void Finger_EH<T>::Directory_Doubling(int x, Table<T> *new_b) {
     dd[2 * i + 1] = d[i];
   }
   dd[2 * x + 1] = new_b;
-  // new_sa->depth_count = 2;
+   new_sa->depth_count = 2;
 
 #ifdef PMEM
   Allocator::Persist(new_sa, sizeof(Directory<T>) + sizeof(uint64_t) * 2 * capacity);
@@ -1532,8 +1535,6 @@ void Finger_EH<T>::Directory_Doubling(int x, Table<T> *new_b) {
   put in a transaction*/
   dir = new_sa;
   back_dir = OID_NULL;
-  //Allocator::NTWrite64(reinterpret_cast<uint64_t *>(&dir),
-  //                     reinterpret_cast<uint64_t>(new_sa));
 #else
   dir = new_sa;
 #endif
@@ -1559,7 +1560,6 @@ void Finger_EH<T>::Directory_Update(Directory<T> *_sa, int x, Table<T> *new_b) {
       dir_entry[x] = new_b;
       Allocator::Persist(&dir_entry[x], sizeof(uint64_t));
     }
-    //_sa->depth_count += 2;
     __sync_fetch_and_add(&_sa->depth_count, 2);
   } else {
     int chunk_size = pow(2, global_depth - (new_b->local_depth - 1));
@@ -1639,7 +1639,7 @@ void Finger_EH<T>::Recovery() {
       target->lock_bit = 0;
       if (dir_entry[j] != dir_entry[i]) {
         dir_entry[j] = dir_entry[i];
-        target->pattern = i >> 1;
+        target->pattern = i >> (global_depth - depth_cur);
         target->state =
             -3; /*means that this bucket needs to fix its right link*/
       }
@@ -1695,11 +1695,6 @@ RETRY:
     auto new_b =
         target->Split(key_hash); /* also needs the verify..., and we use try
                                     lock for this rather than the spin lock*/
-#ifdef PMEM
-    Allocator::NTWrite64(&target->local_depth, target->local_depth + 1);
-#else
-    target->local_depth += 1;
-#endif
     /* update directory*/
   REINSERT:
     // the following three statements may be unnecessary...
@@ -1707,7 +1702,7 @@ RETRY:
     dir_entry = old_sa->_;
     x = (key_hash >> (8 * sizeof(key_hash) - old_sa->global_depth));
     // assert(target == dir_entry[x].bucket_p);
-    if (target->local_depth - 1 < old_sa->global_depth) {
+    if (target->local_depth < old_sa->global_depth) {
       if (Test_Directory_Lock_Set()) {
         goto REINSERT;
       }
@@ -1723,10 +1718,15 @@ RETRY:
         goto REINSERT;
       }
       Directory_Doubling(x, new_b);
+      
       Unlock_Directory();
     }
+#ifdef PMEM
+    Allocator::NTWrite64(&target->local_depth, target->local_depth + 1);
+#else
+    target->local_depth += 1;
+#endif
     /*release the lock for the target bucket and the new bucket*/
-
     target->state = 0;
     new_b->state = 0;
     Bucket<T> *curr_bucket;
