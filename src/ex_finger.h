@@ -1618,6 +1618,7 @@ template <class T>
 void Finger_EH<T>::Recovery() {
   /*scan the directory, set the clear bit, and also set the dirty bit in the
    * segment to indicate that this segment is clean*/
+  lock = 0; 
   auto dir_entry = dir->_;
   int length = pow(2, dir->global_depth);
   Table<T> *target;
