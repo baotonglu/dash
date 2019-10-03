@@ -12,6 +12,7 @@
 #include <tuple>
 #include <unordered_map>
 #include <vector>
+#include <bitset>
 #include "../util/hash.h"
 #include "../util/pair.h"
 #include "../util/persist.h"
@@ -733,12 +734,6 @@ struct Table {
     auto callback = [](PMEMobjpool *pool, void *ptr, void *arg) {
       auto value_ptr = reinterpret_cast<std::pair<size_t, PMEMoid> *>(arg);
       auto table_ptr = reinterpret_cast<Table<T> *>(ptr);
-      /*
-      int sumBucket = kNumBucket + stashBucket;
-      for(int i = 0; i < sumBucket; ++i){
-        auto curr_bucket = table_ptr->bucket + i;
-        memset(curr_bucket, 0, 64);
-      }*/
       table_ptr->local_depth = value_ptr->first;
       table_ptr->next = value_ptr->second;
 
@@ -760,35 +755,38 @@ struct Table {
     (*tbl)->next = pp;
 #endif
   };
-  /*
-    static void New(Table<T> **tbl, size_t depth, Table<T> *pp) {
-  #ifdef PMEM
-      auto callback = [](PMEMobjpool *pool, void *ptr, void *arg) {
-        auto value_ptr = reinterpret_cast<std::pair<size_t, Table<T> *> *>(arg);
-        auto table_ptr = reinterpret_cast<Table<T> *>(ptr);
-        table_ptr->local_depth = value_ptr->first;
-        table_ptr->next = value_ptr->second;
-        pmemobj_persist(pool, ptr, sizeof(Table<T>));
-        return 0;
-      };
-      std::pair callback_para(depth, pp);
-      Allocator::Allocate((void **)tbl, kCacheLineSize, sizeof(Table<T>),
-                          callback, reinterpret_cast<void *>(&callback_para));
-  #else
-      Allocator::ZAllocate((void **)tbl, kCacheLineSize, sizeof(Table<T>));
-      (*tbl)->local_depth = depth;
-      (*tbl)->next = pp;
-  #endif
-    };
-  */
   ~Table(void) {}
+
+  bool Acquire_and_verify(size_t _pattern){
+  	bucket->get_lock();
+    if(pattern != _pattern){
+      bucket->release_lock();
+      return false;
+    }else{
+      return true;
+    }
+  }
+
+  void Acquire_remaining_locks(){
+    for(int i = 1; i < kNumBucket; ++i){
+      auto curr_bucket = bucket + i;
+      curr_bucket->get_lock();
+    }
+  }
+
+  void Release_all_locks(){
+    for(int i = 0; i < kNumBucket; ++i){
+      auto curr_bucket = bucket + i;
+      curr_bucket->release_lock();
+    }
+  }
 
   int Insert(T key, Value_t value, size_t key_hash, uint8_t meta_hash,
              Directory<T> **);
   void Insert4split(T key, Value_t value, size_t key_hash, uint8_t meta_hash);
   void Insert4merge(T key, Value_t value, size_t key_hash,uint8_t meta_hash);
   Table<T> *Split(size_t);
-  void RecoveryMerge(Table<T>*);
+  void Merge(Table<T>*);
   int Delete(T key, size_t key_hash, uint8_t meta_hash, Directory<T> **_dir);
   int Next_displace(Bucket<T> *target, Bucket<T> *neighbor,
                     Bucket<T> *next_neighbor, T key, Value_t value,
@@ -1140,7 +1138,7 @@ void Table<T>::Insert4merge(T key, Value_t value, size_t key_hash,
   // assert(insert_target->count < kNumPairPerBucket);
   /*some bucket may be overflowed?*/
   if (GET_COUNT(insert_target->bitmap) < kNumPairPerBucket) {
-    insert_target->Insert(key, value, meta_hash, false);
+    insert_target->Insert(key, value, meta_hash, probe);
 #ifdef COUNTING
     ++number;
 #endif
@@ -1206,10 +1204,12 @@ Table<T> *Table<T>::Split(size_t _key_hash) {
   // printf("my pattern is %lld, my load factor is %f\n", pattern,
   // ((double)number)/(kNumBucket*kNumPairPerBucket+kNumPairPerBucket));
   state = -2;
+  Allocator::Persist(&state, sizeof(state));
   Table<T>::New(&next, local_depth + 1, next);
   Table<T> *next_table = reinterpret_cast<Table<T> *>(pmemobj_direct(next));
 
   next_table->state = -2;
+  Allocator::Persist(&next_table->state, sizeof(next_table->state));
   next_table->bucket
       ->get_lock(); /* get the first lock of the new bucket to avoid it
                  is operated(split or merge) by other threads*/
@@ -1305,7 +1305,7 @@ Table<T> *Table<T>::Split(size_t _key_hash) {
 }
 
 template<class T>
-void Table<T>::RecoveryMerge(Table<T> *neighbor){
+void Table<T>::Merge(Table<T> *neighbor){
   /*Restore the split/merge procedure*/
   size_t key_hash;
   for (int i = 0; i < kNumBucket; ++i) {
@@ -1358,7 +1358,9 @@ class Finger_EH : public Hash<T> {
   int Insert(T key, Value_t value);
   bool Delete(T);
   Value_t Get(T);
+  void TryMerge(uint64_t);
   void Directory_Doubling(int x, Table<T> *new_b);
+  void Directory_Merge_Update(Directory<T> *_sa, uint64_t key_hash, Table<T> *left_seg);
   void Directory_Update(Directory<T> *_sa, int x, Table<T> *new_b);
   void Halve_Directory();
   void Lock_Directory();
@@ -1480,6 +1482,13 @@ void Finger_EH<T>::Halve_Directory() {
 
   for (int i = 0; i < capacity; ++i) {
     _dir[i] = d[2 * i];
+    if(_dir[i]->local_depth == (dir->global_depth - 1)){
+      new_dir->depth_count += 1;
+    }
+  }
+  /*
+  for (int i = 0; i < capacity; ++i) {
+    _dir[i] = d[2 * i];
     assert(d[2 * i] == d[2 * i + 1]);
     if (!skip) {
       if ((_dir[i]->local_depth == (dir->global_depth - 1)) &&
@@ -1494,20 +1503,21 @@ void Finger_EH<T>::Halve_Directory() {
       skip = false;
     }
   }
+  */
 
 #ifdef PMEM
   Allocator::Persist(new_dir, sizeof(Directory<T>) + sizeof(uint64_t) * capacity);
-  Allocator::NTWrite64(reinterpret_cast<uint64_t *>(dir),
-                       reinterpret_cast<uint64_t>(new_dir));
+  //Allocator::NTWrite64(reinterpret_cast<uint64_t *>(dir),
+  //                     reinterpret_cast<uint64_t>(new_dir));
+  dir = new_dir;
   back_dir = OID_NULL;
   /*
-  FixMe: put in a transaction
+  FixMe: put in a transaction, free memory
   */
 #else
   dir = new_dir;
 #endif
   printf("End::Directory_Halving towards %lld\n", dir->global_depth);
-  delete d;
 }
 
 template <class T>
@@ -1526,7 +1536,7 @@ void Finger_EH<T>::Directory_Doubling(int x, Table<T> *new_b) {
     dd[2 * i + 1] = d[i];
   }
   dd[2 * x + 1] = new_b;
-   new_sa->depth_count = 2;
+  new_sa->depth_count = 2;
 
 #ifdef PMEM
   Allocator::Persist(new_sa, sizeof(Directory<T>) + sizeof(uint64_t) * 2 * capacity);
@@ -1573,6 +1583,26 @@ void Finger_EH<T>::Directory_Update(Directory<T> *_sa, int x, Table<T> *new_b) {
 }
 
 template <class T>
+void Finger_EH<T>::Directory_Merge_Update(Directory<T> *_sa, uint64_t key_hash, Table<T> *left_seg) {
+  // printf("directory update for %d\n", x);
+  Table<T> **dir_entry = _sa->_;
+  auto global_depth = _sa->global_depth;
+  auto x = (key_hash >> (8*sizeof(key_hash)-global_depth));
+  uint64_t chunk_size = pow(2, global_depth - (left_seg->local_depth));
+  auto left = x - (x%chunk_size);
+  auto right = left + chunk_size/2;
+
+  for(int i = right; i < right + chunk_size / 2; ++i){
+    dir_entry[i] = left_seg;
+    Allocator::Persist(&dir_entry[i], sizeof(uint64_t));
+  }
+
+  if((left_seg->local_depth + 1) == global_depth){
+    SUB(&_sa->depth_count, 2);
+  }
+}
+
+template <class T>
 void Finger_EH<T>::recoverTable(Table<T> **target_table) {
   /*Set the lockBit to ahieve the mutal exclusion of the recover process*/
   uint64_t snapshot = (uint64_t)*target_table;
@@ -1598,7 +1628,7 @@ void Finger_EH<T>::recoverTable(Table<T> **target_table) {
   if(target->state != 0){
     /*the link has been fixed, need to handle the on-going split/merge*/
     Table<T> *next_table = (Table<T>*)pmemobj_direct(target->next);
-    target->RecoveryMerge(next_table);
+    target->Merge(next_table);
     Allocator::Persist(target, sizeof(Table<T>));
     target->next = next_table->next;
     Allocator::Free(next_table);
@@ -1728,6 +1758,8 @@ RETRY:
     /*release the lock for the target bucket and the new bucket*/
     target->state = 0;
     new_b->state = 0;
+    Allocator::Persist(&target->state, sizeof(int));
+    Allocator::Persist(&new_b->state, sizeof(int));
     Bucket<T> *curr_bucket;
     for (int i = 0; i < kNumBucket; ++i) {
       curr_bucket = target->bucket + i;
@@ -1880,6 +1912,114 @@ FINAL:
   return NONE;
 }
 
+template<class T>
+void Finger_EH<T>::TryMerge(size_t key_hash){
+  /*Compute the left segment and right segment*/
+  do{
+    auto old_dir = dir;
+    auto x = (key_hash >> (8*sizeof(key_hash)-old_dir->global_depth));
+    auto target = old_dir->_[x];
+    int chunk_size = pow(2, old_dir->global_depth - (target->local_depth - 1));
+    assert(chunk_size >= 2);
+    int left = x - (x % chunk_size);
+    int right = left + chunk_size / 2;
+    auto left_seg = old_dir->_[left];
+    auto right_seg = old_dir->_[right];
+
+    size_t _pattern0 = ((key_hash >> (8*sizeof(key_hash)-target->local_depth + 1)) << 1);
+	  size_t _pattern1 = ((key_hash >> (8*sizeof(key_hash)-target->local_depth + 1)) << 1) + 1;
+
+    /* Get the lock from left to right*/
+    if(left_seg->Acquire_and_verify(_pattern0)){
+      if(right_seg->Acquire_and_verify(_pattern1)){
+        if(left_seg->local_depth != right_seg->local_depth){
+          //printf("local depth wrong!!!\n");
+          //std::cout << "left local_depth = " << std::dec << left_seg->local_depth <<std::endl;
+          //std::cout << "right local_depth = " << std::dec << right_seg->local_depth <<std::endl;
+          //std::cout << "x = " << std::hex << (x) <<std::endl;
+          //std::cout << "left segment = " << std::hex << (_pattern0) <<std::endl;
+          //std::cout << "right segment = " << std::hex << (_pattern1) <<std::endl;
+          left_seg->bucket->release_lock();
+          right_seg->bucket->release_lock();
+          return;
+        }
+
+        if((left_seg->number != 0) && (right_seg->number != 0)){
+          left_seg->bucket->release_lock();
+          right_seg->bucket->release_lock();
+          return;
+        }
+        /*FixMe, acquire all the locks of two segments*/
+        left_seg->Acquire_remaining_locks();
+        right_seg->Acquire_remaining_locks();
+        /*FixMe, add the judgement if no one is 0 number, give up and return*/
+        
+        /*First improve the local depth, */
+        left_seg->local_depth = left_seg->local_depth - 1;
+        Allocator::Persist(&left_seg->local_depth, sizeof(uint64_t));
+        left_seg->state = -1;
+        Allocator::Persist(&left_seg->state, sizeof(int));
+        right_seg->state = -1;
+        Allocator::Persist(&right_seg->state, sizeof(int));
+REINSERT:
+        old_dir = dir;
+        /*Update the directory from left to right*/
+        while(Test_Directory_Lock_Set()){
+          asm("nop");
+        }
+        /*start the merge operation*/
+        Directory_Merge_Update(old_dir, key_hash, left_seg);
+
+        if (Test_Directory_Lock_Set() || old_dir->version != dir->version)
+				{
+				    goto REINSERT;
+				}
+        
+        if(right_seg->number != 0){
+          //std::cout << "Right seg number = " << right_seg->number << std::endl;
+          auto old_num = right_seg->number;
+          left_seg->Merge(right_seg);
+          left_seg->next = right_seg->next;
+          auto new_num = left_seg->number;
+          if(old_num != new_num){
+            printf("ERROR!\n");
+          }
+          /*
+          FixMe Put in a TXN and Deallocate the right Seg
+          */
+        }
+        left_seg->pattern = left_seg->pattern >> 1;
+        Allocator::Persist(&left_seg->pattern, sizeof(uint64_t));
+        left_seg->state = 0;
+        Allocator::Persist(&left_seg->state, sizeof(int));
+        right_seg->Release_all_locks();
+        left_seg->Release_all_locks();
+        
+        /*Try to halve directory?*/
+        if((dir->depth_count == 0) && (dir->global_depth > 2)){
+          Lock_Directory();
+          if(dir->depth_count == 0){
+            Halve_Directory();
+          }
+          Unlock_Directory();
+        }
+      }else{
+        left_seg->bucket->release_lock();
+        if(old_dir == dir){
+          return;
+        }
+      }
+    }else{
+      if(old_dir == dir){
+        /* If the directory itself does not change, directory return*/
+        return;
+      }
+    }
+
+  }while(true);
+}
+
+
 /*the delete operation of the */
 template <class T>
 bool Finger_EH<T>::Delete(T key) {
@@ -1912,8 +2052,7 @@ RETRY:
     target->release_lock();
     goto RETRY;
   }
-  /*aslo needs to lock next bucket since we return merge if these two bucket are
-   * both empty*/
+
 
   old_sa = dir;
   x = (key_hash >> (8 * sizeof(key_hash) - old_sa->global_depth));
@@ -1926,26 +2065,37 @@ RETRY:
   auto ret = target->Delete(key, meta_hash, false);
   if (ret == 0) {
 #ifdef COUNTING    
-    SUB(&target_table->number, 1);
+    auto num = SUB(&target_table->number, 1);
 #endif
     target->release_lock();
 #ifdef PMEM
     Allocator::Persist(&target->bitmap, sizeof(target->bitmap));
 #endif
     neighbor->release_lock();
+#ifdef COUNTING
+    if(num == 0){
+      TryMerge(key_hash);
+    }
+#endif
+  
     return true;
   }
 
   ret = neighbor->Delete(key, meta_hash, true);
   if (ret == 0) {
 #ifdef COUNTING    
-    SUB(&target_table->number, 1);
+    auto num = SUB(&target_table->number, 1);
 #endif
     neighbor->release_lock();
 #ifdef PMEM
     Allocator::Persist(&neighbor->bitmap, sizeof(neighbor->bitmap));
 #endif
     target->release_lock();
+#ifdef COUNTING
+    if(num == 0){
+      TryMerge(key_hash);
+    }
+#endif
     return true;
   }
 
@@ -2002,10 +2152,15 @@ RETRY:
           assert(org_bucket == target);
           target->unset_indicator(meta_hash, neighbor, key, index);
 #ifdef COUNTING    
-          SUB(&target_table->number, 1);
+          auto num = SUB(&target_table->number, 1);
 #endif
           neighbor->release_lock();
           target->release_lock();
+#ifdef COUNTING
+          if(num == 0){
+            TryMerge(key_hash);
+          }
+#endif
           return true;
         }
       }
@@ -2014,9 +2169,10 @@ RETRY:
   }
   neighbor->release_lock();
   target->release_lock();
-  // printf("Not found key %s\n", key);
+  //printf("Not found key %lld, the position is %d, the bucket is %lld, the local depth = %lld, the global depth = %lld, the pattern is %lld\n", key, x, y,target_table->local_depth, dir->global_depth,target_table->pattern);
   return false;
 }
+
 
 /*
 template<class T>
@@ -2036,35 +2192,42 @@ void Finger_EH::CheckDepthCount() {
 
 /*DEBUG FUNCTION: search the position of the key in this table and print
  * correspongdign informantion in this table, to test whether it is correct*/
-/*
-int Finger_EH::FindAnyway(Key_t key) {
- auto key_hash = h(&key, sizeof(key));
+
+template<class T>
+int Finger_EH<T>::FindAnyway(T key) {
+ uint64_t key_hash;
+  if constexpr (std::is_pointer_v<T>) {
+    // key_hash = h(key, (reinterpret_cast<string_key *>(key))->length);
+    key_hash = h(key->key, key->length);
+  } else {
+    key_hash = h(&key, sizeof(key));
+  }
  auto meta_hash = ((uint8_t)(key_hash & kMask));
  auto x = (key_hash >> (8 * sizeof(key_hash) - dir->global_depth));
 
  size_t _count = 0;
  size_t seg_count = 0;
- Directory *seg = dir;
- Table **dir_entry = seg->_;
- Table *ss;
+ Directory<T> *seg = dir;
+ Table<T> **dir_entry = seg->_;
+ Table<T> *ss;
  auto global_depth = seg->global_depth;
  size_t depth_diff;
  int capacity = pow(2, global_depth);
  for (int i = 0; i < capacity;) {
    ss = dir_entry[i];
-   Bucket *curr_bucket;
+   Bucket<T> *curr_bucket;
    for (int j = 0; j < kNumBucket; ++j) {
      curr_bucket = ss->bucket + j;
      auto ret = curr_bucket->check_and_get(meta_hash, key, false);
      if (ret != NONE) {
-       printf("successfully find in the normal bucket\n");
-       printf("the segment is %d, the bucket is %d\n", i, j);
+       printf("successfully find in the normal bucket with false\n");
+       printf("the segment is %d, the bucket is %d, the local depth = %lld, the pattern is %lld\n", i, j, ss->local_depth, ss->pattern);
        return 0;
      }
      ret = curr_bucket->check_and_get(meta_hash, key, true);
      if (ret != NONE) {
-       printf("successfully find in the normal bucket\n");
-       printf("the segment is %d, the bucket is %d\n", i, j);
+       printf("successfully find in the normal bucket with true\n");
+       printf("the segment is %d, the bucket is %d, the local depth is %lld, the pattern is %lld\n", i, j, ss->local_depth, ss->pattern);
        return 0;
      }
    }
@@ -2119,5 +2282,4 @@ int Finger_EH::FindAnyway(Key_t key) {
  }
  return -1;
 }
-*/
 #endif
