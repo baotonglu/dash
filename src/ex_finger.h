@@ -885,7 +885,6 @@ struct Table {
       curr_bucket = bucket + i;
       curr_bucket->resetLock();
       curr_bucket->resetOverflowFP();
-      // printf("recover bucket %d\n",i);
     }
 
     /*scan the stash buckets and re-insert the overflow FP to initial buckets*/
@@ -1618,8 +1617,6 @@ void Finger_EH<T>::recoverTable(Table<T> **target_table) {
 
   auto old_lock = target->lock_bit;
   if (old_lock) return;
-  // uint64_t old_value = (snapshot & (~lockBit)) | recoverBit;
-  // uint64_t new_value = snapshot | lockBit;
   int new_lock = 1;
 
   if (!CAS(&target->lock_bit, &old_lock, new_lock)) {
@@ -1650,6 +1647,18 @@ void Finger_EH<T>::Recovery() {
   /*scan the directory, set the clear bit, and also set the dirty bit in the
    * segment to indicate that this segment is clean*/
   lock = 0;
+  /*first check the back_dir log*/
+  if(!OID_IS_NULL(back_dir)){
+    Directory<T> *back_dir_pt = reinterpret_cast<Directory<T> *>(pmemobj_direct(back_dir));
+    if(back_dir_pt != dir){
+      Allocator::Free(back_dir_pt);
+    }
+    back_dir = OID_NULL;
+    /*
+    FixMe: Put in a TXN
+    */
+  }
+
   auto dir_entry = dir->_;
   int length = pow(2, dir->global_depth);
   Table<T> *target;
