@@ -1941,14 +1941,6 @@ void Finger_EH<T>::TryMerge(size_t key_hash) {
     if (left_seg->Acquire_and_verify(_pattern0)) {
       if (right_seg->Acquire_and_verify(_pattern1)) {
         if (left_seg->local_depth != right_seg->local_depth) {
-          // printf("local depth wrong!!!\n");
-          // std::cout << "left local_depth = " << std::dec <<
-          // left_seg->local_depth <<std::endl; std::cout << "right local_depth
-          // = " << std::dec << right_seg->local_depth <<std::endl; std::cout <<
-          // "x = " << std::hex << (x) <<std::endl; std::cout << "left segment =
-          // "
-          // << std::hex << (_pattern0) <<std::endl; std::cout << "right segment
-          // = " << std::hex << (_pattern1) <<std::endl;
           left_seg->bucket->release_lock();
           right_seg->bucket->release_lock();
           return;
