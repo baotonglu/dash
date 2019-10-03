@@ -24,8 +24,7 @@
 
 #define _INVALID 0 /* we use 0 as the invalid key*/
 #define SINGLE 1
-#define MERGE 1
-//#define COUNTING 1
+#define COUNTING 1
 
 #define SIMD 1
 #define SIMD_CMP8(src, key)                                         \
@@ -789,7 +788,7 @@ struct Table {
   void Insert4split(T key, Value_t value, size_t key_hash, uint8_t meta_hash);
   void Insert4merge(T key, Value_t value, size_t key_hash,uint8_t meta_hash);
   Table<T> *Split(size_t);
-  void Merge(Table<T>*);
+  void RecoveryMerge(Table<T>*);
   int Delete(T key, size_t key_hash, uint8_t meta_hash, Directory<T> **_dir);
   int Next_displace(Bucket<T> *target, Bucket<T> *neighbor,
                     Bucket<T> *next_neighbor, T key, Value_t value,
@@ -1306,7 +1305,7 @@ Table<T> *Table<T>::Split(size_t _key_hash) {
 }
 
 template<class T>
-void Table<T>::Merge(Table<T> *neighbor){
+void Table<T>::RecoveryMerge(Table<T> *neighbor){
   /*Restore the split/merge procedure*/
   size_t key_hash;
   for (int i = 0; i < kNumBucket; ++i) {
@@ -1599,7 +1598,7 @@ void Finger_EH<T>::recoverTable(Table<T> **target_table) {
   if(target->state != 0){
     /*the link has been fixed, need to handle the on-going split/merge*/
     Table<T> *next_table = (Table<T>*)pmemobj_direct(target->next);
-    target->Merge(next_table);
+    target->RecoveryMerge(next_table);
     Allocator::Persist(target, sizeof(Table<T>));
     target->next = next_table->next;
     Allocator::Free(next_table);
@@ -1926,24 +1925,26 @@ RETRY:
 
   auto ret = target->Delete(key, meta_hash, false);
   if (ret == 0) {
-    // neighbor->setPreNonFlush();
+#ifdef COUNTING    
+    SUB(&target_table->number, 1);
+#endif
     target->release_lock();
 #ifdef PMEM
     Allocator::Persist(&target->bitmap, sizeof(target->bitmap));
 #endif
-    // neighbor->unsetPreNonFlush();
     neighbor->release_lock();
     return true;
   }
 
   ret = neighbor->Delete(key, meta_hash, true);
   if (ret == 0) {
-    // target->setNextNonFlush();
+#ifdef COUNTING    
+    SUB(&target_table->number, 1);
+#endif
     neighbor->release_lock();
 #ifdef PMEM
     Allocator::Persist(&neighbor->bitmap, sizeof(neighbor->bitmap));
 #endif
-    // target->unsetNextNonFlush();
     target->release_lock();
     return true;
   }
@@ -2000,6 +2001,9 @@ RETRY:
           auto org_bucket = target_table->bucket + bucket_ix;
           assert(org_bucket == target);
           target->unset_indicator(meta_hash, neighbor, key, index);
+#ifdef COUNTING    
+          SUB(&target_table->number, 1);
+#endif
           neighbor->release_lock();
           target->release_lock();
           return true;

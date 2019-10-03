@@ -29,12 +29,6 @@ DEFINE_double(r, 1, "read ratio for mixed workload");
 DEFINE_double(s, 0, "insert ratio for mixed workload");
 DEFINE_double(d, 0, "delete ratio for mixed workload");
 
-// ADD and SUB return the value after add or sub
-#define ADD(_p, _v) (__atomic_add_fetch(_p, _v, __ATOMIC_SEQ_CST))
-#define SUB(_p, _v) (__atomic_sub_fetch(_p, _v, __ATOMIC_SEQ_CST))
-#define LOAD(_p) (__atomic_load_n(_p, __ATOMIC_SEQ_CST))
-#define STORE(_p, _v) (__atomic_store_n(_p, _v, __ATOMIC_SEQ_CST))
-
 int32_t initCap, thread_num, load_num, operation_num;
 std::string operation;
 std::string key_type;
@@ -451,6 +445,7 @@ void Run() {
     }
     GeneralBench<T>(rarray, index, thread_num, operation_num, "Insert",
                     &concurr_insert);
+    index->getNumber();
     for (int i = 0; i < thread_num; ++i) {
       rarray[i].workload = not_used_workload;
     }
@@ -472,14 +467,15 @@ void Run() {
     rarray[thread_num - 1].end = operation_num;
     GeneralBench<T>(rarray, index, thread_num, operation_num, "Pos_search",
                     &concurr_search);
-    /*
+    
     for (int i = 0; i < thread_num; ++i) {
       rarray[i].begin = i * chunk_size;
       rarray[i].end = (i + 1) * chunk_size;
     }
     rarray[thread_num - 1].end = operation_num;
     GeneralBench<T>(rarray, index, thread_num, operation_num, "Delete",
-                    &concurr_delete);*/
+                    &concurr_delete);
+    index->getNumber();
   }
 
   /*TODO Free the workload memory*/
