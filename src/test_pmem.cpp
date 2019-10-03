@@ -219,7 +219,7 @@ void concurr_delete(struct range *_range, Finger_EH<T> *index) {
     T *key_array = reinterpret_cast<T *>(workload);
     for (int i = begin; i < end; ++i) {
       if (index->Delete(key_array[i]) == false) {
-        //std::cout << "The key = " << key_array[i] << std::endl;
+        // std::cout << "The key = " << key_array[i] << std::endl;
         index->FindAnyway(key_array[i]);
         not_found++;
       }
@@ -453,24 +453,30 @@ void Run() {
     }
     GeneralBench<T>(rarray, index, thread_num, operation_num, "Pos_search",
                     &concurr_search);
-                    /*
-    for (int i = 0; i < thread_num; ++i) {
-      rarray[i].begin = operation_num + i * chunk_size;
-      rarray[i].end = operation_num + (i + 1) * chunk_size;
-    }
-    rarray[thread_num - 1].end = 2 * operation_num;
-    GeneralBench<T>(rarray, index, thread_num, operation_num, "Neg_search",
-                    &concurr_search);
+    /*
+for (int i = 0; i < thread_num; ++i) {
+rarray[i].begin = operation_num + i * chunk_size;
+rarray[i].end = operation_num + (i + 1) * chunk_size;
+}
+rarray[thread_num - 1].end = 2 * operation_num;
+GeneralBench<T>(rarray, index, thread_num, operation_num, "Neg_search",
+    &concurr_search);
 
+index->Recovery();
+for (int i = 0; i < thread_num; ++i) {
+rarray[i].begin = i * chunk_size;
+rarray[i].end = (i + 1) * chunk_size;
+}
+rarray[thread_num - 1].end = operation_num;
+GeneralBench<T>(rarray, index, thread_num, operation_num, "Pos_search",
+    &concurr_search);
+*/
+    gettimeofday(&tv1, NULL);
     index->Recovery();
-    for (int i = 0; i < thread_num; ++i) {
-      rarray[i].begin = i * chunk_size;
-      rarray[i].end = (i + 1) * chunk_size;
-    }
-    rarray[thread_num - 1].end = operation_num;
-    GeneralBench<T>(rarray, index, thread_num, operation_num, "Pos_search",
-                    &concurr_search);
-    */
+    gettimeofday(&tv2, NULL);
+    auto duration = (double)(tv2.tv_usec - tv1.tv_usec) / 1000000 +
+                    (double)(tv2.tv_sec - tv1.tv_sec);
+    std::cout << "Recovery Time(s): " << duration << std::endl;
     for (int i = 0; i < thread_num; ++i) {
       rarray[i].begin = i * chunk_size;
       rarray[i].end = (i + 1) * chunk_size;
