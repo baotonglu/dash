@@ -8,6 +8,8 @@
 static const char* layout_name = "hashtable";
 static const constexpr uint64_t pool_addr = 0x7ff700000000;
 
+typedef void (*DestroyCallback)(void* callback_context, void* object);
+
 struct Allocator {
  public:
 #ifdef PMEM
@@ -63,7 +65,7 @@ struct Allocator {
     *ptr = pmemobj_direct(pm_ptr);
   }
 
-  static void Allocate(PMEMoid *pm_ptr, uint32_t alignment, size_t size,
+  static void Allocate(PMEMoid* pm_ptr, uint32_t alignment, size_t size,
                        int (*alloc_constr)(PMEMobjpool* pool, void* ptr,
                                            void* arg),
                        void* arg) {
@@ -116,7 +118,7 @@ struct Allocator {
 #endif
   }
 
-  static void ZAllocate(PMEMoid *pm_ptr, uint32_t alignment, size_t size) {
+  static void ZAllocate(PMEMoid* pm_ptr, uint32_t alignment, size_t size) {
     auto ret =
         pmemobj_zalloc(instance_->pm_pool_, pm_ptr, size, TOID_TYPE_NUM(char));
 
@@ -127,15 +129,24 @@ struct Allocator {
      */
   }
 
-  static void Free(void* ptr) {
-    // #ifdef PMEM
-    //     auto oid_ptr = pmemobj_oid(ptr);
-    //     TOID(char) ptr_cpy;
-    //     TOID_ASSIGN(ptr_cpy, oid_ptr);
-    //     POBJ_FREE(&ptr_cpy);
-    // #else
-    //     free(ptr);
-    // #endif
+  static void DefaultCallback(void* callback_context, void* ptr) {
+#ifdef PMEM
+    auto oid_ptr = pmemobj_oid(ptr);
+    TOID(char) ptr_cpy;
+    TOID_ASSIGN(ptr_cpy, oid_ptr);
+    POBJ_FREE(&ptr_cpy);
+#else
+    free(ptr);
+#endif
+  }
+
+  static void Free(void* ptr, DestroyCallback callback = DefaultCallback,
+                   void* context = nullptr) {
+    instance_->garbage_list_.Push(ptr, callback, context);
+  }
+
+  static EpochGuard AquireEpochGuard() {
+    return EpochGuard{&instance_->epoch_manager_};
   }
 };
 
