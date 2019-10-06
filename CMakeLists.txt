@@ -38,6 +38,18 @@ else ()
   link_directories(${PMDK_PREFIX}/src/PMDK/src/nondebug)
 endif ()
 
+
+##################### Epoch Reclaim ####################
+FetchContent_Declare(
+        epoch_reclaimer
+        GIT_REPOSITORY https://github.com/XiangpengHao/epoch-reclaimer.git
+        GIT_TAG master
+)
+if (NOT epoch_reclaimer_POPULATED)
+  FetchContent_Populate(epoch_reclaimer)
+  include_directories(${epoch_reclaimer_SOURCE_DIR})
+endif ()
+
 option(USE_PMEM "enable persistent memory support" ON)
 
 set(libs_to_link

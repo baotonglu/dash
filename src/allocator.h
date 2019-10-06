@@ -1,5 +1,6 @@
 
 #pragma once
+#include <garbage_list.h>
 #include <sys/mman.h>
 #include "utils.h"
 #include "x86intrin.h"
@@ -12,6 +13,8 @@ struct Allocator {
 #ifdef PMEM
   static void Initialize(const char* pool_name, size_t pool_size) {
     instance_ = new Allocator(pool_name, pool_size);
+    instance_->epoch_manager_.Initialize();
+    instance_->garbage_list_.Initialize(&instance_->epoch_manager_, 1024);
     std::cout << "pool opened at: " << std::hex << instance_->pm_pool_
               << std::dec << std::endl;
   }
@@ -41,6 +44,9 @@ struct Allocator {
   }
 
   PMEMobjpool* pm_pool_{nullptr};
+  EpochManager epoch_manager_{};
+  GarbageList garbage_list_{};
+
   static Allocator* instance_;
   static Allocator* Get() { return instance_; }
 
@@ -63,15 +69,6 @@ struct Allocator {
 
   static void Persist(void* ptr, size_t size) {
     pmemobj_persist(instance_->pm_pool_, ptr, size);
-  }
-
-  template <size_t size>
-  static void NTWrite(void* ptr) {
-    // if constexpr (size == 64) {
-    //   _mm512_stream_si512(ptr, )
-    // } else if constexpr (size == 32) {
-    // } else if constexpr (size == 16) {
-    // }
   }
 
   static void NTWrite64(uint64_t* ptr, uint64_t val) {
@@ -109,14 +106,14 @@ struct Allocator {
   }
 
   static void Free(void* ptr) {
-#ifdef PMEM
-    auto oid_ptr = pmemobj_oid(ptr);
-    TOID(char) ptr_cpy;
-    TOID_ASSIGN(ptr_cpy, oid_ptr);
-    POBJ_FREE(&ptr_cpy);
-#else
-    free(ptr);
-#endif
+    // #ifdef PMEM
+    //     auto oid_ptr = pmemobj_oid(ptr);
+    //     TOID(char) ptr_cpy;
+    //     TOID_ASSIGN(ptr_cpy, oid_ptr);
+    //     POBJ_FREE(&ptr_cpy);
+    // #else
+    //     free(ptr);
+    // #endif
   }
 };
 
