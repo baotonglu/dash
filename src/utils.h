@@ -3,6 +3,7 @@
 #include <sys/stat.h>
 #include <cstdint>
 #include <iostream>
+#include <immintrin.h>
 
 #ifdef PMEM
 #include "libpmem.h"
@@ -28,3 +29,9 @@ POBJ_LAYOUT_END(allocator)
   exit(-1)
 
 #define LOG(msg) std::cout << msg << "\n"
+
+// ADD and SUB return the value after add or sub
+#define ADD(_p, _v) (__atomic_add_fetch(_p, _v, __ATOMIC_SEQ_CST))
+#define SUB(_p, _v) (__atomic_sub_fetch(_p, _v, __ATOMIC_SEQ_CST))
+#define LOAD(_p) (__atomic_load_n(_p, __ATOMIC_SEQ_CST))
+#define STORE(_p, _v) (__atomic_store_n(_p, _v, __ATOMIC_SEQ_CST))

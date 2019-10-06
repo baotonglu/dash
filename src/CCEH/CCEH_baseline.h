@@ -78,6 +78,7 @@ struct Segment {
     memset((void *)&seg_ptr->mutex, 0, sizeof(std::shared_mutex));
     memset((void *)&seg_ptr->rwlock, 0, sizeof(PMEMrwlock));
     memset((void*)&seg_ptr->_[0],255,sizeof(_Pair<T>)*kNumSlot);
+    pmemobj_persist(pool, seg_ptr, sizeof(Segment<T>));
     return 0;
   };
   Allocator::Allocate((void**)seg, kCacheLineSize, sizeof(Segment),

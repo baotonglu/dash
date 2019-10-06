@@ -1,0 +1,7 @@
+*.o
+*~
+/core
+/cscope.files
+/cscope.out
+/libssmem.a
+/ssmem_test
