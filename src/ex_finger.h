@@ -1648,9 +1648,10 @@ void Finger_EH<T>::Recovery() {
    * segment to indicate that this segment is clean*/
   lock = 0;
   /*first check the back_dir log*/
-  if(!OID_IS_NULL(back_dir)){
-    Directory<T> *back_dir_pt = reinterpret_cast<Directory<T> *>(pmemobj_direct(back_dir));
-    if(back_dir_pt != dir){
+  if (!OID_IS_NULL(back_dir)) {
+    Directory<T> *back_dir_pt =
+        reinterpret_cast<Directory<T> *>(pmemobj_direct(back_dir));
+    if (back_dir_pt != dir) {
       Allocator::Free(back_dir_pt);
     }
     back_dir = OID_NULL;
@@ -1697,6 +1698,7 @@ void Finger_EH<T>::Recovery() {
 
 template <class T>
 int Finger_EH<T>::Insert(T key, Value_t value) {
+  auto epoch_guard = Allocator::AquireEpochGuard();
   uint64_t key_hash;
   if constexpr (std::is_pointer_v<T>) {
     // key_hash = h(key, (reinterpret_cast<string_key *>(key))->length);
@@ -1791,6 +1793,7 @@ RETRY:
 
 template <class T>
 Value_t Finger_EH<T>::Get(T key) {
+  auto epoch_guard = Allocator::AquireEpochGuard();
   uint64_t key_hash;
   if constexpr (std::is_pointer_v<T>) {
     // key_hash = h(key, (reinterpret_cast<string_key *>(key))->length);
