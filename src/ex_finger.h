@@ -255,9 +255,9 @@ struct Bucket {
     return 0;
   }
 
-  inline int get_current_mask(){
-      int mask = GET_BITMAP(bitmap) & ((~(*(int *)membership)) & allocMask);
-      return mask;
+  inline int get_current_mask() {
+    int mask = GET_BITMAP(bitmap) & ((~(*(int *)membership)) & allocMask);
+    return mask;
   }
 
   Value_t check_and_get(uint8_t meta_hash, T key, bool probe) {
@@ -892,10 +892,12 @@ struct Table {
       curr_bucket = bucket + i;
       curr_bucket->resetLock();
       curr_bucket->resetOverflowFP();
-      neighbor_bucket = bucket + ((i+1) & bucketMask);
-      for(int j = 0; j < kNumPairPerBucket; ++j){
+      neighbor_bucket = bucket + ((i + 1) & bucketMask);
+      for (int j = 0; j < kNumPairPerBucket; ++j) {
         int mask = curr_bucket->get_current_mask();
-        if(CHECK_BIT(mask, j) && (neighbor_bucket->check_and_get(curr_bucket->finger_array[j], curr_bucket->_[j].key, true) != NONE)){
+        if (CHECK_BIT(mask, j) && (neighbor_bucket->check_and_get(
+                                       curr_bucket->finger_array[j],
+                                       curr_bucket->_[j].key, true) != NONE)) {
           curr_bucket->unset_hash(j);
         }
       }
@@ -1531,8 +1533,12 @@ void Finger_EH<T>::Halve_Directory() {
                      sizeof(Directory<T>) + sizeof(uint64_t) * capacity);
   // Allocator::NTWrite64(reinterpret_cast<uint64_t *>(dir),
   //                     reinterpret_cast<uint64_t>(new_dir));
+  auto old_dir = dir;
   dir = new_dir;
   back_dir = OID_NULL;
+#ifdef EPOCH
+  Allocator::Free(old_dir);
+#endif
   /*
   FixMe: put in a transaction, free memory
   */
@@ -1566,8 +1572,12 @@ void Finger_EH<T>::Directory_Doubling(int x, Table<T> *new_b) {
                      sizeof(Directory<T>) + sizeof(uint64_t) * 2 * capacity);
   /*FixMe
   put in a transaction*/
+  auto old_dir = dir;
   dir = new_sa;
   back_dir = OID_NULL;
+#ifdef EPOCH
+  Allocator::Free(old_dir);
+#endif
 #else
   dir = new_sa;
 #endif
@@ -1654,7 +1664,9 @@ void Finger_EH<T>::recoverTable(Table<T> **target_table) {
     target->Merge(next_table);
     Allocator::Persist(target, sizeof(Table<T>));
     target->next = next_table->next;
+#ifdef EPOCH
     Allocator::Free(next_table);
+#endif
     target->state = 0;
     /*FixMe
       Put in a transaction
@@ -1675,9 +1687,11 @@ void Finger_EH<T>::Recovery() {
   if (!OID_IS_NULL(back_dir)) {
     Directory<T> *back_dir_pt =
         reinterpret_cast<Directory<T> *>(pmemobj_direct(back_dir));
+#ifdef EPOCH
     if (back_dir_pt != dir) {
       Allocator::Free(back_dir_pt);
     }
+#endif
     back_dir = OID_NULL;
     /*
     FixMe: Put in a TXN
@@ -2034,7 +2048,9 @@ void Finger_EH<T>::TryMerge(size_t key_hash) {
         Allocator::Persist(&left_seg->state, sizeof(int));
         right_seg->Release_all_locks();
         left_seg->Release_all_locks();
-
+#ifdef EPOCH
+        Allocator::Free(right_seg);
+#endif
         /*Try to halve directory?*/
         if ((dir->depth_count == 0) && (dir->global_depth > 2)) {
           Lock_Directory();

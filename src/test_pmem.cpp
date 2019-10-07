@@ -199,7 +199,7 @@ void concurr_search(struct range *_range, Finger_EH<T> *index) {
       }
     }
   }
-  std::cout << "not_found = " << not_found << std::endl;
+  // std::cout << "not_found = " << not_found << std::endl;
   end_notify();
 }
 
@@ -448,7 +448,7 @@ void Run() {
     GeneralBench<T>(rarray, index, thread_num, operation_num, "Insert",
                     &concurr_insert);
 
-    //index->Recovery();
+    // index->Recovery();
     for (int i = 0; i < thread_num; ++i) {
       rarray[i].workload = not_used_workload;
     }
