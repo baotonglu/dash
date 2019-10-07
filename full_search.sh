@@ -2,16 +2,16 @@
 # For 100% read operation based 100 millions records inserted into the dataset
 
 thread_num=(0 1 2 4 8 16 24 48)
-workload=(0 20000000)
+workload=(0 50000000)
 base=(0 1000000)
 key_type=(0 fixed variable)
 
 #delete the corresponding file
 
 #{1..6}
-for i in {1..2}
+for i in 1 2
 do 
-	for j in 1 6
+	for j in 1 
 	do
 		echo "Begin: ${base[1]} ${workload[${i}]} ${thread_num[${j}]}"
 		numaarg=""

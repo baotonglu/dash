@@ -183,23 +183,30 @@ void concurr_search(struct range *_range, Finger_EH<T> *index) {
 
   // if(key_type == "fixed"){/*fixed length key benchmark*/
   if constexpr (!std::is_pointer_v<T>) {
+    std::cout << "Have enrolled into the epcoh!" << std::endl;
     T *key_array = reinterpret_cast<T *>(workload);
-    for (uint64_t i = begin; i < end; ++i) {
-      if (index->Get(key_array[i]) == NONE) {
-        not_found++;
-      }
+    uint64_t j;
+    for (uint64_t i = begin; i < end; i+=1000) {
+      auto epoch_guard = Allocator::AquireEpochGuard();
+      uint64_t cycle_end = i + 1000;
+      for(j = i; j < cycle_end; ++j){
+        if(index->Get(key_array[j], true)==NONE) not_found++;
+      }   
     }
   } else {
     T var_key;
+    uint64_t j;
     uint64_t string_key_size = sizeof(string_key) + _range->length;
-    for (uint64_t i = begin; i < end; ++i) {
-      var_key = reinterpret_cast<T>(workload + string_key_size * i);
-      if (index->Get(var_key) == NONE) {
-        not_found++;
-      }
+    for (uint64_t i = begin; i < end; i+=1000) {
+      auto epoch_guard = Allocator::AquireEpochGuard();
+      uint64_t cycle_end = i + 1000;
+      for(j = i; j < cycle_end; ++j){
+        var_key = reinterpret_cast<T>(workload + string_key_size * j);
+        if(index->Get(var_key, true)==NONE) not_found++;
+      }   
     }
   }
-  // std::cout << "not_found = " << not_found << std::endl;
+ std::cout << "not_found = " << not_found << std::endl;
   end_notify();
 }
 

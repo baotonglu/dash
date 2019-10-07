@@ -1381,6 +1381,7 @@ class Finger_EH : public Hash<T> {
   int Insert(T key, Value_t value);
   bool Delete(T);
   Value_t Get(T);
+  Value_t Get(T key, bool is_in_epoch);
   void TryMerge(uint64_t);
   void Directory_Doubling(int x, Table<T> *new_b);
   void Directory_Merge_Update(Directory<T> *_sa, uint64_t key_hash,
@@ -1831,11 +1832,20 @@ RETRY:
   return 0;
 }
 
-template <class T>
-Value_t Finger_EH<T>::Get(T key) {
+template<class T>
+Value_t Finger_EH<T>::Get(T key, bool is_in_epoch){
+  if(is_in_epoch){
+    return Get(key);
+  }else{
 #ifdef EPOCH
   auto epoch_guard = Allocator::AquireEpochGuard();
 #endif
+    return Get(key);
+  }
+}
+
+template <class T>
+Value_t Finger_EH<T>::Get(T key) {
   uint64_t key_hash;
   if constexpr (std::is_pointer_v<T>) {
     // key_hash = h(key, (reinterpret_cast<string_key *>(key))->length);
