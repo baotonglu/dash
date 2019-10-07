@@ -20,9 +20,9 @@ static const size_t pool_size = 1024ul * 1024ul * 1024ul * 30ul;
 DEFINE_string(k, "fixed", "the type of stored keys: fixed/variable");
 DEFINE_uint64(i, 64, "the initial number of segments in extendible hashing");
 DEFINE_uint64(t, 1, "the number of concurrent threads");
-DEFINE_uint64 (n, 0, "the number of load");
+DEFINE_uint64(n, 0, "the number of load");
 DEFINE_uint64(p, 20000000,
-             "the number of operations(insert/search/deletion) to execute");
+              "the number of operations(insert/search/deletion) to execute");
 DEFINE_string(op, "full",
               "which type of operation to execute:insert/pos/neg/delete/mixed");
 DEFINE_double(r, 1, "read ratio for mixed workload");
@@ -234,7 +234,7 @@ void concurr_delete(struct range *_range, Finger_EH<T> *index) {
       }
     }
   }
-  //std::cout << "not_found = " << not_found << std::endl;
+  // std::cout << "not_found = " << not_found << std::endl;
   end_notify();
 }
 
@@ -302,7 +302,7 @@ void GeneralBench(range *rarray, Finger_EH<T> *index, int thread_num,
   bar_c = thread_num;
 
   std::cout << profile_name << " Begin" << std::endl;
- //System::profile(profile_name, [&]() {
+  // System::profile(profile_name, [&]() {
   for (uint64_t i = 0; i < thread_num; ++i) {
     thread_array[i] = new std::thread(*test_func, &rarray[i], index);
   }
@@ -330,7 +330,7 @@ void GeneralBench(range *rarray, Finger_EH<T> *index, int thread_num,
       (double)(tv2.tv_usec - tv1.tv_usec) / 1000000 +
           (double)(tv2.tv_sec - tv1.tv_sec),
       operation_num / duration);
-//});
+  //});
   std::cout << profile_name << " End" << std::endl;
 }
 
@@ -366,8 +366,7 @@ void Run() {
   if (key_type != "fixed") {
     Allocator::ZAllocate((void **)&insert_workload, kCacheLineSize,
                          (sizeof(string_key) + 16) * generate_num);
-    memcpy(insert_workload, workload,
-           (sizeof(string_key) + 16) * generate_num);
+    memcpy(insert_workload, workload, (sizeof(string_key) + 16) * generate_num);
   } else {
     insert_workload = workload;
   }
@@ -455,31 +454,31 @@ void Run() {
 
     GeneralBench<T>(rarray, index, thread_num, operation_num, "Pos_search",
                     &concurr_search);
-    
+
     for (int i = 0; i < thread_num; ++i) {
       rarray[i].begin = operation_num + i * chunk_size;
       rarray[i].end = operation_num + (i + 1) * chunk_size;
     }
     rarray[thread_num - 1].end = 2 * operation_num - 1;
     GeneralBench<T>(rarray, index, thread_num, operation_num, "Neg_search",
-        &concurr_search);
-/*
-index->Recovery();
-for (int i = 0; i < thread_num; ++i) {
-rarray[i].begin = i * chunk_size;
-rarray[i].end = (i + 1) * chunk_size;
-}
-rarray[thread_num - 1].end = operation_num;
-GeneralBench<T>(rarray, index, thread_num, operation_num, "Pos_search",
-    &concurr_search);
-
-    gettimeofday(&tv1, NULL);
+                    &concurr_search);
+    /*
     index->Recovery();
-    gettimeofday(&tv2, NULL);
-    auto duration = (double)(tv2.tv_usec - tv1.tv_usec) / 1000000 +
-                    (double)(tv2.tv_sec - tv1.tv_sec);
-    std::cout << "Recovery Time(s): " << duration << std::endl;
-*/
+    for (int i = 0; i < thread_num; ++i) {
+    rarray[i].begin = i * chunk_size;
+    rarray[i].end = (i + 1) * chunk_size;
+    }
+    rarray[thread_num - 1].end = operation_num;
+    GeneralBench<T>(rarray, index, thread_num, operation_num, "Pos_search",
+        &concurr_search);
+
+        gettimeofday(&tv1, NULL);
+        index->Recovery();
+        gettimeofday(&tv2, NULL);
+        auto duration = (double)(tv2.tv_usec - tv1.tv_usec) / 1000000 +
+                        (double)(tv2.tv_sec - tv1.tv_sec);
+        std::cout << "Recovery Time(s): " << duration << std::endl;
+    */
     for (int i = 0; i < thread_num; ++i) {
       rarray[i].begin = i * chunk_size;
       rarray[i].end = (i + 1) * chunk_size;
@@ -487,7 +486,7 @@ GeneralBench<T>(rarray, index, thread_num, operation_num, "Pos_search",
     rarray[thread_num - 1].end = operation_num;
     GeneralBench<T>(rarray, index, thread_num, operation_num, "Delete",
                     &concurr_delete);
-    //index->getNumber();
+    // index->getNumber();
   }
 
   /*TODO Free the workload memory*/
