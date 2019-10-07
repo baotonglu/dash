@@ -881,16 +881,23 @@ struct Table {
   void recoverMetadata() {
     Bucket<T> *curr_bucket;
     /*reset the lock and overflow meta-data*/
+    uint64_t knumber = 0;
     for (int i = 0; i < kNumBucket; ++i) {
       // printf("start: recover bucket %d\n",i);
       curr_bucket = bucket + i;
       curr_bucket->resetLock();
       curr_bucket->resetOverflowFP();
+#ifdef COUNTING
+      knumber += __builtin_popcount(GET_BITMAP(curr_bucket->bitmap));
+#endif
     }
 
     /*scan the stash buckets and re-insert the overflow FP to initial buckets*/
     for (int i = 0; i < stashBucket; ++i) {
       curr_bucket = bucket + kNumBucket + i;
+#ifdef COUNTING
+      knumber += __builtin_popcount(GET_BITMAP(curr_bucket->bitmap));
+#endif
       uint64_t key_hash;
       auto mask = GET_BITMAP(curr_bucket->bitmap);
       for (int j = 0; j < kNumPairPerBucket; ++j) {
@@ -910,6 +917,9 @@ struct Table {
         }
       }
     }
+#ifdef COUNTING
+    number = knumber;
+#endif
     /* No need to flush these meta-data because persistent or not does not
      * influence the correctness*/
     /*fix the duplicates between the neighbor buckets*/
