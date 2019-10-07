@@ -25,6 +25,7 @@
 #define _INVALID 0 /* we use 0 as the invalid key*/
 #define SINGLE 1
 #define COUNTING 1
+//#define EPOCH 1
 
 #define SIMD 1
 #define SIMD_CMP8(src, key)                                         \
@@ -1698,7 +1699,9 @@ void Finger_EH<T>::Recovery() {
 
 template <class T>
 int Finger_EH<T>::Insert(T key, Value_t value) {
+#ifdef EPOCH
   auto epoch_guard = Allocator::AquireEpochGuard();
+#endif
   uint64_t key_hash;
   if constexpr (std::is_pointer_v<T>) {
     // key_hash = h(key, (reinterpret_cast<string_key *>(key))->length);
@@ -1793,7 +1796,9 @@ RETRY:
 
 template <class T>
 Value_t Finger_EH<T>::Get(T key) {
+#ifdef EPOCH
   auto epoch_guard = Allocator::AquireEpochGuard();
+#endif
   uint64_t key_hash;
   if constexpr (std::is_pointer_v<T>) {
     // key_hash = h(key, (reinterpret_cast<string_key *>(key))->length);
@@ -2034,6 +2039,9 @@ void Finger_EH<T>::TryMerge(size_t key_hash) {
 /*the delete operation of the */
 template <class T>
 bool Finger_EH<T>::Delete(T key) {
+#ifdef EPOCH
+  auto epoch_guard = Allocator::AquireEpochGuard();
+#endif
   /*Basic delete operation and merge operation*/
   uint64_t key_hash;
   if constexpr (std::is_pointer_v<T>) {
