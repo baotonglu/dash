@@ -25,7 +25,7 @@
 #define _INVALID 0 /* we use 0 as the invalid key*/
 #define SINGLE 1
 #define COUNTING 1
-//#define EPOCH 1
+#define EPOCH 1
 
 #define SIMD 1
 #define SIMD_CMP8(src, key)                                         \
@@ -253,6 +253,11 @@ struct Bucket {
       }
     }*/
     return 0;
+  }
+
+  inline int get_current_mask(){
+      int mask = GET_BITMAP(bitmap) & ((~(*(int *)membership)) & allocMask);
+      return mask;
   }
 
   Value_t check_and_get(uint8_t meta_hash, T key, bool probe) {
@@ -879,7 +884,7 @@ struct Table {
   }
 
   void recoverMetadata() {
-    Bucket<T> *curr_bucket;
+    Bucket<T> *curr_bucket, *neighbor_bucket;
     /*reset the lock and overflow meta-data*/
     uint64_t knumber = 0;
     for (int i = 0; i < kNumBucket; ++i) {
@@ -887,6 +892,14 @@ struct Table {
       curr_bucket = bucket + i;
       curr_bucket->resetLock();
       curr_bucket->resetOverflowFP();
+      neighbor_bucket = bucket + ((i+1) & bucketMask);
+      for(int j = 0; j < kNumPairPerBucket; ++j){
+        int mask = curr_bucket->get_current_mask();
+        if(CHECK_BIT(mask, j) && (neighbor_bucket->check_and_get(curr_bucket->finger_array[j], curr_bucket->_[j].key, true) != NONE)){
+          curr_bucket->unset_hash(j);
+        }
+      }
+
 #ifdef COUNTING
       knumber += __builtin_popcount(GET_BITMAP(curr_bucket->bitmap));
 #endif

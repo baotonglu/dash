@@ -448,6 +448,7 @@ void Run() {
     GeneralBench<T>(rarray, index, thread_num, operation_num, "Insert",
                     &concurr_insert);
 
+    //index->Recovery();
     for (int i = 0; i < thread_num; ++i) {
       rarray[i].workload = not_used_workload;
     }
@@ -455,7 +456,6 @@ void Run() {
     GeneralBench<T>(rarray, index, thread_num, operation_num, "Pos_search",
                     &concurr_search);
 
-    index->Recovery();
     for (int i = 0; i < thread_num; ++i) {
       rarray[i].begin = operation_num + i * chunk_size;
       rarray[i].end = operation_num + (i + 1) * chunk_size;
