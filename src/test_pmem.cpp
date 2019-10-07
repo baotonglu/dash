@@ -18,10 +18,10 @@ static const char *pool_name = "/mnt/pmem0/pmem_hash.data";
 // static const char *pool_name = "pmem_hash.data";
 static const size_t pool_size = 1024ul * 1024ul * 1024ul * 30ul;
 DEFINE_string(k, "fixed", "the type of stored keys: fixed/variable");
-DEFINE_int32(i, 64, "the initial number of segments in extendible hashing");
-DEFINE_int32(t, 1, "the number of concurrent threads");
-DEFINE_int32(n, 0, "the number of load");
-DEFINE_int32(p, 20000000,
+DEFINE_uint64(i, 64, "the initial number of segments in extendible hashing");
+DEFINE_uint64(t, 1, "the number of concurrent threads");
+DEFINE_uint64 (n, 0, "the number of load");
+DEFINE_uint64(p, 20000000,
              "the number of operations(insert/search/deletion) to execute");
 DEFINE_string(op, "full",
               "which type of operation to execute:insert/pos/neg/delete/mixed");
@@ -29,7 +29,7 @@ DEFINE_double(r, 1, "read ratio for mixed workload");
 DEFINE_double(s, 0, "insert ratio for mixed workload");
 DEFINE_double(d, 0, "delete ratio for mixed workload");
 
-int32_t initCap, thread_num, load_num, operation_num;
+uint64_t initCap, thread_num, load_num, operation_num;
 std::string operation;
 std::string key_type;
 int bar_a, bar_b, bar_c;
@@ -41,8 +41,8 @@ struct timeval tv1, tv2;
 
 struct range {
   int index;
-  int begin;
-  int end;
+  uint64_t begin;
+  uint64_t end;
   int length; /*if this is the variable lenght key, use this parameter to
                  indicate the length of the key*/
   void *workload;
@@ -72,7 +72,7 @@ Finger_EH<T> *InitializeIndex(int seg_num) {
 void generate_8B(void *memory_region, int generate_num, bool persist) {
   uint64_t *array = reinterpret_cast<uint64_t *>(memory_region);
 
-  for (int i = 0; i < generate_num; ++i) {
+  for (uint64_t i = 0; i < generate_num; ++i) {
     array[i] = genrand64_int64();
   }
 
@@ -91,12 +91,12 @@ void generate_16B(void *memory_region, int generate_num, int length,
   int word_num = (length / 8) + (((length % 8) != 0) ? 1 : 0);
   _key = reinterpret_cast<uint64_t *>(malloc(word_num * sizeof(uint64_t)));
 
-  for (int i = 0; i < generate_num; ++i) {
+  for (uint64_t i = 0; i < generate_num; ++i) {
     var_key = reinterpret_cast<string_key *>(workload +
                                              i * (length + sizeof(string_key)));
     var_key->length = length;
-    for (int i = 0; i < word_num; ++i) {
-      _key[i] = genrand64_int64();
+    for (int j = 0; j < word_num; ++j) {
+      _key[j] = genrand64_int64();
     }
     memcpy(var_key->key, _key, length);
   }
@@ -114,13 +114,13 @@ void Load(int kv_num, Finger_EH<T> *index, int length, void *workload) {
   T *_worklod = reinterpret_cast<T *>(workload);
   T key;
   if constexpr (!std::is_pointer_v<T>) {
-    for (int i = 0; i < kv_num; ++i) {
+    for (uint64_t i = 0; i < kv_num; ++i) {
       index->Insert(_worklod[i], DEFAULT);
     }
   } else { /*genereate 16B key*/
     char *persist_workload = reinterpret_cast<char *>(workload);
     int string_key_size = sizeof(string_key) + length;
-    for (int i = 0; i < kv_num; ++i) {
+    for (uint64_t i = 0; i < kv_num; ++i) {
       key = reinterpret_cast<T>(persist_workload + i * string_key_size);
       index->Insert(key, DEFAULT);
     }
@@ -155,13 +155,13 @@ void concurr_insert(struct range *_range, Finger_EH<T> *index) {
   // if(key_type == "fixed"){/*fixed length key benchmark*/
   if constexpr (!std::is_pointer_v<T>) {
     T *key_array = reinterpret_cast<T *>(workload);
-    for (int i = begin; i < end; ++i) {
+    for (uint64_t i = begin; i < end; ++i) {
       index->Insert(key_array[i], DEFAULT);
     }
   } else {
     T var_key;
-    int string_key_size = sizeof(string_key) + _range->length;
-    for (int i = begin; i < end; ++i) {
+    uint64_t string_key_size = sizeof(string_key) + _range->length;
+    for (uint64_t i = begin; i < end; ++i) {
       var_key = reinterpret_cast<T>(workload + string_key_size * i);
       index->Insert(var_key, DEFAULT);
     }
@@ -184,15 +184,15 @@ void concurr_search(struct range *_range, Finger_EH<T> *index) {
   // if(key_type == "fixed"){/*fixed length key benchmark*/
   if constexpr (!std::is_pointer_v<T>) {
     T *key_array = reinterpret_cast<T *>(workload);
-    for (int i = begin; i < end; ++i) {
+    for (uint64_t i = begin; i < end; ++i) {
       if (index->Get(key_array[i]) == NONE) {
         not_found++;
       }
     }
   } else {
     T var_key;
-    int string_key_size = sizeof(string_key) + _range->length;
-    for (int i = begin; i < end; ++i) {
+    uint64_t string_key_size = sizeof(string_key) + _range->length;
+    for (uint64_t i = begin; i < end; ++i) {
       var_key = reinterpret_cast<T>(workload + string_key_size * i);
       if (index->Get(var_key) == NONE) {
         not_found++;
@@ -217,7 +217,7 @@ void concurr_delete(struct range *_range, Finger_EH<T> *index) {
   // if(key_type == "fixed"){/*fixed length key benchmark*/
   if constexpr (!std::is_pointer_v<T>) {
     T *key_array = reinterpret_cast<T *>(workload);
-    for (int i = begin; i < end; ++i) {
+    for (uint64_t i = begin; i < end; ++i) {
       if (index->Delete(key_array[i]) == false) {
         // std::cout << "The key = " << key_array[i] << std::endl;
         index->FindAnyway(key_array[i]);
@@ -227,14 +227,14 @@ void concurr_delete(struct range *_range, Finger_EH<T> *index) {
   } else {
     T var_key;
     int string_key_size = sizeof(string_key) + _range->length;
-    for (int i = begin; i < end; ++i) {
+    for (uint64_t i = begin; i < end; ++i) {
       var_key = reinterpret_cast<T>(workload + string_key_size * i);
       if (index->Delete(var_key) == false) {
         not_found++;
       }
     }
   }
-  std::cout << "not_found = " << not_found << std::endl;
+  //std::cout << "not_found = " << not_found << std::endl;
   end_notify();
 }
 
@@ -291,7 +291,7 @@ void mixed(struct range *_range, Finger_EH<T> *index) {
 
 template <class T>
 void GeneralBench(range *rarray, Finger_EH<T> *index, int thread_num,
-                  int operation_num, std::string profile_name,
+                  uint64_t operation_num, std::string profile_name,
                   void (*test_func)(struct range *, Finger_EH<T> *)) {
   std::thread *thread_array[1024];
   profile_name = profile_name + std::to_string(thread_num);
@@ -302,8 +302,8 @@ void GeneralBench(range *rarray, Finger_EH<T> *index, int thread_num,
   bar_c = thread_num;
 
   std::cout << profile_name << " Begin" << std::endl;
-  // System::profile(profile_name, [&]() {
-  for (int i = 0; i < thread_num; ++i) {
+ //System::profile(profile_name, [&]() {
+  for (uint64_t i = 0; i < thread_num; ++i) {
     thread_array[i] = new std::thread(*test_func, &rarray[i], index);
   }
 
@@ -330,7 +330,7 @@ void GeneralBench(range *rarray, Finger_EH<T> *index, int thread_num,
       (double)(tv2.tv_usec - tv1.tv_usec) / 1000000 +
           (double)(tv2.tv_sec - tv1.tv_sec),
       operation_num / duration);
-  //});
+//});
   std::cout << profile_name << " End" << std::endl;
 }
 
@@ -342,6 +342,7 @@ void *GenerateWorkload(int generate_num, int length) {
     workload = malloc(generate_num * sizeof(uint64_t));
     generate_8B(workload, generate_num, false);
   } else { /*Generate the variable lengh workload*/
+    std::cout << "Genereate workload for variable length key " << std::endl;
     workload = malloc(generate_num * (length + sizeof(string_key)));
     generate_16B(workload, generate_num, length, false);
   }
@@ -358,15 +359,15 @@ void Run() {
   /* Initialize Index*/
   Finger_EH<T> *index = InitializeIndex<T>(initCap);
 
-  int generate_num = operation_num + load_num;
+  uint64_t generate_num = operation_num * 2 + load_num;
   /* Generate the workload and corresponding range array*/
-  void *workload = GenerateWorkload(generate_num * 2, 16);
+  void *workload = GenerateWorkload(generate_num, 16);
   void *insert_workload;
   if (key_type != "fixed") {
     Allocator::ZAllocate((void **)&insert_workload, kCacheLineSize,
-                         (sizeof(string_key) + 16) * generate_num * 2);
+                         (sizeof(string_key) + 16) * generate_num);
     memcpy(insert_workload, workload,
-           (sizeof(string_key) + 16) * generate_num * 2);
+           (sizeof(string_key) + 16) * generate_num);
   } else {
     insert_workload = workload;
   }
@@ -390,7 +391,7 @@ void Run() {
   /* Description of the workload*/
   srand((unsigned)time(NULL));
   struct range *rarray;
-  int chunk_size = operation_num / thread_num;
+  uint64_t chunk_size = operation_num / thread_num;
   rarray = reinterpret_cast<range *>(malloc(thread_num * (sizeof(range))));
   for (int i = 0; i < thread_num; ++i) {
     rarray[i].index = i;
@@ -447,21 +448,22 @@ void Run() {
     }
     GeneralBench<T>(rarray, index, thread_num, operation_num, "Insert",
                     &concurr_insert);
-    index->getNumber();
+
     for (int i = 0; i < thread_num; ++i) {
       rarray[i].workload = not_used_workload;
     }
+
     GeneralBench<T>(rarray, index, thread_num, operation_num, "Pos_search",
                     &concurr_search);
-    /*
-for (int i = 0; i < thread_num; ++i) {
-rarray[i].begin = operation_num + i * chunk_size;
-rarray[i].end = operation_num + (i + 1) * chunk_size;
-}
-rarray[thread_num - 1].end = 2 * operation_num;
-GeneralBench<T>(rarray, index, thread_num, operation_num, "Neg_search",
-    &concurr_search);
-
+    
+    for (int i = 0; i < thread_num; ++i) {
+      rarray[i].begin = operation_num + i * chunk_size;
+      rarray[i].end = operation_num + (i + 1) * chunk_size;
+    }
+    rarray[thread_num - 1].end = 2 * operation_num - 1;
+    GeneralBench<T>(rarray, index, thread_num, operation_num, "Neg_search",
+        &concurr_search);
+/*
 index->Recovery();
 for (int i = 0; i < thread_num; ++i) {
 rarray[i].begin = i * chunk_size;
@@ -470,13 +472,14 @@ rarray[i].end = (i + 1) * chunk_size;
 rarray[thread_num - 1].end = operation_num;
 GeneralBench<T>(rarray, index, thread_num, operation_num, "Pos_search",
     &concurr_search);
-*/
+
     gettimeofday(&tv1, NULL);
     index->Recovery();
     gettimeofday(&tv2, NULL);
     auto duration = (double)(tv2.tv_usec - tv1.tv_usec) / 1000000 +
                     (double)(tv2.tv_sec - tv1.tv_sec);
     std::cout << "Recovery Time(s): " << duration << std::endl;
+*/
     for (int i = 0; i < thread_num; ++i) {
       rarray[i].begin = i * chunk_size;
       rarray[i].end = (i + 1) * chunk_size;
@@ -484,7 +487,7 @@ GeneralBench<T>(rarray, index, thread_num, operation_num, "Pos_search",
     rarray[thread_num - 1].end = operation_num;
     GeneralBench<T>(rarray, index, thread_num, operation_num, "Delete",
                     &concurr_delete);
-    index->getNumber();
+    //index->getNumber();
   }
 
   /*TODO Free the workload memory*/

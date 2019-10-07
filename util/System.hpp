@@ -10,7 +10,7 @@
 #include <unistd.h>
 #include <signal.h>
 
-//#define PROFILE 1
+#define PROFILE 1
 
 struct System
 {

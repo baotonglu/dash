@@ -1812,11 +1812,14 @@ RETRY:
   }
 
   uint32_t old_version;
+  uint32_t old_neighbor_version;
   Bucket<T> *target_bucket = target->bucket + y;
+  Bucket<T> *neighbor_bucket = target->bucket + ((y + 1) & bucketMask);
   // printf("Get key %lld, x = %d, y = %d, meta_hash = %d\n", key, x,
   // BUCKET_INDEX(key_hash), meta_hash);
 
-  if (target_bucket->test_lock_set(old_version)) {
+  if (target_bucket->test_lock_set(old_version) || 
+      neighbor_bucket->test_lock_set(old_neighbor_version)) {
     goto RETRY;
   }
 
@@ -1828,25 +1831,20 @@ RETRY:
   }
 
   auto ret = target_bucket->check_and_get(meta_hash, key, false);
-  if (target_bucket->test_lock_version_change(old_version)) {
-    goto RETRY;
+  if(target_bucket->test_lock_version_change(old_version)){
+	  goto RETRY;
   }
-  if (ret != NONE) {
+  if (ret != NONE){
     return ret;
   }
 
-  /*no need for verification procedure, we use the version number of
+ /*no need for verification procedure, we use the version number of
    * target_bucket to test whether the bucket has ben spliteted*/
-  Bucket<T> *neighbor_bucket = target->bucket + ((y + 1) & bucketMask);
-  uint32_t old_neighbor_version;
-  if (neighbor_bucket->test_lock_set(old_neighbor_version)) {
-    goto RETRY;
-  }
   ret = neighbor_bucket->check_and_get(meta_hash, key, true);
-  if (neighbor_bucket->test_lock_version_change(old_neighbor_version)) {
-    goto RETRY;
+  if(neighbor_bucket->test_lock_version_change(old_neighbor_version)){
+     goto RETRY;
   }
-  if (ret != NONE) {
+  if (ret != NONE){
     return ret;
   }
 
