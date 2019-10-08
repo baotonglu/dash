@@ -65,6 +65,7 @@ Finger_EH<T> *InitializeIndex(int seg_num) {
   Finger_EH<T> *eh = reinterpret_cast<Finger_EH<T> *>(
       Allocator::GetRoot(sizeof(Finger_EH<T>)));
   new (eh) Finger_EH<T>(seg_num);
+  eh->pool_addr = Allocator::Get()->pm_pool_;
   return eh;
 }
 
@@ -183,12 +184,11 @@ void concurr_search(struct range *_range, Finger_EH<T> *index) {
 
   // if(key_type == "fixed"){/*fixed length key benchmark*/
   if constexpr (!std::is_pointer_v<T>) {
-    std::cout << "Have enrolled into the epcoh!" << std::endl;
     T *key_array = reinterpret_cast<T *>(workload);
     uint64_t j;
     for (uint64_t i = begin; i < end; i+=1000) {
       auto epoch_guard = Allocator::AquireEpochGuard();
-      uint64_t cycle_end = i + 1000;
+      uint64_t cycle_end = ((i + 1000) < end) ? (i + 1000) : end;
       for(j = i; j < cycle_end; ++j){
         if(index->Get(key_array[j], true)==NONE) not_found++;
       }   
@@ -199,7 +199,7 @@ void concurr_search(struct range *_range, Finger_EH<T> *index) {
     uint64_t string_key_size = sizeof(string_key) + _range->length;
     for (uint64_t i = begin; i < end; i+=1000) {
       auto epoch_guard = Allocator::AquireEpochGuard();
-      uint64_t cycle_end = i + 1000;
+      uint64_t cycle_end = ((i + 1000) < end) ? (i + 1000) : end;
       for(j = i; j < cycle_end; ++j){
         var_key = reinterpret_cast<T>(workload + string_key_size * j);
         if(index->Get(var_key, true)==NONE) not_found++;
@@ -494,7 +494,7 @@ void Run() {
     rarray[thread_num - 1].end = operation_num;
     GeneralBench<T>(rarray, index, thread_num, operation_num, "Delete",
                     &concurr_delete);
-    // index->getNumber();
+    index->getNumber();
   }
 
   /*TODO Free the workload memory*/

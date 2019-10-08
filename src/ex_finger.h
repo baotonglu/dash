@@ -1411,6 +1411,17 @@ class Finger_EH : public Hash<T> {
       seg_count++;
       i += pow(2, depth_diff);
     }
+
+    ss = dir_entry[0];
+    uint64_t verify_seg_count = 1;
+    while(!OID_IS_NULL(ss->next)){
+      verify_seg_count++;
+      ss = reinterpret_cast<Table<T> *>(pmemobj_direct(ss->next));
+    }
+
+    std::cout << "seg_count = " << seg_count << std::endl;
+    std::cout << "verify_seg_count = " << verify_seg_count << std::endl;
+
     printf("#items: %lld\n", _count);
     // printf("the segment number in this hash table is %lld\n", seg_count);
     printf("load_factor: %f\n",
@@ -1503,14 +1514,13 @@ void Finger_EH<T>::Halve_Directory() {
   new_dir->depth_count = 0;
   auto capacity = pow(2, new_dir->global_depth);
   bool skip = false;
-
+  /*
   for (int i = 0; i < capacity; ++i) {
     _dir[i] = d[2 * i];
     if (_dir[i]->local_depth == (dir->global_depth - 1)) {
       new_dir->depth_count += 1;
     }
-  }
-  /*
+  }*/
   for (int i = 0; i < capacity; ++i) {
     _dir[i] = d[2 * i];
     assert(d[2 * i] == d[2 * i + 1]);
@@ -1527,21 +1537,26 @@ void Finger_EH<T>::Halve_Directory() {
       skip = false;
     }
   }
-  */
 
 #ifdef PMEM
   Allocator::Persist(new_dir,
                      sizeof(Directory<T>) + sizeof(uint64_t) * capacity);
-  // Allocator::NTWrite64(reinterpret_cast<uint64_t *>(dir),
-  //                     reinterpret_cast<uint64_t>(new_dir));
+
   auto old_dir = dir;
-  dir = new_dir;
-  back_dir = OID_NULL;
+  TX_BEGIN(pool_addr){
+    pmemobj_tx_add_range_direct(&dir, sizeof(dir));
+    pmemobj_tx_add_range_direct(&back_dir, sizeof(back_dir));
+    dir = new_dir;
+    back_dir = OID_NULL;
+  }TX_ONABORT{
+    std::cout << "TXN fails during halvling directory" << std::endl;
+  }TX_END
+
 #ifdef EPOCH
   Allocator::Free(old_dir);
 #endif
   /*
-  FixMe: put in a transaction, free memory
+  FixMe: Free memory should be enrolled into one single TXN with update directory
   */
 #else
   dir = new_dir;
@@ -1571,22 +1586,25 @@ void Finger_EH<T>::Directory_Doubling(int x, Table<T> *new_b) {
 #ifdef PMEM
   Allocator::Persist(new_sa,
                      sizeof(Directory<T>) + sizeof(uint64_t) * 2 * capacity);
-  /*FixMe
-  put in a transaction*/
   auto old_dir = dir;
-  dir = new_sa;
-  back_dir = OID_NULL;
+  TX_BEGIN(pool_addr){
+    pmemobj_tx_add_range_direct(&dir, sizeof(dir));
+    pmemobj_tx_add_range_direct(&back_dir, sizeof(back_dir));
+    dir = new_sa;
+    back_dir = OID_NULL;
+  }TX_ONABORT{
+    std::cout << "TXN fails during doubling directory" << std::endl;
+  }TX_END
+
 #ifdef EPOCH
   Allocator::Free(old_dir);
 #endif
+  /*
+  FixMe: Free memory should be enrolled into one single TXN with update directory
+  */
 #else
   dir = new_sa;
 #endif
-
-  /*
-  FixMe
-  need safely deallocate the old_directory
-  */
   printf("Done!!Directory_Doubling towards %lld\n", dir->global_depth);
 }
 
@@ -1688,11 +1706,9 @@ void Finger_EH<T>::Recovery() {
   if (!OID_IS_NULL(back_dir)) {
     Directory<T> *back_dir_pt =
         reinterpret_cast<Directory<T> *>(pmemobj_direct(back_dir));
-#ifdef EPOCH
     if (back_dir_pt != dir) {
       Allocator::Free(back_dir_pt);
     }
-#endif
     back_dir = OID_NULL;
     /*
     FixMe: Put in a TXN
@@ -2013,10 +2029,8 @@ void Finger_EH<T>::TryMerge(size_t key_hash) {
           right_seg->bucket->release_lock();
           return;
         }
-        /*FixMe, acquire all the locks of two segments*/
         left_seg->Acquire_remaining_locks();
         right_seg->Acquire_remaining_locks();
-        /*FixMe, add the judgement if no one is 0 number, give up and return*/
 
         /*First improve the local depth, */
         left_seg->local_depth = left_seg->local_depth - 1;
@@ -2039,19 +2053,13 @@ void Finger_EH<T>::TryMerge(size_t key_hash) {
         }
 
         if (right_seg->number != 0) {
-          // std::cout << "Right seg number = " << right_seg->number <<
-          // std::endl;
-          auto old_num = right_seg->number;
           left_seg->Merge(right_seg);
-          left_seg->next = right_seg->next;
-          auto new_num = left_seg->number;
-          if (old_num != new_num) {
-            printf("ERROR!\n");
-          }
-          /*
-          FixMe Put in a TXN and Deallocate the right Seg
-          */
         }
+        left_seg->next = right_seg->next;
+        /*
+        *FixMe 
+        *Put in a TXN: unlink from neighbour segment and put into the garbage list
+        */
         left_seg->pattern = left_seg->pattern >> 1;
         Allocator::Persist(&left_seg->pattern, sizeof(uint64_t));
         left_seg->state = 0;
