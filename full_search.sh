@@ -9,7 +9,7 @@ key_type=(0 fixed variable)
 #delete the corresponding file
 
 #{1..6}
-for i in 2
+for i in 1
 do 
 	for j in 1
 	do

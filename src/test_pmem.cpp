@@ -18,6 +18,8 @@
 static const char *pool_name = "/mnt/pmem0/pmem_hash.data";
 // static const char *pool_name = "pmem_hash.data";
 static const size_t pool_size = 1024ul * 1024ul * 1024ul * 30ul;
+DEFINE_string(index, "dash-ex",
+              "which index to evaluate:dash-ex/dash-lh/cceh/level");
 DEFINE_string(k, "fixed", "the type of stored keys: fixed/variable");
 DEFINE_uint64(i, 64, "the initial number of segments in extendible hashing");
 DEFINE_uint64(t, 1, "the number of concurrent threads");
@@ -33,6 +35,7 @@ DEFINE_double(d, 0, "delete ratio for mixed workload");
 uint64_t initCap, thread_num, load_num, operation_num;
 std::string operation;
 std::string key_type;
+std::string index_type;
 int bar_a, bar_b, bar_c;
 double read_ratio, insert_ratio, delete_ratio;
 std::mutex mtx;
@@ -64,14 +67,23 @@ void set_affinity(uint32_t idx) {
 template <class T>
 Hash<T> *InitializeIndex(int seg_num) {
   /*
-  Hash<T> *eh = reinterpret_cast<Hash<T> *>(
+    Hash<T> *eh;
+    if(index_type == "dash-ex"){
+      std::cout << "Initialize from this branch" << std::endl;
+      Hash<T> *eh = reinterpret_cast<Hash<T> *>(
       Allocator::GetRoot(sizeof(Finger_EH<T>)));
-  new (eh) Finger_EH<T>(seg_num, Allocator::Get()->pm_pool_);
-  return eh;
-  */
-  Hash<T> *eh = reinterpret_cast<Hash<T> *>(
+      new (eh) Finger_EH<T>(seg_num, Allocator::Get()->pm_pool_);
+      Hash<T> *eh = reinterpret_cast<Hash<T> *>(
       Allocator::GetRoot(sizeof(Linear<T>)));
+      new (eh) Linear<T>(Allocator::Get()->pm_pool_);
+    }else if(index_type == "dash-lh"){
+
+    }
+  */
+  Hash<T> *eh =
+      reinterpret_cast<Hash<T> *>(Allocator::GetRoot(sizeof(Linear<T>)));
   new (eh) Linear<T>(Allocator::Get()->pm_pool_);
+
   return eh;
 }
 
@@ -191,7 +203,7 @@ void concurr_search(struct range *_range, Hash<T> *index) {
   // if(key_type == "fixed"){/*fixed length key benchmark*/
   if constexpr (!std::is_pointer_v<T>) {
     T *key_array = reinterpret_cast<T *>(workload);
-    for(uint64_t i = begin; i < end; ++i){
+    for (uint64_t i = begin; i < end; ++i) {
       index->Get(key_array[i]);
     }
     /*
@@ -201,17 +213,17 @@ void concurr_search(struct range *_range, Hash<T> *index) {
       uint64_t cycle_end = ((i + 1000) < end) ? (i + 1000) : end;
       for(j = i; j < cycle_end; ++j){
         if(index->Get(key_array[j], true)==NONE) not_found++;
-      }   
+      }
     }*/
   } else {
     T var_key;
     uint64_t j;
     uint64_t string_key_size = sizeof(string_key) + _range->length;
-    for(uint64_t i = begin; i < end; ++i){
+    for (uint64_t i = begin; i < end; ++i) {
       var_key = reinterpret_cast<T>(workload + string_key_size * i);
       index->Get(var_key);
     }
-    
+
     /*
     for (uint64_t i = begin; i < end; i+=1000) {
       //auto epoch_guard = Allocator::AquireEpochGuard();
@@ -219,11 +231,11 @@ void concurr_search(struct range *_range, Hash<T> *index) {
       for(j = i; j < cycle_end; ++j){
         var_key = reinterpret_cast<T>(workload + string_key_size * j);
         if(index->Get(var_key, true)==NONE) not_found++;
-      }   
+      }
     }
     */
   }
- std::cout << "not_found = " << not_found << std::endl;
+  std::cout << "not_found = " << not_found << std::endl;
   end_notify();
 }
 
@@ -244,7 +256,7 @@ void concurr_delete(struct range *_range, Hash<T> *index) {
     for (uint64_t i = begin; i < end; ++i) {
       if (index->Delete(key_array[i]) == false) {
         // std::cout << "The key = " << key_array[i] << std::endl;
-        //index->FindAnyway(key_array[i]);
+        // index->FindAnyway(key_array[i]);
         not_found++;
       }
     }
@@ -532,6 +544,7 @@ int main(int argc, char *argv[]) {
   load_num = FLAGS_n;
   operation_num = FLAGS_p;
   key_type = FLAGS_k;
+  index_type = FLAGS_index;
   std::string fixed("fixed");
   operation = FLAGS_op;
 
