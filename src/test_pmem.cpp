@@ -61,11 +61,11 @@ void set_affinity(uint32_t idx) {
 }
 
 template <class T>
-Finger_EH<T> *InitializeIndex(int seg_num) {
-  Finger_EH<T> *eh = reinterpret_cast<Finger_EH<T> *>(
+Hash<T> *InitializeIndex(int seg_num) {
+  Hash<T> *eh = reinterpret_cast<Hash<T> *>(
       Allocator::GetRoot(sizeof(Finger_EH<T>)));
-  new (eh) Finger_EH<T>(seg_num);
-  eh->pool_addr = Allocator::Get()->pm_pool_;
+  new (eh) Finger_EH<T>(seg_num, Allocator::Get()->pm_pool_);
+  //eh->pool_addr = Allocator::Get()->pm_pool_;
   return eh;
 }
 
@@ -109,7 +109,7 @@ void generate_16B(void *memory_region, int generate_num, int length,
 }
 
 template <class T>
-void Load(int kv_num, Finger_EH<T> *index, int length, void *workload) {
+void Load(int kv_num, Hash<T> *index, int length, void *workload) {
   if (kv_num == 0) return;
   std::string fixed("fixed");
   T *_worklod = reinterpret_cast<T *>(workload);
@@ -144,7 +144,7 @@ inline void end_notify() {
 }
 
 template <class T>
-void concurr_insert(struct range *_range, Finger_EH<T> *index) {
+void concurr_insert(struct range *_range, Hash<T> *index) {
   set_affinity(_range->index);
   int begin = _range->begin;
   int end = _range->end;
@@ -172,7 +172,7 @@ void concurr_insert(struct range *_range, Finger_EH<T> *index) {
 }
 
 template <class T>
-void concurr_search(struct range *_range, Finger_EH<T> *index) {
+void concurr_search(struct range *_range, Hash<T> *index) {
   set_affinity(_range->index);
   int begin = _range->begin;
   int end = _range->end;
@@ -211,7 +211,7 @@ void concurr_search(struct range *_range, Finger_EH<T> *index) {
 }
 
 template <class T>
-void concurr_delete(struct range *_range, Finger_EH<T> *index) {
+void concurr_delete(struct range *_range, Hash<T> *index) {
   set_affinity(_range->index);
   int begin = _range->begin;
   int end = _range->end;
@@ -227,7 +227,7 @@ void concurr_delete(struct range *_range, Finger_EH<T> *index) {
     for (uint64_t i = begin; i < end; ++i) {
       if (index->Delete(key_array[i]) == false) {
         // std::cout << "The key = " << key_array[i] << std::endl;
-        index->FindAnyway(key_array[i]);
+        //index->FindAnyway(key_array[i]);
         not_found++;
       }
     }
@@ -246,7 +246,7 @@ void concurr_delete(struct range *_range, Finger_EH<T> *index) {
 }
 
 template <class T>
-void mixed(struct range *_range, Finger_EH<T> *index) {
+void mixed(struct range *_range, Hash<T> *index) {
   set_affinity(_range->index);
   int begin = _range->begin;
   int end = _range->end;
@@ -297,9 +297,9 @@ void mixed(struct range *_range, Finger_EH<T> *index) {
 }
 
 template <class T>
-void GeneralBench(range *rarray, Finger_EH<T> *index, int thread_num,
+void GeneralBench(range *rarray, Hash<T> *index, int thread_num,
                   uint64_t operation_num, std::string profile_name,
-                  void (*test_func)(struct range *, Finger_EH<T> *)) {
+                  void (*test_func)(struct range *, Hash<T> *)) {
   std::thread *thread_array[1024];
   profile_name = profile_name + std::to_string(thread_num);
   double duration;
@@ -363,8 +363,8 @@ void Run() {
   init_by_array64(init, length); /*initialize random number generation*/
   Allocator::Initialize(pool_name, pool_size); /* allocator initialization*/
 
-  /* Initialize Index*/
-  Finger_EH<T> *index = InitializeIndex<T>(initCap);
+  /* Initialize Index for Finger_EH*/
+  Hash<T> *index = InitializeIndex<T>(initCap);
 
   uint64_t generate_num = operation_num * 2 + load_num;
   /* Generate the workload and corresponding range array*/

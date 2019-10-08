@@ -9,9 +9,9 @@ key_type=(0 fixed variable)
 #delete the corresponding file
 
 #{1..6}
-for i in 1 2
+for i in 1
 do 
-	for j in 1 6
+	for j in 1 6 
 	do
 		echo "Begin: ${base[1]} ${workload[${i}]} ${thread_num[${j}]}"
 		numaarg=""
