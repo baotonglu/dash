@@ -10,7 +10,8 @@
 #include "../util/random.h"
 #include "../util/uniform.hpp"
 #include "allocator.h"
-#include "ex_finger.h"
+//#include "ex_finger.h"
+#include "lh_finger.h"
 #include "libpmemobj.h"
 #include "utils.h"
 
@@ -62,10 +63,15 @@ void set_affinity(uint32_t idx) {
 
 template <class T>
 Hash<T> *InitializeIndex(int seg_num) {
+  /*
   Hash<T> *eh = reinterpret_cast<Hash<T> *>(
       Allocator::GetRoot(sizeof(Finger_EH<T>)));
   new (eh) Finger_EH<T>(seg_num, Allocator::Get()->pm_pool_);
-  //eh->pool_addr = Allocator::Get()->pm_pool_;
+  return eh;
+  */
+  Hash<T> *eh = reinterpret_cast<Hash<T> *>(
+      Allocator::GetRoot(sizeof(Linear<T>)));
+  new (eh) Linear<T>(Allocator::Get()->pm_pool_);
   return eh;
 }
 
@@ -185,26 +191,37 @@ void concurr_search(struct range *_range, Hash<T> *index) {
   // if(key_type == "fixed"){/*fixed length key benchmark*/
   if constexpr (!std::is_pointer_v<T>) {
     T *key_array = reinterpret_cast<T *>(workload);
+    for(uint64_t i = begin; i < end; ++i){
+      index->Get(key_array[i]);
+    }
+    /*
     uint64_t j;
     for (uint64_t i = begin; i < end; i+=1000) {
-      auto epoch_guard = Allocator::AquireEpochGuard();
+      //auto epoch_guard = Allocator::AquireEpochGuard();
       uint64_t cycle_end = ((i + 1000) < end) ? (i + 1000) : end;
       for(j = i; j < cycle_end; ++j){
         if(index->Get(key_array[j], true)==NONE) not_found++;
       }   
-    }
+    }*/
   } else {
     T var_key;
     uint64_t j;
     uint64_t string_key_size = sizeof(string_key) + _range->length;
+    for(uint64_t i = begin; i < end; ++i){
+      var_key = reinterpret_cast<T>(workload + string_key_size * i);
+      index->Get(var_key);
+    }
+    
+    /*
     for (uint64_t i = begin; i < end; i+=1000) {
-      auto epoch_guard = Allocator::AquireEpochGuard();
+      //auto epoch_guard = Allocator::AquireEpochGuard();
       uint64_t cycle_end = ((i + 1000) < end) ? (i + 1000) : end;
       for(j = i; j < cycle_end; ++j){
         var_key = reinterpret_cast<T>(workload + string_key_size * j);
         if(index->Get(var_key, true)==NONE) not_found++;
       }   
     }
+    */
   }
  std::cout << "not_found = " << not_found << std::endl;
   end_notify();

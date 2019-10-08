@@ -14,6 +14,7 @@
 #include "../util/hash.h"
 #include "../util/pair.h"
 #include "../util/persist.h"
+#include "Hash.h"
 #include "allocator.h"
 #define _INVALID 0 /* we use 0 as the invalid key*/
 #define SINGLE 1
@@ -120,7 +121,6 @@ inline int log2_32(uint32_t value) {
 }
 
 inline uint32_t pow2(int shift_index) {
-  // assert(shift_index < 32);
   return (1 << shift_index);
 }
 
@@ -161,11 +161,6 @@ inline uint32_t SEG_SIZE(uint32_t bucket_ix) {
   return segmentSize * pow2(index);
 }
 
-struct string_key {
-  char key[16];
-  int length;
-};
-
 inline bool var_compare(char *str1, char *str2, int len1, int len2) {
   if (len1 != len2) return false;
   return !memcmp(str1, str2, len1);
@@ -195,56 +190,50 @@ struct overflowBucket {
     mask = mask & GET_BITMAP(bitmap);
 
     if constexpr (std::is_pointer_v<T>) {
-      string_key *_key = reinterpret_cast<string_key *>(key);
+      //string_key *_key = reinterpret_cast<string_key *>(key);
       if (mask != 0) {
         for (int i = 0; i < 12; i += 4) {
-          // if (CHECK_BIT(mask, i) && (strcmp(_[i].key, key) == 0)) {
-          //  return _[i].value;
-          //}
           if (CHECK_BIT(mask, i) &&
-              (var_compare((char *)(_[i].key), _key->key,
-                           (reinterpret_cast<string_key *>(_[i].key))->length,
-                           _key->length))) {
+              (var_compare(_[i].key->key, key->key,
+                           _[i].key->length,
+                           key->length))) {
             return _[i].value;
           }
 
           if (CHECK_BIT(mask, i + 1) &&
-              (var_compare(
-                  (char *)(_[i + 1].key), _key->key,
-                  (reinterpret_cast<string_key *>(_[i + 1].key))->length,
-                  _key->length))) {
+              (var_compare(_[i + 1].key->key, key->key,
+                           _[i + 1].key->length,
+                           key->length))) {
             return _[i + 1].value;
           }
 
           if (CHECK_BIT(mask, i + 2) &&
-              (var_compare(
-                  (char *)(_[i + 2].key), _key->key,
-                  (reinterpret_cast<string_key *>(_[i + 2].key))->length,
-                  _key->length))) {
+              (var_compare(_[i + 2].key->key, key->key,
+                           _[i + 2].key->length,
+                           key->length))) {
             return _[i + 2].value;
           }
 
           if (CHECK_BIT(mask, i + 3) &&
-              (var_compare(
-                  (char *)(_[i + 3].key), _key->key,
-                  (reinterpret_cast<string_key *>(_[i + 3].key))->length,
-                  _key->length))) {
+              (var_compare(_[i + 3].key->key, key->key,
+                           _[i + 3].key->length,
+                           key->length))) {
             return _[i + 3].value;
           }
         }
 
         if (CHECK_BIT(mask, 12) &&
-            (var_compare((char *)(_[12].key), _key->key,
-                         (reinterpret_cast<string_key *>(_[12].key))->length,
-                         _key->length))) {
-          return _[12].value;
+              (var_compare(_[12].key->key, key->key,
+                           _[12].key->length,
+                           key->length))) {
+            return _[12].value;
         }
 
         if (CHECK_BIT(mask, 13) &&
-            (var_compare((char *)(_[13].key), _key->key,
-                         (reinterpret_cast<string_key *>(_[13].key))->length,
-                         _key->length))) {
-          return _[13].value;
+              (var_compare(_[13].key->key, key->key,
+                           _[13].key->length,
+                           key->length))) {
+            return _[13].value;
         }
       }
     } else {
@@ -279,61 +268,6 @@ struct overflowBucket {
     }
     return NONE;
   }
-
-  /*
-          Value_t check_and_get(uint8_t meta_hash, T key){
-                  int mask = 0;
-                  SSE_CMP8(finger_array, meta_hash);
-                  mask = mask & GET_BITMAP(bitmap);
-                  if constexpr (std::is_pointer_v<T>){
-                          if (mask != 0) {
-                                  for (int i = 0; i < 12; i += 4) {
-                                          if (CHECK_BIT(mask, i) &&
-     (strcmp(_[i].key, key) == 0)) { return _[i].value;
-                                          }
-                                          if (CHECK_BIT(mask, i + 1) &&
-     (strcmp(_[i + 1].key, key) == 0)) { return _[i + 1].value;
-                                          }
-                                          if (CHECK_BIT(mask, i + 2) &&
-     (strcmp(_[i + 2].key, key) == 0)) { return _[i + 2].value;
-                                          }
-                                          if (CHECK_BIT(mask, i + 3) &&
-     (strcmp(_[i + 3].key, key) == 0)) { return _[i + 3].value;
-                                          }
-                                  }
-                                  if (CHECK_BIT(mask, 12) && (strcmp(_[12].key,
-     key) == 0)) { return _[12].value;
-                                  }
-                                  if (CHECK_BIT(mask, 13) && (strcmp(_[13].key,
-     key) == 0)) { return _[13].value;
-                                  }
-                          }
-                  }else{
-                          if (mask != 0) {
-                                  for (int i = 0; i < 12; i += 4) {
-                                          if (CHECK_BIT(mask, i) && (_[i].key ==
-     key)) { return _[i].value;
-                                          }
-                                          if (CHECK_BIT(mask, i + 1) && (_[i +
-     1].key == key)) { return _[i + 1].value;
-                                          }
-                                          if (CHECK_BIT(mask, i + 2) && (_[i +
-     2].key == key)) { return _[i + 2].value;
-                                          }
-                                          if (CHECK_BIT(mask, i + 3) && (_[i +
-     3].key == key)) { return _[i + 3].value;
-                                          }
-                                  }
-                                  if (CHECK_BIT(mask, 12) && (_[12].key == key))
-     { return _[12].value;
-                                  }
-                                  if (CHECK_BIT(mask, 13) && (_[13].key == key))
-     { return _[13].value;
-                                  }
-                          }
-          }
-                  return NONE;
-          }*/
 
   inline void set_hash(int index, uint8_t meta_hash) {
     finger_array[index] = meta_hash;
@@ -392,63 +326,58 @@ struct overflowBucket {
     mask = mask & GET_BITMAP(bitmap);
     /*loop unrolling*/
     if constexpr (std::is_pointer_v<T>) {
-      string_key *_key = reinterpret_cast<string_key *>(key);
       /*loop unrolling*/
       if (mask != 0) {
         for (int i = 0; i < 12; i += 4) {
           if (CHECK_BIT(mask, i) &&
-              (var_compare((char *)(_[i].key), _key->key,
-                           (reinterpret_cast<string_key *>(_[i].key))->length,
-                           _key->length))) {
+              (var_compare(_[i].key->key, key->key,
+                           _[i].key->length,
+                           key->length))) {
             unset_hash(i);
             return 0;
           }
 
           if (CHECK_BIT(mask, i + 1) &&
-              (var_compare(
-                  (char *)(_[i + 1].key), _key->key,
-                  (reinterpret_cast<string_key *>(_[i + 1].key))->length,
-                  _key->length))) {
-            unset_hash(i + 1);
+              (var_compare(_[i + 1].key->key, key->key,
+                           _[i + 1].key->length,
+                           key->length))) {
+            unset_hash(i+1);
             return 0;
           }
 
-          if (CHECK_BIT(mask, i + 2) &&
-              (var_compare(
-                  (char *)(_[i + 2].key), _key->key,
-                  (reinterpret_cast<string_key *>(_[i + 2].key))->length,
-                  _key->length))) {
-            unset_hash(i + 2);
+          if (CHECK_BIT(mask, i+2) &&
+              (var_compare(_[i+2].key->key, key->key,
+                           _[i+2].key->length,
+                           key->length))) {
+            unset_hash(i+2);
             return 0;
           }
 
-          if (CHECK_BIT(mask, i + 3) &&
-              (var_compare(
-                  (char *)(_[i + 3].key), _key->key,
-                  (reinterpret_cast<string_key *>(_[i + 3].key))->length,
-                  _key->length))) {
-            unset_hash(i + 3);
+          if (CHECK_BIT(mask, i+3) &&
+              (var_compare(_[i+3].key->key, key->key,
+                           _[i+3].key->length,
+                           key->length))) {
+            unset_hash(i+3);
             return 0;
           }
         }
 
         if (CHECK_BIT(mask, 12) &&
-            (var_compare((char *)(_[12].key), _key->key,
-                         (reinterpret_cast<string_key *>(_[12].key))->length,
-                         _key->length))) {
-          unset_hash(12);
-          return 0;
+              (var_compare(_[12].key->key, key->key,
+                           _[12].key->length,
+                           key->length))) {
+            unset_hash(12);
+            return 0;
         }
 
         if (CHECK_BIT(mask, 13) &&
-            (var_compare((char *)(_[13].key), _key->key,
-                         (reinterpret_cast<string_key *>(_[13].key))->length,
-                         _key->length))) {
-          unset_hash(13);
-          return 0;
+              (var_compare(_[13].key->key, key->key,
+                           _[13].key->length,
+                           key->length))) {
+            unset_hash(13);
+            return 0;
         }
       }
-
     } else {
       if (mask != 0) {
         for (int i = 0; i < 12; i += 4) {
@@ -699,56 +628,49 @@ struct Bucket {
     }
 
     if constexpr (std::is_pointer_v<T>) {
-      string_key *_key = reinterpret_cast<string_key *>(key);
       if (mask != 0) {
         for (int i = 0; i < 12; i += 4) {
-          // if (CHECK_BIT(mask, i) && (strcmp(_[i].key, key) == 0)) {
-          //  return _[i].value;
-          //}
           if (CHECK_BIT(mask, i) &&
-              (var_compare((char *)(_[i].key), _key->key,
-                           (reinterpret_cast<string_key *>(_[i].key))->length,
-                           _key->length))) {
+              (var_compare(_[i].key->key, key->key,
+                           _[i].key->length,
+                           key->length))) {
             return _[i].value;
           }
 
           if (CHECK_BIT(mask, i + 1) &&
-              (var_compare(
-                  (char *)(_[i + 1].key), _key->key,
-                  (reinterpret_cast<string_key *>(_[i + 1].key))->length,
-                  _key->length))) {
+              (var_compare(_[i + 1].key->key, key->key,
+                           _[i + 1].key->length,
+                           key->length))) {
             return _[i + 1].value;
           }
 
           if (CHECK_BIT(mask, i + 2) &&
-              (var_compare(
-                  (char *)(_[i + 2].key), _key->key,
-                  (reinterpret_cast<string_key *>(_[i + 2].key))->length,
-                  _key->length))) {
+              (var_compare(_[i + 2].key->key, key->key,
+                           _[i + 2].key->length,
+                           key->length))) {
             return _[i + 2].value;
           }
 
           if (CHECK_BIT(mask, i + 3) &&
-              (var_compare(
-                  (char *)(_[i + 3].key), _key->key,
-                  (reinterpret_cast<string_key *>(_[i + 3].key))->length,
-                  _key->length))) {
+              (var_compare(_[i + 3].key->key, key->key,
+                           _[i + 3].key->length,
+                           key->length))) {
             return _[i + 3].value;
           }
         }
 
         if (CHECK_BIT(mask, 12) &&
-            (var_compare((char *)(_[12].key), _key->key,
-                         (reinterpret_cast<string_key *>(_[12].key))->length,
-                         _key->length))) {
-          return _[12].value;
+              (var_compare(_[12].key->key, key->key,
+                           _[12].key->length,
+                           key->length))) {
+            return _[12].value;
         }
 
         if (CHECK_BIT(mask, 13) &&
-            (var_compare((char *)(_[13].key), _key->key,
-                         (reinterpret_cast<string_key *>(_[13].key))->length,
-                         _key->length))) {
-          return _[13].value;
+              (var_compare(_[13].key->key, key->key,
+                           _[13].key->length,
+                           key->length))) {
+            return _[13].value;
         }
       }
     } else {
@@ -901,58 +823,54 @@ struct Bucket {
       if (mask != 0) {
         for (int i = 0; i < 12; i += 4) {
           if (CHECK_BIT(mask, i) &&
-              (var_compare((char *)(_[i].key), _key->key,
-                           (reinterpret_cast<string_key *>(_[i].key))->length,
-                           _key->length))) {
+              (var_compare(_[i].key->key, key->key,
+                           _[i].key->length,
+                           key->length))) {
             unset_hash(i);
             return 0;
           }
 
           if (CHECK_BIT(mask, i + 1) &&
-              (var_compare(
-                  (char *)(_[i + 1].key), _key->key,
-                  (reinterpret_cast<string_key *>(_[i + 1].key))->length,
-                  _key->length))) {
-            unset_hash(i + 1);
+              (var_compare(_[i + 1].key->key, key->key,
+                           _[i + 1].key->length,
+                           key->length))) {
+            unset_hash(i+1);
             return 0;
           }
 
-          if (CHECK_BIT(mask, i + 2) &&
-              (var_compare(
-                  (char *)(_[i + 2].key), _key->key,
-                  (reinterpret_cast<string_key *>(_[i + 2].key))->length,
-                  _key->length))) {
-            unset_hash(i + 2);
+          if (CHECK_BIT(mask, i+2) &&
+              (var_compare(_[i+2].key->key, key->key,
+                           _[i+2].key->length,
+                           key->length))) {
+            unset_hash(i+2);
             return 0;
           }
 
-          if (CHECK_BIT(mask, i + 3) &&
-              (var_compare(
-                  (char *)(_[i + 3].key), _key->key,
-                  (reinterpret_cast<string_key *>(_[i + 3].key))->length,
-                  _key->length))) {
-            unset_hash(i + 3);
+          if (CHECK_BIT(mask, i+3) &&
+              (var_compare(_[i+3].key->key, key->key,
+                           _[i+3].key->length,
+                           key->length))) {
+            unset_hash(i+3);
             return 0;
           }
         }
 
         if (CHECK_BIT(mask, 12) &&
-            (var_compare((char *)(_[12].key), _key->key,
-                         (reinterpret_cast<string_key *>(_[12].key))->length,
-                         _key->length))) {
-          unset_hash(12);
-          return 0;
+              (var_compare(_[12].key->key, key->key,
+                           _[12].key->length,
+                           key->length))) {
+            unset_hash(12);
+            return 0;
         }
 
         if (CHECK_BIT(mask, 13) &&
-            (var_compare((char *)(_[13].key), _key->key,
-                         (reinterpret_cast<string_key *>(_[13].key))->length,
-                         _key->length))) {
-          unset_hash(13);
-          return 0;
+              (var_compare(_[13].key->key, key->key,
+                           _[13].key->length,
+                           key->length))) {
+            unset_hash(13);
+            return 0;
         }
       }
-
     } else {
       if (mask != 0) {
         for (int i = 0; i < 12; i += 4) {
@@ -1365,8 +1283,7 @@ void Table<T>::Split(Table<T> *org_table, Table<T> *expand_table,
         if constexpr (std::is_pointer_v<T>) {
           // key_hash = h(curr_bucket->_[j].key, strlen(curr_bucket->_[j].key));
           key_hash = h(
-              curr_bucket->_[j].key,
-              (reinterpret_cast<string_key *>(curr_bucket->_[j].key))->length);
+              curr_bucket->_[j].key->key,curr_bucket->_[j].key->length);
         } else {
           key_hash = h(&(curr_bucket->_[j].key), sizeof(Key_t));
         }
@@ -1395,8 +1312,7 @@ void Table<T>::Split(Table<T> *org_table, Table<T> *expand_table,
         if constexpr (std::is_pointer_v<T>) {
           // key_hash = h(curr_bucket->_[j].key, strlen(curr_bucket->_[j].key));
           key_hash = h(
-              curr_bucket->_[j].key,
-              (reinterpret_cast<string_key *>(curr_bucket->_[j].key))->length);
+              curr_bucket->_[j].key->key,curr_bucket->_[j].key->length);
         } else {
           key_hash = h(&(curr_bucket->_[j].key), sizeof(Key_t));
         }
@@ -1438,8 +1354,7 @@ void Table<T>::Split(Table<T> *org_table, Table<T> *expand_table,
         if constexpr (std::is_pointer_v<T>) {
           // key_hash = h(next_bucket->_[i].key, strlen(next_bucket->_[i].key));
           key_hash = h(
-              next_bucket->_[i].key,
-              (reinterpret_cast<string_key *>(next_bucket->_[i].key))->length);
+              next_bucket->_[i].key->key,next_bucket->_[i].key->length);
         } else {
           key_hash = h(&(next_bucket->_[i].key), sizeof(Key_t));
         }
@@ -1530,7 +1445,7 @@ void Table<T>::Split(Table<T> *org_table, Table<T> *expand_table,
     next_bucket = next_bucket->next;
   }
 
-  if constexpr (std::is_pointer_v<T>) {
+//  if constexpr (std::is_pointer_v<T>) {
 #ifdef PMEM
     Allocator::Persist(org_table, sizeof(Table));
 
@@ -1543,7 +1458,7 @@ void Table<T>::Split(Table<T> *org_table, Table<T> *expand_table,
     prev_bucket = next_bucket;
     next_bucket = next_bucket->next;
 #endif
-  }
+//  }
   for (int i = 0; i < kNumBucket; ++i) {
     curr_bucket = org_table->bucket + i;
     curr_bucket->release_lock();
@@ -1773,16 +1688,21 @@ void Table<T>::Insert4split(T key, Value_t value, size_t key_hash,
 }
 
 template <class T>
-class Linear {
+class Linear : public Hash<T> {
  public:
-  Linear(void);
-  Linear(size_t);
+  Linear(PMEMobjpool *_pool);
   ~Linear(void);
   int Insert(T key, Value_t value);
   bool Delete(T);
   Value_t Get(T);
+  Value_t Get(T key, bool is_in_epoch){
+      return Get(key);
+  }
   void FindAnyway(T key);
-  void GetBasicInfo() {
+  void Recovery(){
+    std::cout << "Recovery stay tuned..." << std::endl;
+  }
+  void getNumber() {
     uint64_t count = 0;
     uint64_t prev_length = 0;
     uint64_t after_length = 0;
@@ -1883,13 +1803,6 @@ class Linear {
     //(double)(prev_length+after_length)/(next+N));
     //    	printf("the overflow access is %lu\n", overflow_access);
   }
-  /*
-  inline void MemoryAllocate(uint64_t partiton_idx, uint64_t dir_idx, uint64_t
-  bucket_idx){ Table<T>* RESERVED = reinterpret_cast<Table<T> *>(-1); if
-  ((dir[partiton_idx]._[dir_idx] != NULL) && (dir[partiton_idx]._[dir_idx] !=
-  RESERVED)){ return;
-      }
-  }*/
 
   inline void Expand(uint64_t partiton_idx, uint32_t numBuckets) {
   RE_EXPAND:
@@ -1970,7 +1883,8 @@ class Linear {
 };
 
 template <class T>
-Linear<T>::Linear(void) {
+Linear<T>::Linear(PMEMobjpool *_pool) {
+  pool_addr = _pool;
   for (int i = 0; i < partitionNum; ++i) {
     dir[i].N_next = baseShifBits << 32;
     // dir[i]._[0] = new Table[segmentSize];
@@ -1996,8 +1910,7 @@ template <class T>
 int Linear<T>::Insert(T key, Value_t value) {
   uint64_t key_hash;
   if constexpr (std::is_pointer_v<T>) {
-    // key_hash = h(key, strlen(key));
-    key_hash = h(key, (reinterpret_cast<string_key *>(key))->length);
+    key_hash = h(key->key, key->length);
   } else {
     key_hash = h(&key, sizeof(key));
   }
@@ -2041,8 +1954,7 @@ template <class T>
 Value_t Linear<T>::Get(T key) {
   uint64_t key_hash;
   if constexpr (std::is_pointer_v<T>) {
-    // key_hash = h(key, strlen(key));
-    key_hash = h(key, (reinterpret_cast<string_key *>(key))->length);
+    key_hash = h(key->key, key->length);
   } else {
     key_hash = h(&key, sizeof(key));
   }
@@ -2207,8 +2119,7 @@ template <class T>
 bool Linear<T>::Delete(T key) {
   uint64_t key_hash;
   if constexpr (std::is_pointer_v<T>) {
-    // key_hash = h(key, strlen(key));
-    key_hash = h(key, (reinterpret_cast<string_key *>(key))->length);
+    key_hash = h(key->key, key->length);
   } else {
     key_hash = h(&key, sizeof(key));
   }
