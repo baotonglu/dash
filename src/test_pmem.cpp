@@ -10,7 +10,7 @@
 #include "../util/random.h"
 #include "../util/uniform.hpp"
 #include "allocator.h"
-//#include "ex_finger.h"
+#include "ex_finger.h"
 #include "lh_finger.h"
 #include "libpmemobj.h"
 #include "utils.h"
@@ -66,24 +66,17 @@ void set_affinity(uint32_t idx) {
 
 template <class T>
 Hash<T> *InitializeIndex(int seg_num) {
-  /*
-    Hash<T> *eh;
-    if(index_type == "dash-ex"){
-      std::cout << "Initialize from this branch" << std::endl;
-      Hash<T> *eh = reinterpret_cast<Hash<T> *>(
-      Allocator::GetRoot(sizeof(Finger_EH<T>)));
-      new (eh) Finger_EH<T>(seg_num, Allocator::Get()->pm_pool_);
-      Hash<T> *eh = reinterpret_cast<Hash<T> *>(
-      Allocator::GetRoot(sizeof(Linear<T>)));
-      new (eh) Linear<T>(Allocator::Get()->pm_pool_);
-    }else if(index_type == "dash-lh"){
-
-    }
-  */
-  Hash<T> *eh =
-      reinterpret_cast<Hash<T> *>(Allocator::GetRoot(sizeof(Linear<T>)));
-  new (eh) Linear<T>(Allocator::Get()->pm_pool_);
-
+  Hash<T> *eh;
+  if (index_type == "dash-ex") {
+    std::cout << "Initialize Extendible Hashing" << std::endl;
+    eh = reinterpret_cast<Hash<T> *>(
+        Allocator::GetRoot(sizeof(extendible::Finger_EH<T>)));
+    new (eh) extendible::Finger_EH<T>(seg_num, Allocator::Get()->pm_pool_);
+  } else if (index_type == "dash-lh") {
+    eh = reinterpret_cast<Hash<T> *>(
+        Allocator::GetRoot(sizeof(linear::Linear<T>)));
+    new (eh) linear::Linear<T>(Allocator::Get()->pm_pool_);
+  }
   return eh;
 }
 
@@ -200,40 +193,30 @@ void concurr_search(struct range *_range, Hash<T> *index) {
 
   spin_wait();
 
-  // if(key_type == "fixed"){/*fixed length key benchmark*/
   if constexpr (!std::is_pointer_v<T>) {
     T *key_array = reinterpret_cast<T *>(workload);
-    for (uint64_t i = begin; i < end; ++i) {
-      index->Get(key_array[i]);
-    }
-    /*
     uint64_t j;
-    for (uint64_t i = begin; i < end; i+=1000) {
-      //auto epoch_guard = Allocator::AquireEpochGuard();
+    for (uint64_t i = begin; i < end; i += 1000) {
+      auto epoch_guard = Allocator::AquireEpochGuard();
       uint64_t cycle_end = ((i + 1000) < end) ? (i + 1000) : end;
-      for(j = i; j < cycle_end; ++j){
-        if(index->Get(key_array[j], true)==NONE) not_found++;
+      // uint64_t cycle_end = i + 1000;
+      for (j = i; j < cycle_end; ++j) {
+        if (index->Get(key_array[j], true) == NONE) not_found++;
       }
-    }*/
+    }
   } else {
     T var_key;
     uint64_t j;
     uint64_t string_key_size = sizeof(string_key) + _range->length;
-    for (uint64_t i = begin; i < end; ++i) {
-      var_key = reinterpret_cast<T>(workload + string_key_size * i);
-      index->Get(var_key);
-    }
-
-    /*
-    for (uint64_t i = begin; i < end; i+=1000) {
-      //auto epoch_guard = Allocator::AquireEpochGuard();
+    for (uint64_t i = begin; i < end; i += 1000) {
+      auto epoch_guard = Allocator::AquireEpochGuard();
       uint64_t cycle_end = ((i + 1000) < end) ? (i + 1000) : end;
-      for(j = i; j < cycle_end; ++j){
+      // uint64_t cycle_end = i + 1000;
+      for (j = i; j < cycle_end; ++j) {
         var_key = reinterpret_cast<T>(workload + string_key_size * j);
-        if(index->Get(var_key, true)==NONE) not_found++;
+        if (index->Get(var_key, true) == NONE) not_found++;
       }
     }
-    */
   }
   std::cout << "not_found = " << not_found << std::endl;
   end_notify();
@@ -488,7 +471,6 @@ void Run() {
     for (int i = 0; i < thread_num; ++i) {
       rarray[i].workload = not_used_workload;
     }
-
     GeneralBench<T>(rarray, index, thread_num, operation_num, "Pos_search",
                     &concurr_search);
 
@@ -496,7 +478,7 @@ void Run() {
       rarray[i].begin = operation_num + i * chunk_size;
       rarray[i].end = operation_num + (i + 1) * chunk_size;
     }
-    rarray[thread_num - 1].end = 2 * operation_num - 1;
+    rarray[thread_num - 1].end = 2 * operation_num;
     GeneralBench<T>(rarray, index, thread_num, operation_num, "Neg_search",
                     &concurr_search);
     /*

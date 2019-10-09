@@ -2,14 +2,14 @@
 # For 100% read operation based 100 millions records inserted into the dataset
 
 thread_num=(0 1 2 4 8 16 24 48)
-workload=(0 50000000)
+workload=(0 20000000)
 base=(0 1000000)
 key_type=(0 fixed variable)
 
 #delete the corresponding file
 
 #{1..6}
-for i in 1
+for i in 1 2
 do 
 	for j in 1
 	do
@@ -31,7 +31,7 @@ do
 		rm -f pmem_hash.data
 		rm -f pmem_cceh.data
 		rm -f pmem_level.data
-		OP_PLACES=threads OMP_PROC_BIND=true OMP_NESTED=true LD_PRELOAD="./build/pmdk/src/PMDK/src/nondebug/libpmemobj.so.1 ./build/pmdk/src/PMDK/src/nondebug/libpmem.so.1" numactl $numaarg ./build/test_pmem -p ${workload[1]} -t ${thread_num[$j]} -k ${key_type[$i]}
+		OP_PLACES=threads OMP_PROC_BIND=true OMP_NESTED=true LD_PRELOAD="./build/pmdk/src/PMDK/src/nondebug/libpmemobj.so.1 ./build/pmdk/src/PMDK/src/nondebug/libpmem.so.1" numactl $numaarg ./build/test_pmem -p ${workload[1]} -t ${thread_num[$j]} -k ${key_type[$i]} -index dash-ex
 		#printf "Done for cceh dm uni: %d %d\n" ${workload[$i]} ${thread_num[$j]}
 	done
 done

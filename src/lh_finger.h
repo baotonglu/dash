@@ -19,10 +19,11 @@
 #define _INVALID 0 /* we use 0 as the invalid key*/
 #define SINGLE 1
 #define DOUBLE_EXPANSION 1
-//#include "bucket.h"
+
 #ifdef PMEM
 #include <libpmemobj.h>
 #endif
+namespace linear {
 
 #define SIMD 1
 #define SIMD_CMP8(src, key)                                         \
@@ -45,8 +46,8 @@
 
 #define CHECK_BIT(var, pos) ((((var) & (1 << (pos))) > 0) ? (1) : (0))
 
-const uint32_t lockSet = 1 << 31;                  /*locking information*/
-const uint32_t lockMask = ((uint32_t)1 << 31) - 1; /*locking mask*/
+const uint32_t lockSet = 1 << 31;
+const uint32_t lockMask = ((uint32_t)1 << 31) - 1;
 const int overflowSet = 1 << 15;
 const int countMask = (1 << 4) - 1;
 const uint32_t initialSet = 1 << 30;
@@ -1774,9 +1775,9 @@ class Linear : public Hash<T> {
     printf("the prev_length = %lld\n", prev_length);
     printf("the after_length = %lld\n", after_length);
     //		printf("the prev_average length = %lf\n",
-    //(double)prev_length/next); 		printf("the after_average length =
-    //%lf\n", (double)after_length/N); 		printf("the average length =
-    //%lf\n", (double)(prev_length+after_length)/(next+N));
+    //(double)prev_length/next); 		printf("the after_average length
+    //= %lf\n", (double)after_length/N); 		printf("the average
+    //length = %lf\n", (double)(prev_length+after_length)/(next+N));
     //    	printf("the overflow access is %lu\n", overflow_access);
   }
 
@@ -2277,3 +2278,4 @@ RETRY:
   return false;
 }
 #endif
+}
