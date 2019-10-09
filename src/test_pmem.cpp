@@ -10,8 +10,8 @@
 #include "../util/random.h"
 #include "../util/uniform.hpp"
 #include "allocator.h"
-#include "ex_finger.h"
 #include "lh_finger.h"
+#include "ex_finger.h"
 #include "libpmemobj.h"
 #include "utils.h"
 

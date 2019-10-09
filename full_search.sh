@@ -31,7 +31,7 @@ do
 		rm -f pmem_hash.data
 		rm -f pmem_cceh.data
 		rm -f pmem_level.data
-		OP_PLACES=threads OMP_PROC_BIND=true OMP_NESTED=true LD_PRELOAD="./build/pmdk/src/PMDK/src/nondebug/libpmemobj.so.1 ./build/pmdk/src/PMDK/src/nondebug/libpmem.so.1" numactl $numaarg ./build/test_pmem -p ${workload[1]} -t ${thread_num[$j]} -k ${key_type[$i]} -index dash-ex
+		OP_PLACES=threads OMP_PROC_BIND=true OMP_NESTED=true LD_PRELOAD="./build/pmdk/src/PMDK/src/nondebug/libpmemobj.so.1 ./build/pmdk/src/PMDK/src/nondebug/libpmem.so.1" numactl $numaarg ./build/test_pmem -p ${workload[1]} -t ${thread_num[$j]} -k ${key_type[$i]} -index dash-lh
 		#printf "Done for cceh dm uni: %d %d\n" ${workload[$i]} ${thread_num[$j]}
 	done
 done

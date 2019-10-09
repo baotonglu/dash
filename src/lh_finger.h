@@ -94,6 +94,8 @@ constexpr uint64_t partitionMask =
 constexpr uint32_t partitionShifBits =
     shiftBits + (31 - __builtin_clz(partitionNum));
 constexpr uint32_t expandShiftBits = fixedExpandBits + baseShifBits;
+const uint64_t recoverBit = 1UL << 63;
+const uint64_t lockBit = 1UL << 62;
 
 #define PARTITION_INDEX(hash) \
   (((hash) >> (64 - partitionShifBits)) & partitionMask)
@@ -970,49 +972,35 @@ struct NormalBucket {
 };
 
 template <class T>
-struct LHTable;
+struct Table;
 
 template <class T>
-struct LHDirectory {
-  LHTable<T> **_;
+struct Directory {
+  typedef Table<T> *table_p;
   uint64_t N_next;
-  LHDirectory() {
-    Allocator::ZAllocate((void **)&_, kCacheLineSize,
-                         sizeof(uint64_t) * segmentSize);
+  table_p _[directorySize];
+  Directory() {
     N_next = baseShifBits << 32;
   }
-
-  LHDirectory(LHTable<T> **tables) {
-    _ = tables;
-    N_next = baseShifBits << 32;
-  }
-
-  static void New(LHDirectory<T> **dir) {
-    LHTable<T> **tables{nullptr};
-    Allocator::ZAllocate((void **)&tables, kCacheLineSize,
-                         sizeof(uint64_t) * segmentSize);
-#ifdef PMEM
+  
+  static void New(PMEMoid *dir) {
     auto callback = [](PMEMobjpool *pool, void *ptr, void *arg) {
-      auto value_ptr = reinterpret_cast<LHTable<T> ***>(arg);
-      auto dir_ptr = reinterpret_cast<LHDirectory<T> *>(ptr);
-      dir_ptr->_ = *value_ptr;
+      auto dir_ptr = reinterpret_cast<Directory<T> *>(ptr);
       dir_ptr->N_next = baseShifBits << 32;
+      memset(&dir_ptr->_, 0, sizeof(table_p) * directorySize);
       return 0;
     };
 
-    Allocator::Allocate((void **)dir, kCacheLineSize, sizeof(LHDirectory<T>),
-                        callback, reinterpret_cast<void *>(&tables));
-#else
-    Allocator::ZAllocate((void **)dir, kCacheLineSize, sizeof(LHDirectory<T>));
-    new (*dir) LHDirectory<T>(tables);
-#endif
+    Allocator::Allocate(dir, kCacheLineSize, 
+                        sizeof(Directory<T>),
+                        callback, NULL);
   }
 };
 
 /* the meta hash-table referenced by the directory*/
 template <class T>
-struct LHTable {
-  LHTable(void) {
+struct Table {
+  Table(void) {
     // memset((void*)&bucket[0],0,sizeof(struct
     // Bucket)*(kNumBucket+stashBucket));
     for (int i = 0; i < kNumBucket; ++i) {
@@ -1026,19 +1014,19 @@ struct LHTable {
     }
   }
 
-  static void New(LHTable<T> **tbl) {
-    Allocator::ZAllocate((void **)tbl, kCacheLineSize, sizeof(LHTable<T>));
+  static void New(Table<T> **tbl) {
+    Allocator::ZAllocate((void **)tbl, kCacheLineSize, sizeof(Table<T>));
   };
 
-  ~LHTable(void) {}
+  ~Table(void) {}
 
-  int Insert(T key, Value_t value, size_t key_hash, LHDirectory<T> *_dir,
+  int Insert(T key, Value_t value, size_t key_hash, Directory<T> *_dir,
              uint64_t index, uint32_t old_N, uint32_t old_next);
   void Insert4split(T key, Value_t value, size_t key_hash, uint8_t meta_hash);
-  void Split(LHTable<T> *org_table, LHTable<T> *expand_table,
-             uint64_t base_level, int org_idx, LHDirectory<T> *);
+  void Split(Table<T> *org_table, Table<T> *expand_table,
+             uint64_t base_level, int org_idx, Directory<T> *);
   int Insert2Org(T key, Value_t value, size_t key_hash, size_t pos);
-  void PrintLHTableImage(LHTable<T> *table, uint64_t base_level);
+  void PrintTableImage(Table<T> *table, uint64_t base_level);
 
   int Next_displace(NormalBucket<T> *neighbor, NormalBucket<T> *next_neighbor,
                     T key, Value_t value, uint8_t meta_hash) {
@@ -1153,7 +1141,7 @@ struct LHTable {
     return -1;
   }
 
-  inline int verify_access(LHDirectory<T> *new_dir, uint32_t index,
+  inline int verify_access(Directory<T> *new_dir, uint32_t index,
                            uint32_t old_N, uint32_t old_next) {
     uint64_t new_N_next = new_dir->N_next;
     uint32_t N = new_N_next >> 32;
@@ -1165,8 +1153,8 @@ struct LHTable {
     return 0;
   }
 
-  inline LHTable<T> *get_org_table(uint64_t x, uint64_t *idx,
-                                   uint64_t *base_diff, LHDirectory<T> *dir) {
+  inline Table<T> *get_org_table(uint64_t x, uint64_t *idx,
+                                   uint64_t *base_diff, Directory<T> *dir) {
     uint64_t base_level = static_cast<uint64_t>(log2(x));
     uint64_t diff = static_cast<uint64_t>(pow(2, base_level));
     *base_diff = diff;
@@ -1177,7 +1165,7 @@ struct LHTable {
     SEG_IDX_OFFSET(static_cast<uint32_t>(org_idx), dir_idx, offset);
     // printf("the x = %d, the dir_idx = %d, the offset = %d\n", x, dir_idx,
     // offset);
-    LHTable<T> *org_table = dir->_[dir_idx] + offset;
+    Table<T> *org_table = dir->_[dir_idx] + offset;
     return org_table;
   }
 
@@ -1186,7 +1174,7 @@ struct LHTable {
 };
 
 template <class T>
-int LHTable<T>::Insert2Org(T key, Value_t value, size_t key_hash, size_t pos) {
+int Table<T>::Insert2Org(T key, Value_t value, size_t key_hash, size_t pos) {
   NormalBucket<T> *target_bucket = bucket + pos;
   NormalBucket<T> *neighbor_bucket = bucket + ((pos + 1) & bucketMask);
   uint8_t meta_hash = META_HASH(key_hash);
@@ -1232,8 +1220,8 @@ int LHTable<T>::Insert2Org(T key, Value_t value, size_t key_hash, size_t pos) {
 /*the base_level is used to judge the rehashed key_value should be rehashed to
  * which bucket, the org_idx the index of the original table in the hash index*/
 template <class T>
-void LHTable<T>::Split(LHTable<T> *org_table, LHTable<T> *expand_table,
-                       uint64_t base_level, int org_idx, LHDirectory<T> *_dir) {
+void Table<T>::Split(Table<T> *org_table, Table<T> *expand_table,
+                       uint64_t base_level, int org_idx, Directory<T> *_dir) {
   NormalBucket<T> *curr_bucket;
   for (int i = 0; i < kNumBucket; ++i) {
     curr_bucket = org_table->bucket + i;
@@ -1244,7 +1232,7 @@ void LHTable<T>::Split(LHTable<T> *org_table, LHTable<T> *expand_table,
     printf("recursive initiliazation\n");
     uint64_t new_org_idx;
     uint64_t new_base_level;
-    LHTable<T> *new_org_table =
+    Table<T> *new_org_table =
         get_org_table(org_idx, &new_org_idx, &new_base_level, _dir);
     Split(new_org_table, org_table, new_base_level, new_org_idx, _dir);
   }
@@ -1358,7 +1346,7 @@ void LHTable<T>::Split(LHTable<T> *org_table, LHTable<T> *expand_table,
           next_bucket->unset_hash(i);
           // if (org_idx == 100)
           //{
-          //	PrintLHTableImage(org_table, base_level);
+          //	PrintTableImage(org_table, base_level);
           //}
 #ifdef COUNTING
           org_table->number--;
@@ -1383,7 +1371,7 @@ void LHTable<T>::Split(LHTable<T> *org_table, LHTable<T> *expand_table,
             /*
             if (org_idx == 100)
             {
-                    PrintLHTableImage(org_table, base_level);
+                    PrintTableImage(org_table, base_level);
             }*/
           }
         }
@@ -1408,9 +1396,9 @@ void LHTable<T>::Split(LHTable<T> *org_table, LHTable<T> *expand_table,
     curr_bucket->set_initialize();
   }
 
-  // clflush((char*)expand_table, sizeof(LHTable));
+  // clflush((char*)expand_table, sizeof(Table));
 #ifdef PMEM
-  Allocator::Persist(expand_table, sizeof(LHTable));
+  Allocator::Persist(expand_table, sizeof(Table));
 #endif
   /*flush the overflowed bucket*/
   prev_bucket = expand_table->stash;
@@ -1427,7 +1415,7 @@ void LHTable<T>::Split(LHTable<T> *org_table, LHTable<T> *expand_table,
 
 //  if constexpr (std::is_pointer_v<T>) {
 #ifdef PMEM
-  Allocator::Persist(org_table, sizeof(LHTable));
+  Allocator::Persist(org_table, sizeof(Table));
 
   prev_bucket = org_table->stash;
   next_bucket = prev_bucket->next;
@@ -1448,8 +1436,8 @@ void LHTable<T>::Split(LHTable<T> *org_table, LHTable<T> *expand_table,
 
 /* it needs to verify whether this bucket has been deleted...*/
 template <class T>
-int LHTable<T>::Insert(T key, Value_t value, size_t key_hash,
-                       LHDirectory<T> *_dir, uint64_t index, uint32_t old_N,
+int Table<T>::Insert(T key, Value_t value, size_t key_hash,
+                       Directory<T> *_dir, uint64_t index, uint32_t old_N,
                        uint32_t old_next) {
   /*we need to first do the locking and then do the verify*/
   uint8_t meta_hash = META_HASH(key_hash);
@@ -1488,7 +1476,7 @@ int LHTable<T>::Insert(T key, Value_t value, size_t key_hash,
     uint64_t base_level;
     /*org_idx is the index of the original table, the base_level is the index
      * diff between original table and target table*/
-    LHTable<T> *org_table = get_org_table(index, &org_idx, &base_level, _dir);
+    Table<T> *org_table = get_org_table(index, &org_idx, &base_level, _dir);
     // printf("get the org_table\n");
     /*the split process splits from original table to target table*/
     Split(org_table, this, base_level, org_idx, _dir);
@@ -1592,7 +1580,7 @@ int LHTable<T>::Insert(T key, Value_t value, size_t key_hash,
 
 /*the insert needs to be perfectly balanced, not destory the power of balance*/
 template <class T>
-void LHTable<T>::Insert4split(T key, Value_t value, size_t key_hash,
+void Table<T>::Insert4split(T key, Value_t value, size_t key_hash,
                               uint8_t meta_hash) {
   auto y = BUCKET_INDEX(key_hash);
   NormalBucket<T> *target = bucket + y;
@@ -1684,8 +1672,8 @@ class Linear : public Hash<T> {
     uint64_t prev_length = 0;
     uint64_t after_length = 0;
     uint64_t Bucket_num = 0;
-    for (int idx = 0; idx < partitionNum; ++idx) {
-      uint64_t old_N_next = dir[idx].N_next;
+   // for (int idx = 0; idx < partitionNum; ++idx) {
+      uint64_t old_N_next = dir.N_next;
       uint32_t N = old_N_next >> 32;
       uint32_t next = (uint32_t)old_N_next;
       uint32_t occupied_bucket = pow2(N) + next;
@@ -1694,7 +1682,7 @@ class Linear : public Hash<T> {
         uint32_t dir_idx;
         uint32_t offset;
         SEG_IDX_OFFSET(i, dir_idx, offset);
-        LHTable<T> *curr_table = dir[idx]._[dir_idx] + offset;
+        Table<T> *curr_table = dir._[dir_idx] + offset;
         for (int j = 0; j < kNumBucket; ++j) {
           NormalBucket<T> *curr_bucket = curr_table->bucket + j;
           count += GET_COUNT(curr_bucket->bitmap);
@@ -1757,11 +1745,12 @@ class Linear : public Hash<T> {
       }
       Bucket_num +=
           SUM_BUCKET(occupied_bucket - 1) * (kNumBucket + stashBucket);
-    }
+    //}
+
     // printf("the N = %lld, the next = %lld\n", N, next);
     // uint64_t seg_num = (N + next - 1)/segmentSize + 1;
 
-    // printf("the size of LHTable is %lld\n", sizeof(struct LHTable));
+    // printf("the size of Table is %lld\n", sizeof(struct Table));
     // printf("the size of Bucekt is %lld\n", sizeof(struct Bucket));
     // printf("the size of oveflow bucket is %lld\n", sizeof(struct
     // overflowBucket));
@@ -1781,9 +1770,9 @@ class Linear : public Hash<T> {
     //    	printf("the overflow access is %lu\n", overflow_access);
   }
 
-  inline void Expand(uint64_t partiton_idx, uint32_t numBuckets) {
+  inline void Expand(uint32_t numBuckets) {
   RE_EXPAND:
-    uint64_t old_N_next = dir[partiton_idx].N_next;
+    uint64_t old_N_next = dir.N_next;
     uint32_t old_N = old_N_next >> 32;
     uint32_t old_next = (uint32_t)old_N_next;
     uint32_t dir_idx;
@@ -1795,32 +1784,31 @@ class Linear : public Hash<T> {
     // offset is %d\n", static_cast<uint32_t>(pow(2, old_N)) + old_next +
     // numBuckets - 1, dir_idx, offset);
     /*first need the reservation of the key-value*/
-    LHTable<T> *RESERVED = reinterpret_cast<LHTable<T> *>(-1);
-    if (dir[partiton_idx]._[dir_idx] == RESERVED) {
+    Table<T> *RESERVED = reinterpret_cast<Table<T> *>(-1);
+    if (dir._[dir_idx] == RESERVED) {
       goto RE_EXPAND;
       // return;
     }
 
     /*first need to reserve the position for the memory allocation*/
-    LHTable<T> *old_value = NULL;
-    if (dir[partiton_idx]._[dir_idx] == NULL) {
-      if (CAS(&(dir[partiton_idx]._[dir_idx]), &old_value, RESERVED)) {
+    Table<T> *old_value = NULL;
+    if (dir._[dir_idx] == NULL) {
+      if (CAS(&(dir._[dir_idx]), &old_value, RESERVED)) {
 #ifdef DOUBLE_EXPANSION
         uint32_t seg_size = SEG_SIZE(static_cast<uint32_t>(pow(2, old_N)) +
                                      old_next + numBuckets - 1);
-        // dir[partiton_idx]._[dir_idx] = new LHTable[seg_size];
-        Allocator::ZAllocate((void **)&dir[partiton_idx]._[dir_idx],
-                             kCacheLineSize, sizeof(LHTable<T>) * seg_size);
+        Allocator::ZAllocate((void **)&dir._[dir_idx],
+                             kCacheLineSize, sizeof(Table<T>) * seg_size);
 // printf("the new table size for partition %d is %d\n", partiton_idx,seg_size);
 // printf("expansion to %u on %u\n",seg_size, dir_idx);
-// dir->_[dir_idx] = new LHTable[segmentSize*pow2(dir_idx-1)];
-// dir->_[dir_idx] = new LHTable[segmentSize*pow2(dir_idx)];
+// dir->_[dir_idx] = new Table[segmentSize*pow2(dir_idx-1)];
+// dir->_[dir_idx] = new Table[segmentSize*pow2(dir_idx)];
 #else
-        Allocator::ZAllocate((void **)&dir[partiton_idx]._[dir_idx],
-                             kCacheLineSize, sizeof(LHTable<T>) * segmentSize);
+        Allocator::ZAllocate((void **)&dir._[dir_idx],
+                             kCacheLineSize, sizeof(Table<T>) * segmentSize);
 #endif
 #ifdef PMEM
-        Allocator::Persist(&dir[partiton_idx]._[dir_idx], sizeof(LHTable<T> *));
+        Allocator::Persist(&dir._[dir_idx], sizeof(Table<T> *));
 #endif
       } else {
         goto RE_EXPAND;
@@ -1836,12 +1824,12 @@ class Linear : public Hash<T> {
       new_N_next = (old_N_next & high32Mask) + (old_next + numBuckets);
     }
 
-    if (!CAS(&dir[partiton_idx].N_next, &old_N_next, new_N_next)) {
+    if (!CAS(&dir.N_next, &old_N_next, new_N_next)) {
       goto RE_EXPAND;
     }
 
 #ifdef PMEM
-    Allocator::Persist(&dir[partiton_idx].N_next, sizeof(uint64_t));
+    Allocator::Persist(&dir.N_next, sizeof(uint64_t));
 #endif
     /*
     if ((uint32_t)new_N_next == 0)
@@ -1853,27 +1841,24 @@ class Linear : public Hash<T> {
     // (uint32_t)new_N_next);
   }
 
-  LHDirectory<T> dir[partitionNum];
+  //Directory<T> dir[partitionNum];
 #ifdef PMEM
   PMEMobjpool *pool_addr;
 #endif
+  Directory<T> dir;
 };
 
 template <class T>
 Linear<T>::Linear(PMEMobjpool *_pool) {
   pool_addr = _pool;
-  for (int i = 0; i < partitionNum; ++i) {
-    dir[i].N_next = baseShifBits << 32;
-    // dir[i]._[0] = new LHTable[segmentSize];
-    Allocator::ZAllocate((void **)&dir[i]._[0], kCacheLineSize,
-                         sizeof(LHTable<T>) * segmentSize);
-    LHTable<T> *curr_table = dir[i]._[0];
-    for (int j = 0; j < segmentSize; ++j) {
-      curr_table = dir[i]._[0] + j;
-      for (int k = 0; k < kNumBucket; ++k) {
-        NormalBucket<T> *curr_bucket = curr_table->bucket + k;
-        curr_bucket->set_initialize();
-      }
+  dir.N_next = baseShifBits << 32;
+  Allocator::ZAllocate((void **)&dir._[0], kCacheLineSize,
+                        sizeof(Table<T>) * segmentSize);
+  for (int j = 0; j < segmentSize; ++j) {
+    Table<T>* curr_table = dir._[0] + j;
+    for (int k = 0; k < kNumBucket; ++k) {
+      NormalBucket<T> *curr_bucket = curr_table->bucket + k;
+      curr_bucket->set_initialize();
     }
   }
 }
@@ -1891,9 +1876,9 @@ int Linear<T>::Insert(T key, Value_t value) {
   } else {
     key_hash = h(&key, sizeof(key));
   }
-  auto partiton_idx = PARTITION_INDEX(key_hash);
+  //auto partiton_idx = PARTITION_INDEX(key_hash);
 RETRY:
-  uint64_t old_N_next = dir[partiton_idx].N_next;
+  uint64_t old_N_next = dir.N_next;
   uint32_t N = old_N_next >> 32;
   uint32_t next = (uint32_t)old_N_next;
   // printf("insertion for key %lu\n", key);
@@ -1909,20 +1894,17 @@ RETRY:
   // printf("the dir_idx is %d, the offset is %d\n", dir_idx, offset);
 
   // assert(dir_idx < directorySize);
-  LHTable<T> *target = dir[partiton_idx]._[dir_idx] + offset;
-  LHTable<T> *RESERVED = reinterpret_cast<LHTable<T> *>(-1);
-  // assert(dir[partiton_idx]._[dir_idx] != RESERVED);
-  // assert(dir[partiton_idx]._[dir_idx] != NULL);
+  Table<T> *target = dir._[dir_idx] + offset;
 
   // printf("insert for key %lld, the bucket_idx is %d, the dir_idx is %d, the
   // offset is %d\n", key, x,dir_idx, offset);
   auto ret =
-      target->Insert(key, value, key_hash, &(dir[partiton_idx]), x, N, next);
+      target->Insert(key, value, key_hash, &dir, x, N, next);
 
   if (ret == -2) {
     goto RETRY;
   } else if (ret == -1) {
-    Expand(partiton_idx, 1);
+    Expand(1);
   }
   return 0;
 }
@@ -1935,12 +1917,12 @@ Value_t Linear<T>::Get(T key) {
   } else {
     key_hash = h(&key, sizeof(key));
   }
-  auto partiton_idx = PARTITION_INDEX(key_hash);
+  //auto partiton_idx = PARTITION_INDEX(key_hash);
   auto meta_hash = META_HASH(key_hash);
   auto y = BUCKET_INDEX(key_hash);
 RETRY:
 
-  uint64_t old_N_next = dir[partiton_idx].N_next;
+  uint64_t old_N_next = dir.N_next;
   uint32_t N = old_N_next >> 32;
   uint32_t next = (uint32_t)old_N_next;
 
@@ -1952,7 +1934,7 @@ RETRY:
   uint32_t dir_idx;
   uint32_t offset;
   SEG_IDX_OFFSET(static_cast<uint32_t>(x), dir_idx, offset);
-  LHTable<T> *target = dir[partiton_idx]._[dir_idx] + offset;
+  Table<T> *target = dir._[dir_idx] + offset;
 
   uint32_t old_version;
   uint32_t old_neighbor_version;
@@ -1972,7 +1954,7 @@ RETRY:
       curr_bucket->get_lock();
     }
 
-    uint64_t new_N_next = dir[partiton_idx].N_next;
+    uint64_t new_N_next = dir.N_next;
     uint32_t new_N = new_N_next >> 32;
     uint32_t new_next = (uint32_t)new_N_next;
     if (((next <= x) && (new_next > x)) || (new_N != N)) {
@@ -1985,9 +1967,9 @@ RETRY:
 
     uint64_t org_idx;
     uint64_t base_level;
-    LHTable<T> *org_table =
-        target->get_org_table(x, &org_idx, &base_level, &(dir[partiton_idx]));
-    target->Split(org_table, target, base_level, org_idx, &(dir[partiton_idx]));
+    Table<T> *org_table =
+        target->get_org_table(x, &org_idx, &base_level, &dir);
+    target->Split(org_table, target, base_level, org_idx, &dir);
 
     for (int i = 0; i < kNumBucket; ++i) {
       NormalBucket<T> *curr_bucket = target->bucket + i;
@@ -1995,7 +1977,7 @@ RETRY:
     }
     goto RETRY;
   } else {
-    uint64_t new_N_next = dir[partiton_idx].N_next;
+    uint64_t new_N_next = dir.N_next;
     uint32_t new_N = new_N_next >> 32;
     uint32_t new_next = (uint32_t)new_N_next;
     if (((next <= x) && (new_next > x)) || (new_N != N)) {
@@ -2100,11 +2082,11 @@ bool Linear<T>::Delete(T key) {
   } else {
     key_hash = h(&key, sizeof(key));
   }
-  auto partiton_idx = PARTITION_INDEX(key_hash);
+  //auto partiton_idx = PARTITION_INDEX(key_hash);
   auto meta_hash = META_HASH(key_hash);
   auto y = BUCKET_INDEX(key_hash);
 RETRY:
-  uint64_t old_N_next = dir[partiton_idx].N_next;
+  uint64_t old_N_next = dir.N_next;
   uint32_t N = old_N_next >> 32;
   uint32_t next = (uint32_t)old_N_next;
 
@@ -2116,7 +2098,7 @@ RETRY:
   uint32_t dir_idx;
   uint32_t offset;
   SEG_IDX_OFFSET(static_cast<uint32_t>(x), dir_idx, offset);
-  LHTable<T> *target = dir[partiton_idx]._[dir_idx] + offset;
+  Table<T> *target = dir._[dir_idx] + offset;
 
   uint32_t old_version;
   NormalBucket<T> *target_bucket = target->bucket + y;
@@ -2138,7 +2120,7 @@ RETRY:
       curr_bucket->get_lock();
     }
 
-    uint64_t new_N_next = dir[partiton_idx].N_next;
+    uint64_t new_N_next = dir.N_next;
     uint32_t new_N = new_N_next >> 32;
     uint32_t new_next = (uint32_t)new_N_next;
     if (((next <= x) && (new_next > x)) || (new_N != N)) {
@@ -2151,9 +2133,9 @@ RETRY:
 
     uint64_t org_idx;
     uint64_t base_level;
-    LHTable<T> *org_table =
-        target->get_org_table(x, &org_idx, &base_level, &(dir[partiton_idx]));
-    target->Split(org_table, target, base_level, org_idx, &(dir[partiton_idx]));
+    Table<T> *org_table =
+        target->get_org_table(x, &org_idx, &base_level, &dir);
+    target->Split(org_table, target, base_level, org_idx, &dir);
 
     for (int i = 0; i < kNumBucket; ++i) {
       NormalBucket<T> *curr_bucket = target->bucket + i;
@@ -2161,7 +2143,7 @@ RETRY:
     }
     goto RETRY;
   } else {
-    uint64_t new_N_next = dir[partiton_idx].N_next;
+    uint64_t new_N_next = dir.N_next;
     uint32_t new_N = new_N_next >> 32;
     uint32_t new_next = (uint32_t)new_N_next;
     if (((next <= x) && (new_next > x)) || (new_N != N)) {

@@ -719,7 +719,7 @@ struct Directory {
       dir_ptr->global_depth =
           static_cast<size_t>(log2(std::get<0>(*value_ptr)));
       size_t cap = std::get<0>(*value_ptr);
-      // memset(&dir_ptr->_, 0, sizeof(table_p) * cap);
+      //memset(&dir_ptr->_, 0, sizeof(table_p) * cap);
       pmemobj_persist(pool, dir_ptr,
                       sizeof(Directory<T>) + sizeof(uint64_t) * cap);
       return 0;
@@ -1875,7 +1875,6 @@ template <class T>
 Value_t Finger_EH<T>::Get(T key) {
   uint64_t key_hash;
   if constexpr (std::is_pointer_v<T>) {
-    // key_hash = h(key, (reinterpret_cast<string_key *>(key))->length);
     key_hash = h(key->key, key->length);
   } else {
     key_hash = h(&key, sizeof(key));
