@@ -19,6 +19,7 @@
 #define _INVALID 0 /* we use 0 as the invalid key*/
 #define SINGLE 1
 #define DOUBLE_EXPANSION 1
+#define COUNTING 1
 
 #ifdef PMEM
 #include <libpmemobj.h>
@@ -758,7 +759,7 @@ struct Bucket {
   inline bool test_lock_set(uint32_t &version) {
     auto value = __atomic_load_n(&version_lock, __ATOMIC_ACQUIRE);
     version = value & versionMask;
-    return (value & lockSet) != 0;
+    return (value & lockSet);
   }
 
   // test whether the version has change, if change, return true
@@ -1265,6 +1266,12 @@ struct Table {
 
   Bucket<T> bucket[kNumBucket];
   overflowBucket<T> stash[stashBucket];
+#ifdef COUNTING
+  int number;
+  int state; /* 1 indicates that it needs to be shrunk with its neighbor
+                "Bucket"*/
+  char dummy[56];
+#endif
 };
 
 template <class T>
@@ -1771,12 +1778,14 @@ class Linear : public Hash<T> {
     uint32_t N = old_N_next >> 32;
     uint32_t next = (uint32_t)old_N_next;
     uint32_t occupied_bucket = pow2(N) + next;
+    uint64_t recount_num = 0;
 
     for (int i = 0; i < occupied_bucket; ++i) {
       uint32_t dir_idx;
       uint32_t offset;
       SEG_IDX_OFFSET(i, dir_idx, offset);
       Table<T> *curr_table = dir._[dir_idx] + offset;
+      recount_num += curr_table->number;
       for (int j = 0; j < kNumBucket; ++j) {
         Bucket<T> *curr_bucket = curr_table->bucket + j;
         count += GET_COUNT(curr_bucket->bitmap);
@@ -1847,6 +1856,7 @@ class Linear : public Hash<T> {
     // printf("the size of Bucekt is %lld\n", sizeof(struct Bucket));
     // printf("the size of oveflow bucket is %lld\n", sizeof(struct
     // overflowBucket));
+    std::cout << "The recount number is " << recount_num << std::endl;
     printf("the inserted num is %lld\n", count);
     // printf("the segment number is %lld\n", seg_num);
     printf("the bucket number is %lld\n", Bucket_num);
@@ -1863,13 +1873,31 @@ class Linear : public Hash<T> {
     //    	printf("the overflow access is %lu\n", overflow_access);
   }
 
+  /**
+   * @brief Shrink operation, no parallel merge now
+   * @param numBuckets #buckets to shrink at a time
+   */
+  inline void Shrink(uint32_t numBuckets) {
+  RE_SHRINK:
+    uint64_t old_N_next = dir.N_next;
+    uint32_t old_N = old_N_next >> 32;
+    uint32_t old_next = (uint32_t)old_N_next;
+
+    uint32_t dir_idx, offset;
+    /* Find the corresponding segment, set the mark and then shrink it*/
+  }
+
+  /**
+   * @brief Expand operation
+   * @param numBuckets the number of "Buckets" to expand
+   * @return void
+   */
   inline void Expand(uint32_t numBuckets) {
   RE_EXPAND:
     uint64_t old_N_next = dir.N_next;
     uint32_t old_N = old_N_next >> 32;
     uint32_t old_next = (uint32_t)old_N_next;
-    uint32_t dir_idx;
-    uint32_t offset;
+    uint32_t dir_idx, offset;
     SEG_IDX_OFFSET(
         static_cast<uint32_t>(pow(2, old_N)) + old_next + numBuckets - 1,
         dir_idx, offset);
@@ -1877,12 +1905,11 @@ class Linear : public Hash<T> {
     Table<T> *RESERVED = reinterpret_cast<Table<T> *>(-1);
     if (dir._[dir_idx] == RESERVED) {
       goto RE_EXPAND;
-      // return;
     }
 
-    /*first need to reserve the position for the memory allocation*/
     Table<T> *old_value = NULL;
     if (dir._[dir_idx] == NULL) {
+      /* Need to allocate the memory for new segment*/
       if (CAS(&(dir._[dir_idx]), &old_value, RESERVED)) {
 #ifdef DOUBLE_EXPANSION
         uint32_t seg_size = SEG_SIZE(static_cast<uint32_t>(pow(2, old_N)) +
@@ -1891,8 +1918,6 @@ class Linear : public Hash<T> {
                              sizeof(Table<T>) * seg_size);
 // printf("the new table size for partition %d is %d\n", partiton_idx,seg_size);
 // printf("expansion to %u on %u\n",seg_size, dir_idx);
-// dir->_[dir_idx] = new Table[segmentSize*pow2(dir_idx-1)];
-// dir->_[dir_idx] = new Table[segmentSize*pow2(dir_idx)];
 #else
         Allocator::ZAllocate((void **)&dir._[dir_idx], kCacheLineSize,
                              sizeof(Table<T>) * segmentSize);
@@ -1906,8 +1931,6 @@ class Linear : public Hash<T> {
     }
 
     uint64_t new_N_next;
-    // if (old_next == (segmentSize*static_cast<uint64_t>(pow(2, old_N)) -
-    // numBuckets))
     if (old_next == (static_cast<uint64_t>(pow(2, old_N)) - numBuckets)) {
       new_N_next = (((uint64_t)(old_N + 1)) << 32);
     } else {
@@ -1939,6 +1962,8 @@ template <class T>
 Linear<T>::Linear(PMEMobjpool *_pool) {
   pool_addr = _pool;
   dir.N_next = baseShifBits << 32;
+  memset(dir._, 0, directorySize * sizeof(uint64_t));
+
   Allocator::ZAllocate((void **)&dir._[0], kCacheLineSize,
                        sizeof(Table<T>) * segmentSize);
   for (int j = 0; j < segmentSize; ++j) {
@@ -2041,7 +2066,7 @@ RETRY:
   if (ret == -2) {
     goto RETRY;
   } else if (ret == -1) {
-    Expand(1);
+    Expand(2);
   }
   return 0;
 }

@@ -15,8 +15,8 @@
 #include "libpmemobj.h"
 #include "utils.h"
 
-//static const char *pool_name = "/mnt/pmem0/pmem_hash.data";
-static const char *pool_name = "pmem_hash.data";
+static const char *pool_name = "/mnt/pmem0/pmem_hash.data";
+//static const char *pool_name = "pmem_hash.data";
 static const size_t pool_size = 1024ul * 1024ul * 1024ul * 30ul;
 DEFINE_string(index, "dash-ex",
               "which index to evaluate:dash-ex/dash-lh/cceh/level");
@@ -473,6 +473,7 @@ void Run() {
     }
     GeneralBench<T>(rarray, index, thread_num, operation_num, "Pos_search",
                     &concurr_search);
+    index->getNumber();
 /*
     for (int i = 0; i < thread_num; ++i) {
       rarray[i].begin = operation_num + i * chunk_size;
