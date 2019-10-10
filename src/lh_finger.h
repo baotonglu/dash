@@ -423,6 +423,8 @@ struct overflowBucket {
     return 0;
   }
 
+  inline void resetLock() { version_lock = 0; }
+
   uint32_t version_lock;
   int bitmap;
   uint8_t finger_array[kNumPairPerBucket + 2];
@@ -609,6 +611,11 @@ struct Bucket {
       }
     }
     return 0;
+  }
+
+  inline int get_current_mask() {
+    int mask = GET_BITMAP(bitmap) & ((~(*(int *)membership)) & allocMask);
+    return mask;
   }
 
   Value_t check_and_get(uint8_t meta_hash, T key, bool probe) {
@@ -956,6 +963,16 @@ struct Bucket {
     return __builtin_ctz(mask);
   }
 
+  inline void resetLock() { version_lock = 0; }
+
+  inline void resetOverflowFP() {
+    finger_array[18] = 0;
+    finger_array[19] = 0;
+    overflowMember = 0;
+    overflowCount = 0;
+    clear_stash_check();
+  }
+
   uint32_t version_lock;
   int bitmap;               // allocation bitmap + pointer bitmao + counter
   uint8_t finger_array[20]; /*only use the first 14 bytes, can be accelerated by
@@ -1164,6 +1181,89 @@ struct Table {
     // offset);
     Table<T> *org_table = dir->_[dir_idx] + offset;
     return org_table;
+  }
+
+  void recoverMetadata() {
+    Bucket<T> *curr_bucket, *neighbor_bucket;
+    uint64_t knumber = 0;
+    for(int i = 0; i < kNumBucket; ++i){
+      curr_bucket = bucket + i;
+      curr_bucket->resetLock();
+    }
+    /*
+    for (int i = 0; i < kNumBucket; ++i) {
+      // printf("start: recover bucket %d\n",i);
+      curr_bucket = bucket + i;
+      curr_bucket->resetLock();
+      curr_bucket->resetOverflowFP();
+      neighbor_bucket = bucket + ((i + 1) & bucketMask);
+      for (int j = 0; j < kNumPairPerBucket; ++j) {
+        int mask = curr_bucket->get_current_mask();
+        if (CHECK_BIT(mask, j) && (neighbor_bucket->check_and_get(
+                                       curr_bucket->finger_array[j],
+                                       curr_bucket->_[j].key, true) != NONE)) {
+          curr_bucket->unset_hash(j);
+        }
+      }
+
+#ifdef COUNTING
+      knumber += __builtin_popcount(GET_BITMAP(curr_bucket->bitmap));
+#endif
+    }
+
+    for (int i = 0; i < stashBucket; ++i) {
+      auto curr_bucket = stash + i;
+#ifdef COUNTING
+      knumber += __builtin_popcount(GET_BITMAP(curr_bucket->bitmap));
+#endif
+      uint64_t key_hash;
+      auto mask = GET_BITMAP(curr_bucket->bitmap);
+      for (int j = 0; j < kNumPairPerBucket; ++j) {
+        if (CHECK_BIT(mask, j)) {
+          if constexpr (std::is_pointer_v<T>) {
+            auto curr_key = curr_bucket->_[j].key;
+            key_hash = h(curr_key->key, curr_key->length);
+          } else {
+            key_hash = h(&(curr_bucket->_[j].key), sizeof(Key_t));
+          }
+          auto bucket_ix = BUCKET_INDEX(key_hash);
+          auto meta_hash = ((uint8_t)(key_hash & kMask));  
+          auto org_bucket = bucket + bucket_ix;
+          auto neighbor_bucket = bucket + ((bucket_ix + 1) & bucketMask);
+          org_bucket->set_indicator(meta_hash, neighbor_bucket, i);
+        }
+      }
+    }
+
+  overflowBucket<T> *prev_bucket = stash;
+  overflowBucket<T> *next_bucket = stash->next;
+  while (next_bucket != NULL) {
+#ifdef COUNTING
+      knumber += __builtin_popcount(GET_BITMAP(next_bucket->bitmap));
+#endif
+      uint64_t key_hash;
+      auto mask = GET_BITMAP(next_bucket->bitmap);
+      for (int j = 0; j < kNumPairPerBucket; ++j) {
+        if (CHECK_BIT(mask, j)) {
+          if constexpr (std::is_pointer_v<T>) {
+            auto curr_key = curr_bucket->_[j].key;
+            key_hash = h(curr_key->key, curr_key->length);
+          } else {
+            key_hash = h(&(curr_bucket->_[j].key), sizeof(Key_t));
+          }
+          auto bucket_ix = BUCKET_INDEX(key_hash);
+          auto meta_hash = ((uint8_t)(key_hash & kMask));  // the last 8 bits
+          auto org_bucket = bucket + bucket_ix;
+          auto neighbor_bucket = bucket + ((bucket_ix + 1) & bucketMask);
+          org_bucket->set_indicator(meta_hash, neighbor_bucket, 3);
+        }
+      }
+  }
+
+#ifdef COUNTING
+    number = knumber;
+#endif
+  */
   }
 
   Bucket<T> bucket[kNumBucket];
@@ -1662,8 +1762,8 @@ class Linear : public Hash<T> {
   Value_t Get(T);
   Value_t Get(T key, bool is_in_epoch) { return Get(key); }
   void FindAnyway(T key);
-  void Recovery() { std::cout << "Recovery stay tuned..." << std::endl; }
-  void recoverSegment(Table<T> **seg_ptr);
+  void Recovery();
+  void recoverSegment(Table<T> **seg_ptr, size_t);
   void getNumber() {
     uint64_t count = 0;
     uint64_t prev_length = 0;
@@ -1776,9 +1876,6 @@ class Linear : public Hash<T> {
     SEG_IDX_OFFSET(
         static_cast<uint32_t>(pow(2, old_N)) + old_next + numBuckets - 1,
         dir_idx, offset);
-    // printf("for bucket index id %d, the segment index is %d, the internal
-    // offset is %d\n", static_cast<uint32_t>(pow(2, old_N)) + old_next +
-    // numBuckets - 1, dir_idx, offset);
     /*first need the reservation of the key-value*/
     Table<T> *RESERVED = reinterpret_cast<Table<T> *>(-1);
     if (dir._[dir_idx] == RESERVED) {
@@ -1861,9 +1958,40 @@ Linear<T>::~Linear(void) {
   // TO-DO
 }
 
+template<class T>
+void Linear<T>::Recovery(){
+  uint64_t old_N_next = dir.N_next;
+  uint32_t N = old_N_next >> 32;
+  uint32_t next = (uint32_t)old_N_next;
+  uint32_t x = static_cast<uint32_t>(pow(2, N)) +
+                                     next - 1;
+  uint32_t dir_idx;
+  uint32_t offset;
+  SEG_IDX_OFFSET(x, dir_idx, offset);
+
+  for(int i = 0; i <= dir_idx; ++i){
+    std::cout << dir._[i] << std::endl;
+    dir._[i] = (Table<T> *)((uint64_t)dir._[i] | recoverBit);
+    std::cout << dir._[i] << std::endl;
+  }
+}
+
 template <class T>
-void Linear<T>::recoverSegment(Table<T> **seg_ptr) {
-  std::cout << "Stay tuned" << std::endl;
+void Linear<T>::recoverSegment(Table<T> **seg_ptr, size_t segmentSize){
+  /*Iteratively restore the data*/
+  uint64_t snapshot = (uint64_t)*seg_ptr;
+  Table<T> *target = (Table<T> *)(snapshot & (~recoverBit));
+
+  Table<T> *curr_table;
+  for(int i = 0; i < segmentSize; ++i){
+    curr_table = target + i;
+    //curr_table->recoverMetadata();
+  }
+
+  *seg_ptr = target;
+  /*
+  *FixME: to support multiple threads
+  */
 }
 
 template <class T>
@@ -1889,8 +2017,12 @@ RETRY:
   uint32_t offset;
   SEG_IDX_OFFSET(static_cast<uint32_t>(x), dir_idx, offset);
   if (reinterpret_cast<uint64_t>(&dir._[dir_idx]) & recoverBit) {
+#ifdef DOUBLE_EXPANSION  
     recoverSegment(
-        &dir._[dir_idx]); /*Recover all the meta-data in this segment*/
+        &dir._[dir_idx], SEG_SIZE(x)); /*Recover all the meta-data in this segment*/
+#else
+    recoverSegment(&dir._[dir_idx], segmentSize);
+#endif
     goto RETRY;
   }
 
@@ -1932,8 +2064,14 @@ RETRY:
   SEG_IDX_OFFSET(static_cast<uint32_t>(x), dir_idx, offset);
   /*First determine whether to do the recovery process*/
   if (reinterpret_cast<uint64_t>(&dir._[dir_idx]) & recoverBit) {
+    dir._[dir_idx] = (Table<T>*)((uint64_t)dir._[dir_idx] & (~recoverBit));
+    goto RETRY;
+#ifdef DOUBLE_EXPANSION  
     recoverSegment(
-        &dir._[dir_idx]); /*Recover all the meta-data in this segment*/
+        &dir._[dir_idx], SEG_SIZE(x)); /*Recover all the meta-data in this segment*/
+#else
+    recoverSegment(&dir._[dir_idx], segmentSize);
+#endif
     goto RETRY;
   }
 
@@ -2101,8 +2239,12 @@ RETRY:
   uint32_t offset;
   SEG_IDX_OFFSET(static_cast<uint32_t>(x), dir_idx, offset);
   if (reinterpret_cast<uint64_t>(&dir._[dir_idx]) & recoverBit) {
+#ifdef DOUBLE_EXPANSION  
     recoverSegment(
-        &dir._[dir_idx]); /*Recover all the meta-data in this segment*/
+        &dir._[dir_idx], SEG_SIZE(x)); /*Recover all the meta-data in this segment*/
+#else
+    recoverSegment(&dir._[dir_idx], segmentSize);
+#endif
     goto RETRY;
   }
   Table<T> *target = dir._[dir_idx] + offset;

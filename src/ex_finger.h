@@ -914,6 +914,7 @@ struct Table {
     /*scan the stash buckets and re-insert the overflow FP to initial buckets*/
     for (int i = 0; i < stashBucket; ++i) {
       curr_bucket = bucket + kNumBucket + i;
+      curr_bucket->resetLock();
 #ifdef COUNTING
       knumber += __builtin_popcount(GET_BITMAP(curr_bucket->bitmap));
 #endif
