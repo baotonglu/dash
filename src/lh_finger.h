@@ -423,7 +423,7 @@ struct overflowBucket {
     return 0;
   }
 
-  inline void resetLock() { version_lock = 0; }
+  inline void resetLock() { version_lock = version_lock & initialSet; }
 
   uint32_t version_lock;
   int bitmap;
@@ -769,8 +769,9 @@ struct Bucket {
 
   /*if it has been initialized, then return true*/
   inline bool test_initialize() {
-    auto value = version_lock & initialSet;
-    return (value != 0);
+    // auto value = version_lock & initialSet;
+    // return (value != 0);
+    return (version_lock & initialSet);
   }
 
   inline void set_initialize() {
@@ -963,7 +964,7 @@ struct Bucket {
     return __builtin_ctz(mask);
   }
 
-  inline void resetLock() { version_lock = 0; }
+  inline void resetLock() { version_lock = version_lock & initialSet; }
 
   inline void resetOverflowFP() {
     finger_array[18] = 0;
@@ -1186,11 +1187,7 @@ struct Table {
   void recoverMetadata() {
     Bucket<T> *curr_bucket, *neighbor_bucket;
     uint64_t knumber = 0;
-    for(int i = 0; i < kNumBucket; ++i){
-      curr_bucket = bucket + i;
-      curr_bucket->resetLock();
-    }
-    /*
+
     for (int i = 0; i < kNumBucket; ++i) {
       // printf("start: recover bucket %d\n",i);
       curr_bucket = bucket + i;
@@ -1227,7 +1224,7 @@ struct Table {
             key_hash = h(&(curr_bucket->_[j].key), sizeof(Key_t));
           }
           auto bucket_ix = BUCKET_INDEX(key_hash);
-          auto meta_hash = ((uint8_t)(key_hash & kMask));  
+          auto meta_hash = META_HASH(key_hash);
           auto org_bucket = bucket + bucket_ix;
           auto neighbor_bucket = bucket + ((bucket_ix + 1) & bucketMask);
           org_bucket->set_indicator(meta_hash, neighbor_bucket, i);
@@ -1235,9 +1232,9 @@ struct Table {
       }
     }
 
-  overflowBucket<T> *prev_bucket = stash;
-  overflowBucket<T> *next_bucket = stash->next;
-  while (next_bucket != NULL) {
+    overflowBucket<T> *prev_bucket = stash;
+    overflowBucket<T> *next_bucket = stash->next;
+    while (next_bucket != NULL) {
 #ifdef COUNTING
       knumber += __builtin_popcount(GET_BITMAP(next_bucket->bitmap));
 #endif
@@ -1252,18 +1249,17 @@ struct Table {
             key_hash = h(&(curr_bucket->_[j].key), sizeof(Key_t));
           }
           auto bucket_ix = BUCKET_INDEX(key_hash);
-          auto meta_hash = ((uint8_t)(key_hash & kMask));  // the last 8 bits
+          auto meta_hash = META_HASH(key_hash);
           auto org_bucket = bucket + bucket_ix;
           auto neighbor_bucket = bucket + ((bucket_ix + 1) & bucketMask);
           org_bucket->set_indicator(meta_hash, neighbor_bucket, 3);
         }
       }
-  }
+    }
 
 #ifdef COUNTING
     number = knumber;
 #endif
-  */
   }
 
   Bucket<T> bucket[kNumBucket];
@@ -1958,40 +1954,37 @@ Linear<T>::~Linear(void) {
   // TO-DO
 }
 
-template<class T>
-void Linear<T>::Recovery(){
+template <class T>
+void Linear<T>::Recovery() {
   uint64_t old_N_next = dir.N_next;
   uint32_t N = old_N_next >> 32;
   uint32_t next = (uint32_t)old_N_next;
-  uint32_t x = static_cast<uint32_t>(pow(2, N)) +
-                                     next - 1;
+  uint32_t x = static_cast<uint32_t>(pow(2, N)) + next - 1;
   uint32_t dir_idx;
   uint32_t offset;
   SEG_IDX_OFFSET(x, dir_idx, offset);
 
-  for(int i = 0; i <= dir_idx; ++i){
-    std::cout << dir._[i] << std::endl;
+  for (int i = 0; i <= dir_idx; ++i) {
     dir._[i] = (Table<T> *)((uint64_t)dir._[i] | recoverBit);
-    std::cout << dir._[i] << std::endl;
   }
 }
 
 template <class T>
-void Linear<T>::recoverSegment(Table<T> **seg_ptr, size_t segmentSize){
+void Linear<T>::recoverSegment(Table<T> **seg_ptr, size_t segmentSize) {
   /*Iteratively restore the data*/
   uint64_t snapshot = (uint64_t)*seg_ptr;
   Table<T> *target = (Table<T> *)(snapshot & (~recoverBit));
 
   Table<T> *curr_table;
-  for(int i = 0; i < segmentSize; ++i){
+  for (int i = 0; i < segmentSize; ++i) {
     curr_table = target + i;
-    //curr_table->recoverMetadata();
+    curr_table->recoverMetadata();
   }
 
   *seg_ptr = target;
   /*
-  *FixME: to support multiple threads
-  */
+   *FixME: to support multiple threads
+   */
 }
 
 template <class T>
@@ -2017,9 +2010,9 @@ RETRY:
   uint32_t offset;
   SEG_IDX_OFFSET(static_cast<uint32_t>(x), dir_idx, offset);
   if (reinterpret_cast<uint64_t>(&dir._[dir_idx]) & recoverBit) {
-#ifdef DOUBLE_EXPANSION  
-    recoverSegment(
-        &dir._[dir_idx], SEG_SIZE(x)); /*Recover all the meta-data in this segment*/
+#ifdef DOUBLE_EXPANSION
+    recoverSegment(&dir._[dir_idx],
+                   SEG_SIZE(x)); /*Recover all the meta-data in this segment*/
 #else
     recoverSegment(&dir._[dir_idx], segmentSize);
 #endif
@@ -2063,12 +2056,10 @@ RETRY:
   uint32_t offset;
   SEG_IDX_OFFSET(static_cast<uint32_t>(x), dir_idx, offset);
   /*First determine whether to do the recovery process*/
-  if (reinterpret_cast<uint64_t>(&dir._[dir_idx]) & recoverBit) {
-    dir._[dir_idx] = (Table<T>*)((uint64_t)dir._[dir_idx] & (~recoverBit));
-    goto RETRY;
-#ifdef DOUBLE_EXPANSION  
-    recoverSegment(
-        &dir._[dir_idx], SEG_SIZE(x)); /*Recover all the meta-data in this segment*/
+  if (reinterpret_cast<uint64_t>(dir._[dir_idx]) & recoverBit) {
+#ifdef DOUBLE_EXPANSION
+    recoverSegment(&dir._[dir_idx],
+                   SEG_SIZE(x)); /*Recover all the meta-data in this segment*/
 #else
     recoverSegment(&dir._[dir_idx], segmentSize);
 #endif
@@ -2239,9 +2230,9 @@ RETRY:
   uint32_t offset;
   SEG_IDX_OFFSET(static_cast<uint32_t>(x), dir_idx, offset);
   if (reinterpret_cast<uint64_t>(&dir._[dir_idx]) & recoverBit) {
-#ifdef DOUBLE_EXPANSION  
-    recoverSegment(
-        &dir._[dir_idx], SEG_SIZE(x)); /*Recover all the meta-data in this segment*/
+#ifdef DOUBLE_EXPANSION
+    recoverSegment(&dir._[dir_idx],
+                   SEG_SIZE(x)); /*Recover all the meta-data in this segment*/
 #else
     recoverSegment(&dir._[dir_idx], segmentSize);
 #endif
