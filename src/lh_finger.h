@@ -96,6 +96,7 @@ constexpr uint32_t partitionShifBits =
 constexpr uint32_t expandShiftBits = fixedExpandBits + baseShifBits;
 const uint64_t recoverBit = 1UL << 63;
 const uint64_t lockBit = 1UL << 62;
+const uint64_t recoverLockBit = recoverBit | lockBit;
 
 #define PARTITION_INDEX(hash) \
   (((hash) >> (64 - partitionShifBits)) & partitionMask)
@@ -1972,8 +1973,20 @@ void Linear<T>::Recovery() {
 template <class T>
 void Linear<T>::recoverSegment(Table<T> **seg_ptr, size_t segmentSize) {
   /*Iteratively restore the data*/
+  if ((reinterpret_cast<uint64_t>(*seg_ptr) & lockBit) ||
+      (!(reinterpret_cast<uint64_t>(*seg_ptr) & recoverBit)))
+    return;
+
+  /*Set the lock Bit*/
+  uint64_t old_value =
+      (reinterpret_cast<uint64_t>(*seg_ptr) & (~lockBit)) | recoverBit;
+  uint64_t new_value = reinterpret_cast<uint64_t>(*seg_ptr) | recoverLockBit;
+  if (!CAS(seg_ptr, &old_value, new_value)) {
+    return;
+  }
+
   uint64_t snapshot = (uint64_t)*seg_ptr;
-  Table<T> *target = (Table<T> *)(snapshot & (~recoverBit));
+  Table<T> *target = (Table<T> *)(snapshot & (~recoverLockBit));
 
   Table<T> *curr_table;
   for (int i = 0; i < segmentSize; ++i) {
@@ -2009,7 +2022,7 @@ RETRY:
   uint32_t dir_idx;
   uint32_t offset;
   SEG_IDX_OFFSET(static_cast<uint32_t>(x), dir_idx, offset);
-  if (reinterpret_cast<uint64_t>(&dir._[dir_idx]) & recoverBit) {
+  if (reinterpret_cast<uint64_t>(&dir._[dir_idx]) & recoverLockBit) {
 #ifdef DOUBLE_EXPANSION
     recoverSegment(&dir._[dir_idx],
                    SEG_SIZE(x)); /*Recover all the meta-data in this segment*/
@@ -2056,7 +2069,7 @@ RETRY:
   uint32_t offset;
   SEG_IDX_OFFSET(static_cast<uint32_t>(x), dir_idx, offset);
   /*First determine whether to do the recovery process*/
-  if (reinterpret_cast<uint64_t>(dir._[dir_idx]) & recoverBit) {
+  if (reinterpret_cast<uint64_t>(dir._[dir_idx]) & recoverLockBit) {
 #ifdef DOUBLE_EXPANSION
     recoverSegment(&dir._[dir_idx],
                    SEG_SIZE(x)); /*Recover all the meta-data in this segment*/
@@ -2229,7 +2242,7 @@ RETRY:
   uint32_t dir_idx;
   uint32_t offset;
   SEG_IDX_OFFSET(static_cast<uint32_t>(x), dir_idx, offset);
-  if (reinterpret_cast<uint64_t>(&dir._[dir_idx]) & recoverBit) {
+  if (reinterpret_cast<uint64_t>(&dir._[dir_idx]) & recoverLockBit) {
 #ifdef DOUBLE_EXPANSION
     recoverSegment(&dir._[dir_idx],
                    SEG_SIZE(x)); /*Recover all the meta-data in this segment*/

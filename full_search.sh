@@ -11,7 +11,7 @@ key_type=(0 fixed variable)
 #{1..6}
 for i in 1
 do 
-	for j in 1
+	for j in 4
 	do
 		echo "Begin: ${base[1]} ${workload[${i}]} ${thread_num[${j}]}"
 		numaarg=""
