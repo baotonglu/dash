@@ -1047,17 +1047,17 @@ struct Table {
   int Insert2Org(T key, Value_t value, size_t key_hash, size_t pos);
   void PrintTableImage(Table<T> *table, uint64_t base_level);
 
-  void getAllLocks(){
-    Bucket<T>* curr_bucket;
-    for(int i = 0; i < kNumBucket; ++i){
+  void getAllLocks() {
+    Bucket<T> *curr_bucket;
+    for (int i = 0; i < kNumBucket; ++i) {
       curr_bucket = bucket + i;
       curr_bucket->get_lock();
     }
   }
 
-  void releaseAllLocks(){
+  void releaseAllLocks() {
     Bucket<T> *curr_bucket;
-    for(int i = 0; i < kNumBucket; ++i){
+    for (int i = 0; i < kNumBucket; ++i) {
       curr_bucket = bucket + i;
       curr_bucket->release_lock();
     }
@@ -1189,8 +1189,8 @@ struct Table {
   }
 
   /* Get its corresponding buddy table in the right direction*/
-  inline Table<T> *get_expan_table(uint64_t x, uint64_t *idx, uint64_t *base_diff, 
-                                    Directory<T> *dir){
+  inline Table<T> *get_expan_table(uint64_t x, uint64_t *idx,
+                                   uint64_t *base_diff, Directory<T> *dir) {
     uint64_t base_level = static_cast<uint64_t>(log2(x)) + 1;
     uint64_t diff = pow2(base_level);
     *base_diff = diff;
@@ -1199,12 +1199,14 @@ struct Table {
     uint32_t dir_idx;
     uint32_t offset;
     SEG_IDX_OFFSET(static_cast<uint32_t>(expan_idx), dir_idx, offset);
-    if(dir->_[dir_idx] == NULL) return NULL;
-    else return (dir->_[dir_idx] + offset);
+    if (dir->_[dir_idx] == NULL)
+      return NULL;
+    else
+      return (dir->_[dir_idx] + offset);
   }
   /*
    *@param idx the index of the original bucket
-  */
+   */
   inline Table<T> *get_org_table(uint64_t x, uint64_t *idx, uint64_t *base_diff,
                                  Directory<T> *dir) {
     uint64_t base_level = static_cast<uint64_t>(log2(x));
@@ -2048,12 +2050,13 @@ class Linear : public Hash<T> {
 
   /**
    * @brief Shrink operation, no parallel merge now
-   * @param numBuckets #buckets to shrink at a time, the numBucket can only be the power of 2
+   * @param numBuckets #buckets to shrink at a time, the numBucket can only be
+   * the power of 2
    */
   inline void Shrink(uint32_t numBuckets) {
     /*Get the shrink lock*/
     int unlock_state = 0;
-    while(!CAS(&lock, &unlock_state, 1)){
+    while (!CAS(&lock, &unlock_state, 1)) {
       unlock_state = 0;
     }
 
@@ -2061,39 +2064,40 @@ class Linear : public Hash<T> {
     uint64_t old_N_next = dir.N_next;
     uint32_t old_N = old_N_next >> 32;
     uint32_t old_next = (uint32_t)old_N_next;
-    if((old_N == 6) && (old_next == 0)) return;
+    if ((old_N == 6) && (old_next == 0)) return;
 
     uint32_t dir_idx, offset;
     /* Find the corresponding segment, set the mark and then shrink it*/
     uint64_t new_N_next;
     uint32_t new_N, new_next;
-    if(old_next == 0){
+    if (old_next == 0) {
       new_N = old_N - 1;
       new_next = pow2(new_N) - numBuckets;
       new_N_next = ((uint64_t)new_N << 32) + new_next;
-    }else{
+    } else {
       new_N = old_N;
       new_next = old_next - 2;
       new_N_next = (old_N_next & high32Mask) + (old_next - numBuckets);
     }
-    
+
     /*the buckets that need to be shrunk*/
     uint32_t x = pow2(new_N) + new_next;
     SEG_IDX_OFFSET(x, dir_idx, offset);
     Table<T> *target = dir._[dir_idx] + offset;
 
-    for(int i = numBuckets -1; i >= 0; --i){
-      Table<T>* curr_table = target + i;
+    for (int i = numBuckets - 1; i >= 0; --i) {
+      Table<T> *curr_table = target + i;
       curr_table->getAllLocks();
       curr_table->state = 1;
       uint64_t idx, base_diff;
-      Table<T>* org_table = curr_table->get_org_table(x+i, &idx, &base_diff, &dir);
+      Table<T> *org_table =
+          curr_table->get_org_table(x + i, &idx, &base_diff, &dir);
       org_table->getAllLocks();
       org_table->Merge(curr_table);
       org_table->releaseAllLocks();
       /*
       int old_value = 0;
-#ifdef COUNTING      
+#ifdef COUNTING
       if(!CAS(&curr_table->state, &old_value, 1)) goto RE_SHRINK;
       Allocator::Persist(&curr_table->state, sizeof(curr_table->state));
 #endif
@@ -2103,20 +2107,19 @@ class Linear : public Hash<T> {
     dir.N_next = new_N_next;
     lock = 0;
     /*deallocate the memory*/
-    if(offset == 0){
+    if (offset == 0) {
       Allocator::Free(target);
     }
 
-    for(int i = numBuckets - 1; i >=0; --i){
+    for (int i = numBuckets - 1; i >= 0; --i) {
       Table<T> *curr_table = target + i;
       curr_table->releaseAllLocks();
     }
 
-    if(new_N != old_N){
+    if (new_N != old_N) {
       std::cout << "Shrink to new level " << new_N << std::endl;
     }
 
-    
     /* Need to find the corresponding bucket for the merge operation*/
     /*
     if (!CAS(&dir.N_next, &old_N_next, new_N_next)) {
@@ -2132,7 +2135,7 @@ class Linear : public Hash<T> {
   inline void Expand(uint32_t numBuckets) {
     /*Get the shrink lock*/
     int unlock_state = 0;
-    while(!CAS(&lock, &unlock_state, 1)){
+    while (!CAS(&lock, &unlock_state, 1)) {
       unlock_state = 0;
     }
   RE_EXPAND:
@@ -2187,13 +2190,12 @@ class Linear : public Hash<T> {
 #ifdef PMEM
     Allocator::Persist(&dir.N_next, sizeof(uint64_t));
 #endif
-    
+
     /*release the lock*/
     lock = 0;
 
-    if ((uint32_t)new_N_next == 0)
-    {
-            printf("expand to level %lu\n", new_N_next >> 32);
+    if ((uint32_t)new_N_next == 0) {
+      printf("expand to level %lu\n", new_N_next >> 32);
     }
   }
 
@@ -2228,25 +2230,28 @@ Linear<T>::~Linear(void) {
   // TO-DO
 }
 
-template<class T>
-bool Linear<T>::TryMerge(uint64_t x, Table<T> *shrunk_table){
+template <class T>
+bool Linear<T>::TryMerge(uint64_t x, Table<T> *shrunk_table) {
   /* Get all of the locks*/
-  for(int i = 0; i < kNumBucket; ++i){
+  for (int i = 0; i < kNumBucket; ++i) {
     Bucket<T> *curr_bucket = shrunk_table->bucket + i;
     curr_bucket->get_lock();
   }
 
-  if(shrunk_table->state != 0){
-    /* If its buddy is still in a unmerged state, just give up the merge operation*/
+  if (shrunk_table->state != 0) {
+    /* If its buddy is still in a unmerged state, just give up the merge
+     * operation*/
     uint64_t idx, base_diff;
-    Table<T> *expand_table = shrunk_table->get_expan_table(x, &idx, &base_diff, &dir);
-    if((expand_table != NULL) && (expand_table->state == 1)){
+    Table<T> *expand_table =
+        shrunk_table->get_expan_table(x, &idx, &base_diff, &dir);
+    if ((expand_table != NULL) && (expand_table->state == 1)) {
       return false;
     }
 
     /*Get all the locks from original table*/
-    Table<T> *org_table = shrunk_table->get_org_table(x, &idx, &base_diff, &dir);
-    for(int i = 0; i < kNumBucket; ++i){
+    Table<T> *org_table =
+        shrunk_table->get_org_table(x, &idx, &base_diff, &dir);
+    for (int i = 0; i < kNumBucket; ++i) {
       Bucket<T> *curr_bucket = org_table->bucket + i;
       curr_bucket->get_lock();
     }
@@ -2255,8 +2260,8 @@ bool Linear<T>::TryMerge(uint64_t x, Table<T> *shrunk_table){
     org_table->Merge(shrunk_table);
     shrunk_table->state = 0;
   }
-    
-  for(int i = 0; i < kNumBucket; ++i){
+
+  for (int i = 0; i < kNumBucket; ++i) {
     Bucket<T> *curr_bucket = shrunk_table->bucket + i;
     curr_bucket->release_lock();
   }
@@ -2265,7 +2270,7 @@ bool Linear<T>::TryMerge(uint64_t x, Table<T> *shrunk_table){
   uint64_t old_N_next = dir->N_next;
   uint32_t right_index = pow2(old_N_next >> 32) + (uint32_t)old_N_next;
 
-  /*Reset the N_next to the new state*/ 
+  /*Reset the N_next to the new state*/
 
   /*recursively merge the (org)table */
   /*
@@ -2291,26 +2296,22 @@ void Linear<T>::Recovery() {
 
   std::cout << "It has " << dir_idx << " segments" << std::endl;
   /* Recovery from the right to left*/
-
-
-
 }
 
 template <class T>
 void Linear<T>::recoverSegment(Table<T> **seg_ptr, size_t segmentSize) {
   /*Iteratively restore the data*/
   uint64_t snapshot = reinterpret_cast<uint64_t>(*seg_ptr);
-  if ((snapshot & lockBit) ||
-      (!(snapshot & recoverBit))){
-        //printf("return from first\n");
-        return;
-      }
+  if ((snapshot & lockBit) || (!(snapshot & recoverBit))) {
+    // printf("return from first\n");
+    return;
+  }
   /*Set the lock Bit*/
   uint64_t old_value =
       (reinterpret_cast<uint64_t>(*seg_ptr) & (~lockBit)) | recoverBit;
   uint64_t new_value = reinterpret_cast<uint64_t>(*seg_ptr) | recoverLockBit;
   if (!CAS(seg_ptr, &old_value, new_value)) {
-    //printf("return from second\n");
+    // printf("return from second\n");
     return;
   }
 
@@ -2643,7 +2644,7 @@ RETRY:
 #endif
       neighbor_bucket->release_lock();
 #ifdef COUNTING
-      if(num == 0){
+      if (num == 0) {
         Shrink(2);
       }
 #endif
@@ -2656,7 +2657,7 @@ RETRY:
     if (ret == 0) {
 #ifdef COUNTING
       auto num = SUB(&target->number, 1);
-#endif      
+#endif
       neighbor_bucket->release_lock();
 #ifdef PMEM
       Allocator::Persist(&neighbor_bucket->bitmap,
@@ -2664,7 +2665,7 @@ RETRY:
 #endif
       target_bucket->release_lock();
 #ifdef COUNTING
-      if(num == 0){
+      if (num == 0) {
         Shrink(2);
       }
 #endif
@@ -2715,8 +2716,8 @@ RETRY:
           auto ret = curr_bucket->Delete(meta_hash, key);
           if (ret == 0) {
 #ifdef COUNTING
-      auto num = SUB(&target->number, 1);
-#endif      
+            auto num = SUB(&target->number, 1);
+#endif
             stash->release_lock();
 #ifdef PMEM
             Allocator::Persist(&curr_bucket->bitmap,
@@ -2727,7 +2728,7 @@ RETRY:
             target_bucket->release_lock();
             neighbor_bucket->release_lock();
 #ifdef COUNTING
-            if(num == 0){
+            if (num == 0) {
               Shrink(2);
             }
 #endif
@@ -2742,7 +2743,7 @@ RETRY:
           if (ret == 0) {
 #ifdef COUNTING
             auto num = SUB(&target->number, 1);
-#endif      
+#endif
             stash->release_lock();
 #ifdef PMEM
             Allocator::Persist(&next_bucket->bitmap,
@@ -2752,7 +2753,7 @@ RETRY:
             target_bucket->release_lock();
             neighbor_bucket->release_lock();
 #ifdef COUNTING
-            if(num == 0){
+            if (num == 0) {
               Shrink(2);
             }
 #endif
