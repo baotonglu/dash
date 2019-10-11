@@ -253,7 +253,7 @@ void concurr_delete(struct range *_range, Hash<T> *index) {
       }
     }
   }
-  // std::cout << "not_found = " << not_found << std::endl;
+   std::cout << "not_found = " << not_found << std::endl;
   end_notify();
 }
 
@@ -473,8 +473,8 @@ void Run() {
     }
     GeneralBench<T>(rarray, index, thread_num, operation_num, "Pos_search",
                     &concurr_search);
-    index->getNumber();
-/*
+    //index->getNumber();
+
     for (int i = 0; i < thread_num; ++i) {
       rarray[i].begin = operation_num + i * chunk_size;
       rarray[i].end = operation_num + (i + 1) * chunk_size;
@@ -499,7 +499,7 @@ void Run() {
                         (double)(tv2.tv_sec - tv1.tv_sec);
         std::cout << "Recovery Time(s): " << duration << std::endl;
     */
-    /*
+    
     for (int i = 0; i < thread_num; ++i) {
       rarray[i].begin = i * chunk_size;
       rarray[i].end = (i + 1) * chunk_size;
@@ -507,7 +507,7 @@ void Run() {
     rarray[thread_num - 1].end = operation_num;
     GeneralBench<T>(rarray, index, thread_num, operation_num, "Delete",
                     &concurr_delete);
-    index->getNumber();*/
+    index->getNumber();
   }
 
   /*TODO Free the workload memory*/

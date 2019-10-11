@@ -1274,7 +1274,6 @@ Table<T> *Table<T>::Split(size_t _key_hash) {
     invalid_array[i] = invalid_mask;
   }
 
-  /*split the stash bucket, the stash must be full, right?*/
   for (int i = 0; i < stashBucket; ++i) {
     auto *curr_bucket = bucket + kNumBucket + i;
     auto mask = GET_BITMAP(curr_bucket->bitmap);
