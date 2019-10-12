@@ -19,7 +19,7 @@
 #define _INVALID 0 /* we use 0 as the invalid key*/
 #define SINGLE 1
 #define DOUBLE_EXPANSION 1
-#define COUNTING 1
+//#define COUNTING 1
 
 #ifdef PMEM
 #include <libpmemobj.h>
@@ -1960,7 +1960,9 @@ class Linear : public Hash<T> {
       uint32_t offset;
       SEG_IDX_OFFSET(i, dir_idx, offset);
       Table<T> *curr_table = dir._[dir_idx] + offset;
+#ifdef COUNTING
       recount_num += curr_table->number;
+#endif
       for (int j = 0; j < kNumBucket; ++j) {
         Bucket<T> *curr_bucket = curr_table->bucket + j;
         count += GET_COUNT(curr_bucket->bitmap);
@@ -2031,7 +2033,9 @@ class Linear : public Hash<T> {
     // printf("the size of Bucekt is %lld\n", sizeof(struct Bucket));
     // printf("the size of oveflow bucket is %lld\n", sizeof(struct
     // overflowBucket));
+#ifdef COUNTING
     std::cout << "The recount number is " << recount_num << std::endl;
+#endif
     printf("the inserted num is %lld\n", count);
     // printf("the segment number is %lld\n", seg_num);
     printf("the bucket number is %lld\n", Bucket_num);
@@ -2133,11 +2137,13 @@ class Linear : public Hash<T> {
    * @return void
    */
   inline void Expand(uint32_t numBuckets) {
-    /*Get the shrink lock*/
+#ifdef COUNTING
+    /*Get the lock*/
     int unlock_state = 0;
     while (!CAS(&lock, &unlock_state, 1)) {
       unlock_state = 0;
     }
+#endif
   RE_EXPAND:
     uint64_t old_N_next = dir.N_next;
     uint32_t old_N = old_N_next >> 32;
@@ -2190,10 +2196,10 @@ class Linear : public Hash<T> {
 #ifdef PMEM
     Allocator::Persist(&dir.N_next, sizeof(uint64_t));
 #endif
-
+#ifdef COUNTING
     /*release the lock*/
     lock = 0;
-
+#endif
     if ((uint32_t)new_N_next == 0) {
       printf("expand to level %lu\n", new_N_next >> 32);
     }
