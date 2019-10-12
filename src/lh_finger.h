@@ -19,6 +19,7 @@
 #define _INVALID 0 /* we use 0 as the invalid key*/
 #define SINGLE 1
 #define DOUBLE_EXPANSION 1
+#define EPOCH 1
 //#define COUNTING 1
 
 #ifdef PMEM
@@ -1042,8 +1043,8 @@ struct Table {
   void Insert4split(T key, Value_t value, size_t key_hash, uint8_t meta_hash);
   void Insert4merge(T key, Value_t value, size_t key_hash, uint8_t meta_hash);
   void Merge(Table<T> *neighbor);
-  void Split(Table<T> *org_table, Table<T> *expand_table, uint64_t base_level,
-             int org_idx, Directory<T> *);
+  void Split(Table<T> *org_table, uint64_t base_level, int org_idx,
+             Directory<T> *);
   int Insert2Org(T key, Value_t value, size_t key_hash, size_t pos);
   void PrintTableImage(Table<T> *table, uint64_t base_level);
 
@@ -1305,12 +1306,10 @@ struct Table {
 
   Bucket<T> bucket[kNumBucket];
   overflowBucket<T> stash[stashBucket];
-#ifdef COUNTING
   int number;
-  int state; /* 1 indicates that it needs to be shrunk with its neighbor
-                "Bucket"*/
+  int state; /*0: normal state; 1: split bucket; 2: expand bucket(in the right);
+                3 merge bucket; 4 shrunk bucket(in the right)*/
   char dummy[56];
-#endif
 };
 
 template <class T>
@@ -1360,8 +1359,8 @@ int Table<T>::Insert2Org(T key, Value_t value, size_t key_hash, size_t pos) {
 /*the base_level is used to judge the rehashed key_value should be rehashed to
  * which bucket, the org_idx the index of the original table in the hash index*/
 template <class T>
-void Table<T>::Split(Table<T> *org_table, Table<T> *expand_table,
-                     uint64_t base_level, int org_idx, Directory<T> *_dir) {
+void Table<T>::Split(Table<T> *org_table, uint64_t base_level, int org_idx,
+                     Directory<T> *_dir) {
   Bucket<T> *curr_bucket;
   for (int i = 0; i < kNumBucket; ++i) {
     curr_bucket = org_table->bucket + i;
@@ -1374,21 +1373,24 @@ void Table<T>::Split(Table<T> *org_table, Table<T> *expand_table,
     uint64_t new_base_level;
     Table<T> *new_org_table =
         get_org_table(org_idx, &new_org_idx, &new_base_level, _dir);
-    Split(new_org_table, org_table, new_base_level, new_org_idx, _dir);
+    org_table->Split(new_org_table, new_base_level, new_org_idx, _dir);
   }
-  // printf("do the initialization for %d\n", org_idx);
 
-  // printf("expand from bucket %lld to bucekt %lld\n", org_idx, org_idx +
-  // base_level);
+  state = 2;
+  Allocator::Persist(&state, sizeof(state));
+  org_table->state = 1;
+  Allocator::Persist(&org_table->state, sizeof(state));
+
+  int invalid_array[kNumBucket + stashBucket];
   /*rehashing of kv objects*/
   size_t key_hash;
   for (int i = 0; i < kNumBucket; ++i) {
     curr_bucket = org_table->bucket + i;
     auto mask = GET_BITMAP(curr_bucket->bitmap);
+    int invalid_mask = 0;
     for (int j = 0; j < kNumPairPerBucket; ++j) {
       if (CHECK_BIT(mask, j)) {
         if constexpr (std::is_pointer_v<T>) {
-          // key_hash = h(curr_bucket->_[j].key, strlen(curr_bucket->_[j].key));
           key_hash =
               h(curr_bucket->_[j].key->key, curr_bucket->_[j].key->length);
         } else {
@@ -1397,27 +1399,28 @@ void Table<T>::Split(Table<T> *org_table, Table<T> *expand_table,
         // auto x = IDX(key_hash, 2*base_level);
         auto x = key_hash % (2 * base_level);
         if (x >= base_level) {
+          invalid_mask = invalid_mask | (1 << (j + 4));
           // printf("original: the newly inserted key is %lld\n",
           // curr_bucket->_[j].key);
-          expand_table->Insert4split(curr_bucket->_[j].key,
-                                     curr_bucket->_[j].value, key_hash,
-                                     curr_bucket->finger_array[j]);
-          curr_bucket->unset_hash(j);
+          Insert4split(curr_bucket->_[j].key, curr_bucket->_[j].value, key_hash,
+                       curr_bucket->finger_array[j]);
+          // curr_bucket->unset_hash(j);
 #ifdef COUNTING
           org_table->number--;
 #endif
         }
       }
     }
+    invalid_array[i] = invalid_mask;
   }
 
   for (int i = 0; i < stashBucket; ++i) {
     overflowBucket<T> *curr_bucket = org_table->stash + i;
     auto mask = GET_BITMAP(curr_bucket->bitmap);
+    int invalid_mask = 0;
     for (int j = 0; j < kNumPairPerBucket; ++j) {
       if (CHECK_BIT(mask, j)) {
         if constexpr (std::is_pointer_v<T>) {
-          // key_hash = h(curr_bucket->_[j].key, strlen(curr_bucket->_[j].key));
           key_hash =
               h(curr_bucket->_[j].key->key, curr_bucket->_[j].key->length);
         } else {
@@ -1427,67 +1430,95 @@ void Table<T>::Split(Table<T> *org_table, Table<T> *expand_table,
         // auto x = IDX(key_hash, 2*base_level);
         auto x = key_hash % (2 * base_level);
         if (x >= base_level) {
+          invalid_mask = invalid_mask | (1 << (j + 4));
           // printf("stash: the newly inserted key is %lld\n",
-          // curr_bucket->_[j].key);
-          expand_table->Insert4split(curr_bucket->_[j].key,
-                                     curr_bucket->_[j].value, key_hash,
-                                     curr_bucket->finger_array[j]);
+          Insert4split(curr_bucket->_[j].key, curr_bucket->_[j].value, key_hash,
+                       curr_bucket->finger_array[j]);
           auto bucket_ix = BUCKET_INDEX(key_hash);
           auto org_bucket = org_table->bucket + bucket_ix;
           auto neighbor_bucket =
               org_table->bucket + ((bucket_ix + 1) & bucketMask);
-          // printf("In stash %d, for slot %d, the cleared key is %lld, the
-          // meta_hash is %d\n", i,j,curr_bucket->_[j].key,
-          // META_HASH(key_hash));
           org_bucket->unset_indicator(curr_bucket->finger_array[j],
                                       neighbor_bucket, curr_bucket->_[j].key,
                                       i);
-          curr_bucket->unset_hash(j);
+          // curr_bucket->unset_hash(j);
 #ifdef COUNTING
           org_table->number--;
 #endif
         }
       }
     }
+    invalid_array[kNumBucket + i] = invalid_mask;
+  }
+
+  /*clear the uintialized bit in expand_table*/
+  for (int i = 0; i < kNumBucket; ++i) {
+    curr_bucket = bucket + i;
+    curr_bucket->set_initialize();
+  }
+
+  /*flush the overflowed bucketin expand table*/
+  overflowBucket<T> *prev_bucket = stash;
+  overflowBucket<T> *next_bucket = prev_bucket->next;
+
+  while (next_bucket != NULL) {
+#ifdef PMEM
+    Allocator::Persist(next_bucket, sizeof(struct overflowBucket<T>));
+#endif
+    prev_bucket = next_bucket;
+    next_bucket = next_bucket->next;
+  }
+
+#ifdef PMEM
+  Allocator::Persist(this, sizeof(Table));
+#endif
+
+  /*clear the bitmap in original table*/
+  for (int i = 0; i < kNumBucket; ++i) {
+    auto curr_bucket = org_table->bucket + i;
+    curr_bucket->bitmap = curr_bucket->bitmap & (~invalid_array[i]);
+    auto count = __builtin_popcount(invalid_array[i]);
+    curr_bucket->bitmap = curr_bucket->bitmap - count;
+
+    *((int *)curr_bucket->membership) =
+        (~(invalid_array[i] >> 4)) & (*((int *)curr_bucket->membership));
+  }
+
+  for (int i = 0; i < stashBucket; ++i) {
+    auto curr_bucket = org_table->stash + i;
+    curr_bucket->bitmap =
+        curr_bucket->bitmap & (~invalid_array[kNumBucket + i]);
+    auto count = __builtin_popcount(invalid_array[kNumBucket + i]);
+    curr_bucket->bitmap = curr_bucket->bitmap - count;
   }
 
   /*traverse the overflow list, I also need to do the rehahsing to the original
    * bucket*/
-  overflowBucket<T> *prev_bucket = org_table->stash;
-  overflowBucket<T> *next_bucket = org_table->stash->next;
+  prev_bucket = org_table->stash;
+  next_bucket = org_table->stash->next;
   while (next_bucket != NULL) {
     auto mask = GET_BITMAP(next_bucket->bitmap);
     for (int i = 0; i < kNumPairPerBucket; ++i) {
       if (CHECK_BIT(mask, i)) {
         if constexpr (std::is_pointer_v<T>) {
-          // key_hash = h(next_bucket->_[i].key, strlen(next_bucket->_[i].key));
           key_hash =
               h(next_bucket->_[i].key->key, next_bucket->_[i].key->length);
         } else {
           key_hash = h(&(next_bucket->_[i].key), sizeof(Key_t));
         }
 
-        // auto x = IDX(key_hash, 2*base_level);
         auto x = key_hash % (2 * base_level);
         if (x >= base_level) {
-          expand_table->Insert4split(next_bucket->_[i].key,
-                                     next_bucket->_[i].value, key_hash,
-                                     next_bucket->finger_array[i]);
+          Insert4split(next_bucket->_[i].key, next_bucket->_[i].value, key_hash,
+                       next_bucket->finger_array[i]);
           auto bucket_ix = BUCKET_INDEX(key_hash);
           auto org_bucket = org_table->bucket + bucket_ix;
           auto neighbor_bucket =
               org_table->bucket + ((bucket_ix + 1) & bucketMask);
-          // org_bucket->des_overflow();
-          // printf("overflow: the cleared key is %lld, the meta_hash is %d\n",
-          // next_bucket->_[i].key, META_HASH(key_hash));
           org_bucket->unset_indicator(next_bucket->finger_array[i],
                                       neighbor_bucket, next_bucket->_[i].key,
                                       3);
           next_bucket->unset_hash(i);
-          // if (org_idx == 100)
-          //{
-          //	PrintTableImage(org_table, base_level);
-          //}
 #ifdef COUNTING
           org_table->number--;
 #endif
@@ -1501,9 +1532,6 @@ void Table<T>::Split(Table<T> *org_table, Table<T> *expand_table,
             auto org_bucket = org_table->bucket + bucket_ix;
             auto neighbor_bucket =
                 org_table->bucket + ((bucket_ix + 1) & bucketMask);
-            // org_bucket->des_overflow();
-            // printf("overflow Original Insert: the cleared key is %lld, the
-            // meta_hash is %d\n", next_bucket->_[i].key, META_HASH(key_hash));
             org_bucket->unset_indicator(next_bucket->finger_array[i],
                                         neighbor_bucket, next_bucket->_[i].key,
                                         3);
@@ -1514,9 +1542,7 @@ void Table<T>::Split(Table<T> *org_table, Table<T> *expand_table,
     }
 
     if (GET_COUNT(next_bucket->bitmap) == 0) {
-      // printf("restore the bucket\n");
       prev_bucket->next = next_bucket->next;
-      // delete next_bucket;
       Allocator::Free(next_bucket);
       next_bucket = prev_bucket->next;
     } else {
@@ -1525,42 +1551,24 @@ void Table<T>::Split(Table<T> *org_table, Table<T> *expand_table,
     }
   }
 
-  /*clear the uintialized bit in expand_table*/
-  for (int i = 0; i < kNumBucket; ++i) {
-    curr_bucket = expand_table->bucket + i;
-    curr_bucket->set_initialize();
-  }
-
-  // clflush((char*)expand_table, sizeof(Table));
-#ifdef PMEM
-  Allocator::Persist(expand_table, sizeof(Table));
-#endif
-  /*flush the overflowed bucket*/
-  prev_bucket = expand_table->stash;
-  next_bucket = prev_bucket->next;
-
-  while (next_bucket != NULL) {
-    // clflush((char*)next_bucket, sizeof(struct Bucket));
-#ifdef PMEM
-    Allocator::Persist(next_bucket, sizeof(struct overflowBucket<T>));
-#endif
-    prev_bucket = next_bucket;
-    next_bucket = next_bucket->next;
-  }
-
 //  if constexpr (std::is_pointer_v<T>) {
 #ifdef PMEM
-  Allocator::Persist(org_table, sizeof(Table));
-
   prev_bucket = org_table->stash;
   next_bucket = prev_bucket->next;
 
   while (next_bucket != NULL) {
     Allocator::Persist(next_bucket, sizeof(struct overflowBucket<T>));
+    prev_bucket = next_bucket;
+    next_bucket = next_bucket->next;
   }
-  prev_bucket = next_bucket;
-  next_bucket = next_bucket->next;
+
+  Allocator::Persist(org_table, sizeof(Table));
 #endif
+
+  org_table->state = 0;
+  Allocator::Persist(&org_table->state, sizeof(org_table->state));
+  state = 0;
+  Allocator::Persist(&state, sizeof(state));
   //  }
   for (int i = 0; i < kNumBucket; ++i) {
     curr_bucket = org_table->bucket + i;
@@ -1678,7 +1686,7 @@ int Table<T>::Insert(T key, Value_t value, size_t key_hash, Directory<T> *_dir,
     Table<T> *org_table = get_org_table(index, &org_idx, &base_level, _dir);
     // printf("get the org_table\n");
     /*the split process splits from original table to target table*/
-    Split(org_table, this, base_level, org_idx, _dir);
+    Split(org_table, base_level, org_idx, _dir);
 
     // printf("finish split process\n");
     for (int i = 0; i < kNumBucket; ++i) {
@@ -2296,12 +2304,12 @@ void Linear<T>::Recovery() {
   uint32_t offset;
   SEG_IDX_OFFSET(x, dir_idx, offset);
 
+  std::cout << dir_idx << " segments in the linear hashing" << std::endl;
   for (int i = 0; i <= dir_idx; ++i) {
-    dir._[i] = (Table<T> *)((uint64_t)dir._[i] | recoverBit);
+    dir._[i] = reinterpret_cast<Table<T> *>(((uint64_t)dir._[i] | recoverBit) &
+                                            (~lockBit));
   }
-
-  std::cout << "It has " << dir_idx << " segments" << std::endl;
-  /* Recovery from the right to left*/
+  /*Recovery from the right to left, do I need to fix something?*/
 }
 
 template <class T>
@@ -2337,6 +2345,9 @@ void Linear<T>::recoverSegment(Table<T> **seg_ptr, size_t segmentSize) {
 
 template <class T>
 int Linear<T>::Insert(T key, Value_t value) {
+#ifdef EPOCH
+  auto epoch_guard = Allocator::AquireEpochGuard();
+#endif
   uint64_t key_hash;
   if constexpr (std::is_pointer_v<T>) {
     key_hash = h(key->key, key->length);
@@ -2448,7 +2459,7 @@ RETRY:
     uint64_t org_idx;
     uint64_t base_level;
     Table<T> *org_table = target->get_org_table(x, &org_idx, &base_level, &dir);
-    target->Split(org_table, target, base_level, org_idx, &dir);
+    target->Split(org_table, base_level, org_idx, &dir);
 
     for (int i = 0; i < kNumBucket; ++i) {
       Bucket<T> *curr_bucket = target->bucket + i;
@@ -2555,6 +2566,9 @@ RETRY:
 /*the delete operation of the */
 template <class T>
 bool Linear<T>::Delete(T key) {
+#ifdef EPOCH
+  auto epoch_guard = Allocator::AquireEpochGuard();
+#endif
   uint64_t key_hash;
   if constexpr (std::is_pointer_v<T>) {
     key_hash = h(key->key, key->length);
@@ -2622,7 +2636,7 @@ RETRY:
     uint64_t org_idx;
     uint64_t base_level;
     Table<T> *org_table = target->get_org_table(x, &org_idx, &base_level, &dir);
-    target->Split(org_table, target, base_level, org_idx, &dir);
+    target->Split(org_table, base_level, org_idx, &dir);
 
     for (int i = 0; i < kNumBucket; ++i) {
       Bucket<T> *curr_bucket = target->bucket + i;

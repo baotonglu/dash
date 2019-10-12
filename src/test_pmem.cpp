@@ -238,8 +238,6 @@ void concurr_delete(struct range *_range, Hash<T> *index) {
     T *key_array = reinterpret_cast<T *>(workload);
     for (uint64_t i = begin; i < end; ++i) {
       if (index->Delete(key_array[i]) == false) {
-        // std::cout << "The key = " << key_array[i] << std::endl;
-        // index->FindAnyway(key_array[i]);
         not_found++;
       }
     }
@@ -253,7 +251,7 @@ void concurr_delete(struct range *_range, Hash<T> *index) {
       }
     }
   }
-   std::cout << "not_found = " << not_found << std::endl;
+  std::cout << "not_found = " << not_found << std::endl;
   end_notify();
 }
 
