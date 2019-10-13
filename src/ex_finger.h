@@ -27,6 +27,7 @@ namespace extendible {
 #define SINGLE 1
 #define COUNTING 1
 #define EPOCH 1
+#define PREALLOC 1
 
 #define SIMD 1
 #define SIMD_CMP8(src, key)                                         \
@@ -719,7 +720,7 @@ struct Directory {
       dir_ptr->global_depth =
           static_cast<size_t>(log2(std::get<0>(*value_ptr)));
       size_t cap = std::get<0>(*value_ptr);
-      //memset(&dir_ptr->_, 0, sizeof(table_p) * cap);
+      // memset(&dir_ptr->_, 0, sizeof(table_p) * cap);
       pmemobj_persist(pool, dir_ptr,
                       sizeof(Directory<T>) + sizeof(uint64_t) * cap);
       return 0;
@@ -735,12 +736,77 @@ struct Directory {
   }
 };
 
+/*thread local table allcoation pool*/
+template <class T>
+struct TlsTablePool {
+  static Table<T> *all_tables;
+  static PMEMoid p_all_tables;
+  static std::atomic<uint32_t> all_allocated;
+  static const uint32_t kAllTables = 327680;
+
+  static void AllocateMore() {
+    auto callback = [](PMEMobjpool *pool, void *ptr, void *arg) { return 0; };
+    std::pair callback_para(0, nullptr);
+    /*
+    Allocator::Allocate((void **)&all_tables, kCacheLineSize, sizeof(Table<T>) *
+    kAllTables, callback, reinterpret_cast<void *>(&callback_para));*/
+    Allocator::Allocate(&p_all_tables, kCacheLineSize,
+                        sizeof(Table<T>) * kAllTables, callback,
+                        reinterpret_cast<void *>(&callback_para));
+    all_tables = reinterpret_cast<Table<T> *>(pmemobj_direct(p_all_tables));
+    memset((void *)all_tables, 0, sizeof(Table<T>) * kAllTables);
+    all_allocated = 0;
+    printf("MORE ");
+  }
+
+  TlsTablePool() {}
+  static void Initialize() { AllocateMore(); }
+
+  Table<T> *tables = nullptr;
+  static const uint32_t kTables = 128;
+  uint32_t allocated = kTables;
+
+  void TlsPrepare() {
+  retry:
+    uint32_t n = all_allocated.fetch_add(kTables);
+    if (n == kAllTables) {
+      AllocateMore();
+      printf("NO MORE\n");
+      abort();
+      goto retry;
+    }
+    tables = all_tables + n;
+    allocated = 0;
+  }
+
+  Table<T> *Get() {
+    if (allocated == kTables) {
+      TlsPrepare();
+    }
+    return &tables[allocated++];
+  }
+};
+
+template <class T>
+std::atomic<uint32_t> TlsTablePool<T>::all_allocated(0);
+template <class T>
+Table<T> *TlsTablePool<T>::all_tables = nullptr;
+template <class T>
+PMEMoid TlsTablePool<T>::p_all_tables = OID_NULL;
+
 /* the meta hash-table referenced by the directory*/
 template <class T>
 struct Table {
   // static void New(Table<T> **tbl, size_t depth, Table<T> *pp) {
   static void New(PMEMoid *tbl, size_t depth, PMEMoid pp) {
 #ifdef PMEM
+#ifdef PREALLOC
+    thread_local TlsTablePool<T> tls_pool;
+    auto ptr = tls_pool.Get();
+    ptr->local_depth = depth;
+    ptr->next = pp;
+    *tbl = pmemobj_oid(ptr);
+#else
     auto callback = [](PMEMobjpool *pool, void *ptr, void *arg) {
       auto value_ptr = reinterpret_cast<std::pair<size_t, PMEMoid> *>(arg);
       auto table_ptr = reinterpret_cast<Table<T> *>(ptr);
@@ -759,8 +825,9 @@ struct Table {
     std::pair callback_para(depth, pp);
     Allocator::Allocate(tbl, kCacheLineSize, sizeof(Table<T>), callback,
                         reinterpret_cast<void *>(&callback_para));
+#endif
 #else
-    Allocator::ZAllocate((void **)tbl, kCacheLineSize, sizeof(Table<T>));
+    Allocator::Allocate((void **)tbl, kCacheLineSize, sizeof(Table<T>));
     (*tbl)->local_depth = depth;
     (*tbl)->next = pp;
 #endif
@@ -794,7 +861,8 @@ struct Table {
   int Insert(T key, Value_t value, size_t key_hash, uint8_t meta_hash,
              Directory<T> **);
   void Insert4split(T key, Value_t value, size_t key_hash, uint8_t meta_hash);
-  void Insert4merge(T key, Value_t value, size_t key_hash, uint8_t meta_hash, bool flag = false);
+  void Insert4merge(T key, Value_t value, size_t key_hash, uint8_t meta_hash,
+                    bool flag = false);
   Table<T> *Split(size_t);
   void Merge(Table<T> *, bool flag = false);
   int Delete(T key, size_t key_hash, uint8_t meta_hash, Directory<T> **_dir);
@@ -1155,10 +1223,10 @@ void Table<T>::Insert4merge(T key, Value_t value, size_t key_hash,
   Bucket<T> *target = bucket + y;
   Bucket<T> *neighbor = bucket + ((y + 1) & bucketMask);
 
-  if(unique_check_flag){
+  if (unique_check_flag) {
     auto ret =
         target->unique_check(meta_hash, key, neighbor, bucket + kNumBucket);
-    if(ret == -1) return;
+    if (ret == -1) return;
   }
 
   // auto insert_target =
@@ -1343,7 +1411,7 @@ Table<T> *Table<T>::Split(size_t _key_hash) {
 template <class T>
 void Table<T>::Merge(Table<T> *neighbor, bool unique_check_flag) {
   /*Restore the split/merge procedure*/
-  if(unique_check_flag){
+  if (unique_check_flag) {
     size_t key_hash;
     for (int i = 0; i < kNumBucket; ++i) {
       auto *curr_bucket = neighbor->bucket + i;
@@ -1358,8 +1426,9 @@ void Table<T>::Merge(Table<T> *neighbor, bool unique_check_flag) {
           }
 
           Insert4merge(curr_bucket->_[j].key, curr_bucket->_[j].value, key_hash,
-                      curr_bucket->finger_array[j], true); /*this shceme may destory
-                                                        the balanced segment*/
+                       curr_bucket->finger_array[j],
+                       true); /*this shceme may destory
+                           the balanced segment*/
         }
       }
     }
@@ -1377,13 +1446,13 @@ void Table<T>::Merge(Table<T> *neighbor, bool unique_check_flag) {
             key_hash = h(&(curr_bucket->_[j].key), sizeof(Key_t));
           }
           Insert4merge(curr_bucket->_[j].key, curr_bucket->_[j].value, key_hash,
-                      curr_bucket->finger_array[j]); /*this shceme may destory
-                                                        the balanced segment*/
+                       curr_bucket->finger_array[j]); /*this shceme may destory
+                                                         the balanced segment*/
         }
       }
     }
 
-  }else{
+  } else {
     size_t key_hash;
     for (int i = 0; i < kNumBucket; ++i) {
       auto *curr_bucket = neighbor->bucket + i;
@@ -1398,8 +1467,8 @@ void Table<T>::Merge(Table<T> *neighbor, bool unique_check_flag) {
           }
 
           Insert4merge(curr_bucket->_[j].key, curr_bucket->_[j].value, key_hash,
-                      curr_bucket->finger_array[j]); /*this shceme may destory
-                                                        the balanced segment*/
+                       curr_bucket->finger_array[j]); /*this shceme may destory
+                                                         the balanced segment*/
         }
       }
     }
@@ -1417,8 +1486,8 @@ void Table<T>::Merge(Table<T> *neighbor, bool unique_check_flag) {
             key_hash = h(&(curr_bucket->_[j].key), sizeof(Key_t));
           }
           Insert4merge(curr_bucket->_[j].key, curr_bucket->_[j].value, key_hash,
-                      curr_bucket->finger_array[j]); /*this shceme may destory
-                                                        the balanced segment*/
+                       curr_bucket->finger_array[j]); /*this shceme may destory
+                                                         the balanced segment*/
         }
       }
     }
@@ -1949,7 +2018,7 @@ RETRY:
   uint32_t old_version = target_bucket->version_lock;
   uint32_t old_neighbor_version = neighbor_bucket->version_lock;
 
-  if((old_version & lockSet) || (old_neighbor_version & lockSet)){
+  if ((old_version & lockSet) || (old_neighbor_version & lockSet)) {
     goto RETRY;
   }
   /*

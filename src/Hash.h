@@ -13,7 +13,7 @@ class Hash {
     ~Hash(void) = default;
     virtual int Insert(T, Value_t) = 0;
     virtual bool Delete(T) = 0;
-    //virtual Value_t Get(T) = 0;
+    virtual Value_t Get(T) = 0;
     virtual Value_t Get(T key, bool is_in_epoch);
     virtual void Recovery() = 0;
     virtual void getNumber() = 0;

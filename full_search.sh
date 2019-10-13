@@ -9,9 +9,9 @@ key_type=(0 fixed variable)
 #delete the corresponding file
 
 #{1..6}
-for i in 2
+for i in 1
 do 
-	for j in 1
+	for j in 1 6
 	do
 		echo "Begin: ${base[1]} ${workload[${i}]} ${thread_num[${j}]}"
 		numaarg=""
@@ -31,7 +31,7 @@ do
 		rm -f pmem_hash.data
 		rm -f pmem_cceh.data
 		rm -f pmem_level.data
-		OP_PLACES=threads OMP_PROC_BIND=true OMP_NESTED=true PMEM_IS_PMEM_FORCE=1 LD_PRELOAD="./build/pmdk/src/PMDK/src/nondebug/libpmemobj.so.1 ./build/pmdk/src/PMDK/src/nondebug/libpmem.so.1" numactl $numaarg ./build/test_pmem -p ${workload[1]} -t ${thread_num[$j]} -k ${key_type[$i]} -index dash-ex
+		OP_PLACES=threads OMP_PROC_BIND=true OMP_NESTED=true PMEM_IS_PMEM_FORCE=1 LD_PRELOAD="./build/pmdk/src/PMDK/src/nondebug/libpmemobj.so.1 ./build/pmdk/src/PMDK/src/nondebug/libpmem.so.1" numactl $numaarg ./build/test_pmem -p ${workload[1]} -t ${thread_num[$j]} -k ${key_type[$i]} -index dash-lh
 		#printf "Done for cceh dm uni: %d %d\n" ${workload[$i]} ${thread_num[$j]}
 	done
 done

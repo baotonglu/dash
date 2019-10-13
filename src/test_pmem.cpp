@@ -5,6 +5,7 @@
 #include <condition_variable>
 #include <cstring>
 #include <mutex>
+#include <atomic>
 #include <thread>
 #include "../util/System.hpp"
 #include "../util/random.h"
@@ -69,10 +70,13 @@ Hash<T> *InitializeIndex(int seg_num) {
   Hash<T> *eh;
   if (index_type == "dash-ex") {
     std::cout << "Initialize Extendible Hashing" << std::endl;
+    extendible::TlsTablePool<Key_t>::Initialize();
     eh = reinterpret_cast<Hash<T> *>(
         Allocator::GetRoot(sizeof(extendible::Finger_EH<T>)));
     new (eh) extendible::Finger_EH<T>(seg_num, Allocator::Get()->pm_pool_);
   } else if (index_type == "dash-lh") {
+    std::cout << "Initialize Linear Hashing" << std::endl;
+     linear::TlsTablePool<Key_t>::Initialize();
     eh = reinterpret_cast<Hash<T> *>(
         Allocator::GetRoot(sizeof(linear::Linear<T>)));
     new (eh) linear::Linear<T>(Allocator::Get()->pm_pool_);
@@ -503,7 +507,7 @@ void Run() {
     }
     GeneralBench<T>(rarray, index, thread_num, operation_num, "Insert",
                     &concurr_insert);
-
+    index->getNumber();
     //index->Recovery();
     for (int i = 0; i < thread_num; ++i) {
       rarray[i].workload = not_used_workload;

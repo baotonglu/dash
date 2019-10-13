@@ -20,6 +20,7 @@
 #define SINGLE 1
 #define DOUBLE_EXPANSION 1
 #define EPOCH 1
+#define PREALLOC 1
 //#define COUNTING 1
 
 #ifdef PMEM
@@ -1022,6 +1023,74 @@ struct Directory {
                         NULL);
   }
 };
+
+/*thread local table allcoation pool*/
+template <class T>
+struct TlsTablePool {
+  static Table<T> *all_tables;
+  static PMEMoid p_all_tables;
+  static std::atomic<uint32_t> all_allocated;
+  static const uint32_t kAllTables = 327680;
+
+  static void AllocateMore() {
+    auto callback = [](PMEMobjpool *pool, void *ptr, void *arg) { return 0; };
+    std::pair callback_para(0, nullptr);
+    /*
+    Allocator::Allocate((void **)&all_tables, kCacheLineSize, sizeof(Table<T>) *
+    kAllTables, callback, reinterpret_cast<void *>(&callback_para));*/
+    Allocator::Allocate(&p_all_tables, kCacheLineSize,
+                        sizeof(Table<T>) * kAllTables, callback,
+                        reinterpret_cast<void *>(&callback_para));
+    all_tables = reinterpret_cast<Table<T> *>(pmemobj_direct(p_all_tables));
+    memset((void *)all_tables, 0, sizeof(Table<T>) * kAllTables);
+    all_allocated = 0;
+    printf("MORE ");
+  }
+
+  TlsTablePool() {}
+  static void Initialize() { AllocateMore(); }
+
+  Table<T> *tables = nullptr;
+  static const uint32_t kTables = 128;
+  uint32_t allocated = kTables;
+
+  void TlsPrepare() {
+  retry:
+    uint32_t n = all_allocated.fetch_add(kTables);
+    if (n == kAllTables) {
+      AllocateMore();
+      printf("NO MORE\n");
+      abort();
+      goto retry;
+    }
+    tables = all_tables + n;
+    allocated = 0;
+  }
+
+  Table<T> *Get() {
+    if (allocated == kTables) {
+      TlsPrepare();
+    }
+    return &tables[allocated++];
+  }
+
+  /*allocate a segment from preallocated memory*/
+  static Table<T> *Get(uint64_t seg_size) {
+    uint32_t n = all_allocated.fetch_add(seg_size);
+    if (n >= kAllTables) {
+      AllocateMore();
+      abort();
+    }
+    return &all_tables[n];
+  }
+};
+
+template <class T>
+std::atomic<uint32_t> TlsTablePool<T>::all_allocated(0);
+template <class T>
+Table<T> *TlsTablePool<T>::all_tables = nullptr;
+template <class T>
+PMEMoid TlsTablePool<T>::p_all_tables = OID_NULL;
 
 /* the meta hash-table referenced by the directory*/
 template <class T>
@@ -2027,7 +2096,7 @@ class Linear : public Hash<T> {
   ~Linear(void);
   int Insert(T key, Value_t value);
   bool Delete(T);
-  // inline Value_t Get(T);
+  inline Value_t Get(T);
   Value_t Get(T key, bool is_in_epoch);
   void FindAnyway(T key);
   void Recovery();
@@ -2113,6 +2182,8 @@ class Linear : public Hash<T> {
         Bucket_num++;
       }
     }
+
+    std::cout << "occupied table is " << occupied_bucket << std::endl;
     Bucket_num += SUM_BUCKET(occupied_bucket - 1) * (kNumBucket + stashBucket);
     //}
 
@@ -2255,10 +2326,17 @@ class Linear : public Hash<T> {
 #ifdef DOUBLE_EXPANSION
         uint32_t seg_size = SEG_SIZE(static_cast<uint32_t>(pow(2, old_N)) +
                                      old_next + numBuckets - 1);
-        Allocator::ZAllocate((void **)&dir._[dir_idx], kCacheLineSize,
+        /*
+Allocator::ZAllocate((void **)&dir._[dir_idx], kCacheLineSize,
+sizeof(Table<T>) * seg_size);*/
+#ifdef PREALLOC
+        dir._[dir_idx] = TlsTablePool<T>::Get(seg_size);
+#else
+        Allocator::ZAllocate(&back_seg, kCacheLineSize,
                              sizeof(Table<T>) * seg_size);
-// printf("the new table size for partition %d is %d\n", partiton_idx,seg_size);
-// printf("expansion to %u on %u\n",seg_size, dir_idx);
+        dir._[dir_idx] = reinterpret_cast<Table<T> *>(pmemobj_direct(back_seg));
+        back_seg = OID_NULL;
+#endif
 #else
         Allocator::ZAllocate((void **)&dir._[dir_idx], kCacheLineSize,
                              sizeof(Table<T>) * segmentSize);
@@ -2294,9 +2372,9 @@ class Linear : public Hash<T> {
     }
   }
 
-  // Directory<T> dir[partitionNum];
 #ifdef PMEM
   PMEMobjpool *pool_addr;
+  PMEMoid back_seg;
 #endif
   Directory<T> dir;
   int lock;
@@ -2501,7 +2579,6 @@ RETRY:
   return 0;
 }
 
-/*
 template <class T>
 Value_t Linear<T>::Get(T key, bool is_in_epoch) {
   if (is_in_epoch) {
@@ -2513,13 +2590,9 @@ Value_t Linear<T>::Get(T key, bool is_in_epoch) {
     return Get(key);
   }
 }
-*/
 
 template <class T>
-Value_t Linear<T>::Get(T key, bool is_in_epoch) {
-  if (!is_in_epoch) {
-    auto epoch_guard = Allocator::AquireEpochGuard();
-  }
+Value_t Linear<T>::Get(T key) {
   uint64_t key_hash;
   if constexpr (std::is_pointer_v<T>) {
     key_hash = h(key->key, key->length);
