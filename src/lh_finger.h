@@ -759,15 +759,17 @@ struct Bucket {
   /*if the lock is set, return true*/
   inline bool test_lock_set(uint32_t &version) {
     auto value = __atomic_load_n(&version_lock, __ATOMIC_ACQUIRE);
-    version = value & versionMask;
+    // version = value & versionMask;
+    version = value;
     return (value & lockSet);
   }
 
   // test whether the version has change, if change, return true
   inline bool test_lock_version_change(uint32_t old_version) {
     auto value = __atomic_load_n(&version_lock, __ATOMIC_ACQUIRE);
-    auto version = value & versionMask;
-    return ((value & lockSet) != 0) || (version != old_version);
+    // auto version = value & versionMask;
+    // return ((value & lockSet) != 0) || (version != old_version);
+    return (value != old_version);
   }
 
   /*if it has been initialized, then return true*/
@@ -778,12 +780,18 @@ struct Bucket {
   }
 
   inline void set_initialize() {
+    /*
     auto old_value = version_lock;
     auto new_value = version_lock | initialSet;
     while (!CAS(&version_lock, &old_value, new_value)) {
       old_value = version_lock;
       new_value = version_lock | initialSet;
-    }
+    }*/
+    version_lock = version_lock | initialSet;
+  }
+
+  inline void unset_initialize() {
+    version_lock = version_lock & (!initialSet);
   }
 
   int Insert(T key, Value_t value, uint8_t meta_hash, bool probe) {
@@ -1041,8 +1049,9 @@ struct Table {
   int Insert(T key, Value_t value, size_t key_hash, Directory<T> *_dir,
              uint64_t index, uint32_t old_N, uint32_t old_next);
   void Insert4split(T key, Value_t value, size_t key_hash, uint8_t meta_hash);
-  void Insert4merge(T key, Value_t value, size_t key_hash, uint8_t meta_hash);
-  void Merge(Table<T> *neighbor);
+  void Insert4merge(T key, Value_t value, size_t key_hash, uint8_t meta_hash,
+                    bool flag = false);
+  void Merge(Table<T> *neighbor, bool flag = false);
   void Split(Table<T> *org_table, uint64_t base_level, int org_idx,
              Directory<T> *);
   int Insert2Org(T key, Value_t value, size_t key_hash, size_t pos);
@@ -1220,7 +1229,9 @@ struct Table {
     SEG_IDX_OFFSET(static_cast<uint32_t>(org_idx), dir_idx, offset);
     // printf("the x = %d, the dir_idx = %d, the offset = %d\n", x, dir_idx,
     // offset);
-    Table<T> *org_table = dir->_[dir_idx] + offset;
+    Table<T> *org_table = reinterpret_cast<Table<T> *>(
+                              (uint64_t)dir->_[dir_idx] & (~recoverLockBit)) +
+                          offset;
     return org_table;
   }
 
@@ -1579,66 +1590,132 @@ void Table<T>::Split(Table<T> *org_table, uint64_t base_level, int org_idx,
 
 /*merge the neighbor table with current table*/
 template <class T>
-void Table<T>::Merge(Table<T> *neighbor) {
-  /*Restore the split/merge procedure*/
-  size_t key_hash;
-  for (int i = 0; i < kNumBucket; ++i) {
-    Bucket<T> *curr_bucket = neighbor->bucket + i;
-    auto mask = GET_BITMAP(curr_bucket->bitmap);
-    for (int j = 0; j < kNumPairPerBucket; ++j) {
-      if (CHECK_BIT(mask, j)) {
-        if constexpr (std::is_pointer_v<T>) {
-          auto curr_key = curr_bucket->_[j].key;
-          key_hash = h(curr_key->key, curr_key->length);
-        } else {
-          key_hash = h(&(curr_bucket->_[j].key), sizeof(Key_t));
-        }
+void Table<T>::Merge(Table<T> *neighbor, bool unique_check_flag) {
+  if (unique_check_flag) {
+    /*Restore the split/merge procedure*/
+    size_t key_hash;
+    for (int i = 0; i < kNumBucket; ++i) {
+      Bucket<T> *curr_bucket = neighbor->bucket + i;
+      auto mask = GET_BITMAP(curr_bucket->bitmap);
+      for (int j = 0; j < kNumPairPerBucket; ++j) {
+        if (CHECK_BIT(mask, j)) {
+          if constexpr (std::is_pointer_v<T>) {
+            auto curr_key = curr_bucket->_[j].key;
+            key_hash = h(curr_key->key, curr_key->length);
+          } else {
+            key_hash = h(&(curr_bucket->_[j].key), sizeof(Key_t));
+          }
 
-        Insert4merge(curr_bucket->_[j].key, curr_bucket->_[j].value, key_hash,
-                     curr_bucket->finger_array[j]); /*this shceme may destory
-                                                      the balanced segment*/
+          Insert4merge(curr_bucket->_[j].key, curr_bucket->_[j].value, key_hash,
+                       curr_bucket->finger_array[j],
+                       true); /*this shceme may destory
+                           the balanced segment*/
+        }
       }
     }
-  }
 
-  for (int i = 0; i < stashBucket; ++i) {
-    auto *curr_bucket = neighbor->stash + i;
-    auto mask = GET_BITMAP(curr_bucket->bitmap);
-    for (int j = 0; j < kNumPairPerBucket; ++j) {
-      if (CHECK_BIT(mask, j)) {
-        if constexpr (std::is_pointer_v<T>) {
-          auto curr_key = curr_bucket->_[j].key;
-          key_hash = h(curr_key->key, curr_key->length);
-        } else {
-          key_hash = h(&(curr_bucket->_[j].key), sizeof(Key_t));
+    for (int i = 0; i < stashBucket; ++i) {
+      auto *curr_bucket = neighbor->stash + i;
+      auto mask = GET_BITMAP(curr_bucket->bitmap);
+      for (int j = 0; j < kNumPairPerBucket; ++j) {
+        if (CHECK_BIT(mask, j)) {
+          if constexpr (std::is_pointer_v<T>) {
+            auto curr_key = curr_bucket->_[j].key;
+            key_hash = h(curr_key->key, curr_key->length);
+          } else {
+            key_hash = h(&(curr_bucket->_[j].key), sizeof(Key_t));
+          }
+          Insert4merge(curr_bucket->_[j].key, curr_bucket->_[j].value, key_hash,
+                       curr_bucket->finger_array[j],
+                       true); /*this shceme may destory
+                           the balanced segment*/
         }
-        Insert4merge(curr_bucket->_[j].key, curr_bucket->_[j].value, key_hash,
-                     curr_bucket->finger_array[j]); /*this shceme may destory
-                                                       the balanced segment*/
       }
     }
-  }
 
-  /*traverse the overflow list*/
-  overflowBucket<T> *prev_bucket = neighbor->stash;
-  overflowBucket<T> *curr_bucket = neighbor->stash->next;
-  while (curr_bucket != NULL) {
-    auto mask = GET_BITMAP(curr_bucket->bitmap);
-    for (int j = 0; j < kNumPairPerBucket; ++j) {
-      if (CHECK_BIT(mask, j)) {
-        if constexpr (std::is_pointer_v<T>) {
-          auto curr_key = curr_bucket->_[j].key;
-          key_hash = h(curr_key->key, curr_key->length);
-        } else {
-          key_hash = h(&(curr_bucket->_[j].key), sizeof(Key_t));
+    /*traverse the overflow list*/
+    overflowBucket<T> *prev_bucket = neighbor->stash;
+    overflowBucket<T> *curr_bucket = neighbor->stash->next;
+    while (curr_bucket != NULL) {
+      auto mask = GET_BITMAP(curr_bucket->bitmap);
+      for (int j = 0; j < kNumPairPerBucket; ++j) {
+        if (CHECK_BIT(mask, j)) {
+          if constexpr (std::is_pointer_v<T>) {
+            auto curr_key = curr_bucket->_[j].key;
+            key_hash = h(curr_key->key, curr_key->length);
+          } else {
+            key_hash = h(&(curr_bucket->_[j].key), sizeof(Key_t));
+          }
+          Insert4merge(curr_bucket->_[j].key, curr_bucket->_[j].value, key_hash,
+                       curr_bucket->finger_array[j],
+                       true); /*this shceme may destory
+                           the balanced segment*/
         }
-        Insert4merge(curr_bucket->_[j].key, curr_bucket->_[j].value, key_hash,
-                     curr_bucket->finger_array[j]); /*this shceme may destory
-                                                       the balanced segment*/
+      }
+      prev_bucket = curr_bucket;
+      curr_bucket = curr_bucket->next;
+    }
+  } else {
+    /*Restore the split/merge procedure*/
+    size_t key_hash;
+    for (int i = 0; i < kNumBucket; ++i) {
+      Bucket<T> *curr_bucket = neighbor->bucket + i;
+      auto mask = GET_BITMAP(curr_bucket->bitmap);
+      for (int j = 0; j < kNumPairPerBucket; ++j) {
+        if (CHECK_BIT(mask, j)) {
+          if constexpr (std::is_pointer_v<T>) {
+            auto curr_key = curr_bucket->_[j].key;
+            key_hash = h(curr_key->key, curr_key->length);
+          } else {
+            key_hash = h(&(curr_bucket->_[j].key), sizeof(Key_t));
+          }
+
+          Insert4merge(curr_bucket->_[j].key, curr_bucket->_[j].value, key_hash,
+                       curr_bucket->finger_array[j]); /*this shceme may destory
+                                                         the balanced segment*/
+        }
       }
     }
-    prev_bucket = curr_bucket;
-    curr_bucket = curr_bucket->next;
+
+    for (int i = 0; i < stashBucket; ++i) {
+      auto *curr_bucket = neighbor->stash + i;
+      auto mask = GET_BITMAP(curr_bucket->bitmap);
+      for (int j = 0; j < kNumPairPerBucket; ++j) {
+        if (CHECK_BIT(mask, j)) {
+          if constexpr (std::is_pointer_v<T>) {
+            auto curr_key = curr_bucket->_[j].key;
+            key_hash = h(curr_key->key, curr_key->length);
+          } else {
+            key_hash = h(&(curr_bucket->_[j].key), sizeof(Key_t));
+          }
+          Insert4merge(curr_bucket->_[j].key, curr_bucket->_[j].value, key_hash,
+                       curr_bucket->finger_array[j]); /*this shceme may destory
+                                                         the balanced segment*/
+        }
+      }
+    }
+
+    /*traverse the overflow list*/
+    overflowBucket<T> *prev_bucket = neighbor->stash;
+    overflowBucket<T> *curr_bucket = neighbor->stash->next;
+    while (curr_bucket != NULL) {
+      auto mask = GET_BITMAP(curr_bucket->bitmap);
+      for (int j = 0; j < kNumPairPerBucket; ++j) {
+        if (CHECK_BIT(mask, j)) {
+          if constexpr (std::is_pointer_v<T>) {
+            auto curr_key = curr_bucket->_[j].key;
+            key_hash = h(curr_key->key, curr_key->length);
+          } else {
+            key_hash = h(&(curr_bucket->_[j].key), sizeof(Key_t));
+          }
+          Insert4merge(curr_bucket->_[j].key, curr_bucket->_[j].value, key_hash,
+                       curr_bucket->finger_array[j]); /*this shceme may destory
+                                                         the balanced segment*/
+        }
+      }
+      prev_bucket = curr_bucket;
+      curr_bucket = curr_bucket->next;
+    }
   }
 }
 
@@ -1865,10 +1942,15 @@ void Table<T>::Insert4split(T key, Value_t value, size_t key_hash,
 
 template <class T>
 void Table<T>::Insert4merge(T key, Value_t value, size_t key_hash,
-                            uint8_t meta_hash) {
+                            uint8_t meta_hash, bool unique_check_flag) {
   auto y = BUCKET_INDEX(key_hash);
   Bucket<T> *target = bucket + y;
   Bucket<T> *neighbor = bucket + ((y + 1) & bucketMask);
+
+  if (unique_check_flag) {
+    auto ret = target->unique_check(meta_hash, key, neighbor, stash);
+    if (ret == -1) return;
+  }
   // auto insert_target =
   // (target->count&lowCountMask)<=(neighbor->count&lowCountMask)?target:neighbor;
   Bucket<T> *insert_target;
@@ -1945,8 +2027,8 @@ class Linear : public Hash<T> {
   ~Linear(void);
   int Insert(T key, Value_t value);
   bool Delete(T);
-  Value_t Get(T);
-  Value_t Get(T key, bool is_in_epoch) { return Get(key); }
+  // inline Value_t Get(T);
+  Value_t Get(T key, bool is_in_epoch);
   void FindAnyway(T key);
   void Recovery();
   bool TryMerge(uint64_t, Table<T> *);
@@ -2197,7 +2279,6 @@ class Linear : public Hash<T> {
     }
 
     if (!CAS(&dir.N_next, &old_N_next, new_N_next)) {
-      std::cout << "Error: split concurrency" << std::endl;
       goto RE_EXPAND;
     }
 
@@ -2313,11 +2394,15 @@ void Linear<T>::Recovery() {
 }
 
 template <class T>
-void Linear<T>::recoverSegment(Table<T> **seg_ptr, size_t segmentSize) {
+void Linear<T>::recoverSegment(Table<T> **seg_ptr, size_t index) {
+#ifdef DOUBLE_EXPANSION
+  size_t seg_size = SEG_SIZE(index);
+#else
+  size_t seg_size = segmentSize;
+#endif
   /*Iteratively restore the data*/
   uint64_t snapshot = reinterpret_cast<uint64_t>(*seg_ptr);
   if ((snapshot & lockBit) || (!(snapshot & recoverBit))) {
-    // printf("return from first\n");
     return;
   }
   /*Set the lock Bit*/
@@ -2325,22 +2410,51 @@ void Linear<T>::recoverSegment(Table<T> **seg_ptr, size_t segmentSize) {
       (reinterpret_cast<uint64_t>(*seg_ptr) & (~lockBit)) | recoverBit;
   uint64_t new_value = reinterpret_cast<uint64_t>(*seg_ptr) | recoverLockBit;
   if (!CAS(seg_ptr, &old_value, new_value)) {
-    // printf("return from second\n");
     return;
   }
 
   Table<T> *target = (Table<T> *)(snapshot & (~recoverLockBit));
 
   Table<T> *curr_table;
-  for (int i = 0; i < segmentSize; ++i) {
+  for (int i = 0; i < seg_size; ++i) {
     curr_table = target + i;
     curr_table->recoverMetadata();
+    /*check the state of the segment and do the corresponding fix of split
+     * operation*/
+    if (curr_table->state == 2) {
+      uint64_t idx, base_diff;
+      Table<T> *org_table =
+          curr_table->get_org_table(index, &idx, &base_diff, &dir);
+      uint32_t dir_idx, offset;
+      SEG_IDX_OFFSET(idx, dir_idx, offset);
+      while (reinterpret_cast<uint64_t>(dir._[dir_idx]) & recoverLockBit) {
+        recoverSegment(&dir._[dir_idx], idx);
+      }
+
+      for (int i = 0; i < kNumBucket; ++i) {
+        auto curr_bucket = org_table->bucket + i;
+        curr_bucket->get_lock();
+      }
+
+      org_table->Merge(curr_table, true);
+      for (int i = 0; i, kNumBucket; ++i) {
+        auto curr_bucket = curr_table->bucket + i;
+        curr_bucket->unset_initialize();
+      }
+
+      curr_table->state = 0;
+      Allocator::Persist(&curr_table->state, sizeof(curr_table->state));
+      org_table->state = 0;
+      Allocator::Persist(&org_table->state, sizeof(org_table->state));
+
+      for (int i = 0; i < kNumBucket; ++i) {
+        auto curr_bucket = org_table->bucket + i;
+        curr_bucket->release_lock();
+      }
+    }
   }
 
   *seg_ptr = target;
-  /*
-   *FixME: to support multiple threads
-   */
 }
 
 template <class T>
@@ -2368,13 +2482,8 @@ RETRY:
   uint32_t dir_idx;
   uint32_t offset;
   SEG_IDX_OFFSET(static_cast<uint32_t>(x), dir_idx, offset);
-  if (reinterpret_cast<uint64_t>(&dir._[dir_idx]) & recoverLockBit) {
-#ifdef DOUBLE_EXPANSION
-    recoverSegment(&dir._[dir_idx],
-                   SEG_SIZE(x)); /*Recover all the meta-data in this segment*/
-#else
-    recoverSegment(&dir._[dir_idx], segmentSize);
-#endif
+  if (reinterpret_cast<uint64_t>(dir._[dir_idx]) & recoverLockBit) {
+    recoverSegment(&dir._[dir_idx], x);
     goto RETRY;
   }
 
@@ -2392,15 +2501,33 @@ RETRY:
   return 0;
 }
 
+/*
 template <class T>
-Value_t Linear<T>::Get(T key) {
+Value_t Linear<T>::Get(T key, bool is_in_epoch) {
+  if (is_in_epoch) {
+    return Get(key);
+  } else {
+#ifdef EPOCH
+    auto epoch_guard = Allocator::AquireEpochGuard();
+#endif
+    return Get(key);
+  }
+}
+*/
+
+template <class T>
+Value_t Linear<T>::Get(T key, bool is_in_epoch) {
+  if (!is_in_epoch) {
+    auto epoch_guard = Allocator::AquireEpochGuard();
+  }
   uint64_t key_hash;
   if constexpr (std::is_pointer_v<T>) {
     key_hash = h(key->key, key->length);
   } else {
     key_hash = h(&key, sizeof(key));
   }
-  // auto partiton_idx = PARTITION_INDEX(key_hash);
+  auto meta_hash = META_HASH(key_hash);
+  auto y = BUCKET_INDEX(key_hash);
 RETRY:
   uint64_t old_N_next = dir.N_next;
   uint32_t N = old_N_next >> 32;
@@ -2416,57 +2543,21 @@ RETRY:
   SEG_IDX_OFFSET(static_cast<uint32_t>(x), dir_idx, offset);
   /*First determine whether to do the recovery process*/
   if (reinterpret_cast<uint64_t>(dir._[dir_idx]) & recoverLockBit) {
-#ifdef DOUBLE_EXPANSION
-    recoverSegment(&dir._[dir_idx],
-                   SEG_SIZE(x)); /*Recover all the meta-data in this segment*/
-#else
-    recoverSegment(&dir._[dir_idx], segmentSize);
-#endif
+    recoverSegment(&dir._[dir_idx], x);
     goto RETRY;
   }
-
   Table<T> *target = dir._[dir_idx] + offset;
-  auto meta_hash = META_HASH(key_hash);
-  auto y = BUCKET_INDEX(key_hash);
 
-  uint32_t old_version;
-  uint32_t old_neighbor_version;
   Bucket<T> *target_bucket = target->bucket + y;
   Bucket<T> *neighbor_bucket = target->bucket + ((y + 1) & bucketMask);
+  uint32_t old_version = target_bucket->version_lock;
+  uint32_t old_neighbor_version = neighbor_bucket->version_lock;
 
-  if (target_bucket->test_lock_set(old_version) ||
-      neighbor_bucket->test_lock_set(old_neighbor_version)) {
+  if ((old_version & lockSet) || (old_neighbor_version & lockSet)) {
     goto RETRY;
   }
 
-  if (!target_bucket->test_initialize()) {
-    for (int i = 0; i < kNumBucket; ++i) {
-      Bucket<T> *curr_bucket = target->bucket + i;
-      curr_bucket->get_lock();
-    }
-
-    uint64_t new_N_next = dir.N_next;
-    uint32_t new_N = new_N_next >> 32;
-    uint32_t new_next = (uint32_t)new_N_next;
-    if (((next <= x) && (new_next > x)) || (new_N != N)) {
-      for (int i = 0; i < kNumBucket; ++i) {
-        Bucket<T> *curr_bucket = target->bucket + i;
-        curr_bucket->release_lock();
-      }
-      goto RETRY;
-    }
-
-    uint64_t org_idx;
-    uint64_t base_level;
-    Table<T> *org_table = target->get_org_table(x, &org_idx, &base_level, &dir);
-    target->Split(org_table, base_level, org_idx, &dir);
-
-    for (int i = 0; i < kNumBucket; ++i) {
-      Bucket<T> *curr_bucket = target->bucket + i;
-      curr_bucket->release_lock();
-    }
-    goto RETRY;
-  } else {
+  if (old_version & initialSet) {
     uint64_t new_N_next = dir.N_next;
     uint32_t new_N = new_N_next >> 32;
     uint32_t new_next = (uint32_t)new_N_next;
@@ -2557,6 +2648,33 @@ RETRY:
         }
       }
     }
+  } else {
+    for (int i = 0; i < kNumBucket; ++i) {
+      Bucket<T> *curr_bucket = target->bucket + i;
+      curr_bucket->get_lock();
+    }
+
+    uint64_t new_N_next = dir.N_next;
+    uint32_t new_N = new_N_next >> 32;
+    uint32_t new_next = (uint32_t)new_N_next;
+    if (((next <= x) && (new_next > x)) || (new_N != N)) {
+      for (int i = 0; i < kNumBucket; ++i) {
+        Bucket<T> *curr_bucket = target->bucket + i;
+        curr_bucket->release_lock();
+      }
+      goto RETRY;
+    }
+
+    uint64_t org_idx;
+    uint64_t base_level;
+    Table<T> *org_table = target->get_org_table(x, &org_idx, &base_level, &dir);
+    target->Split(org_table, base_level, org_idx, &dir);
+
+    for (int i = 0; i < kNumBucket; ++i) {
+      Bucket<T> *curr_bucket = target->bucket + i;
+      curr_bucket->release_lock();
+    }
+    goto RETRY;
   }
   // printf("the x = %lld, the y = %lld, the meta_hash is %d\n", x, y,
   // meta_hash);
@@ -2591,13 +2709,8 @@ RETRY:
   uint32_t dir_idx;
   uint32_t offset;
   SEG_IDX_OFFSET(static_cast<uint32_t>(x), dir_idx, offset);
-  if (reinterpret_cast<uint64_t>(&dir._[dir_idx]) & recoverLockBit) {
-#ifdef DOUBLE_EXPANSION
-    recoverSegment(&dir._[dir_idx],
-                   SEG_SIZE(x)); /*Recover all the meta-data in this segment*/
-#else
-    recoverSegment(&dir._[dir_idx], segmentSize);
-#endif
+  if (reinterpret_cast<uint64_t>(dir._[dir_idx]) & recoverLockBit) {
+    recoverSegment(&dir._[dir_idx], x);
     goto RETRY;
   }
   Table<T> *target = dir._[dir_idx] + offset;

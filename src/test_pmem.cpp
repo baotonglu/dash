@@ -185,26 +185,59 @@ void concurr_insert(struct range *_range, Hash<T> *index) {
 template <class T>
 void concurr_search(struct range *_range, Hash<T> *index) {
   set_affinity(_range->index);
-  int begin = _range->begin;
-  int end = _range->end;
+  uint64_t begin = _range->begin;
+  uint64_t end = _range->end;
   char *workload = reinterpret_cast<char *>(_range->workload);
   T key;
   uint64_t not_found = 0;
 
-  spin_wait();
-
   if constexpr (!std::is_pointer_v<T>) {
     T *key_array = reinterpret_cast<T *>(workload);
-    uint64_t j;
-    for (uint64_t i = begin; i < end; i += 1000) {
+    uint64_t round = (end - begin) / 1000;
+    uint64_t i = 0;
+    spin_wait();
+    
+    while(i < round){
       auto epoch_guard = Allocator::AquireEpochGuard();
-      uint64_t cycle_end = ((i + 1000) < end) ? (i + 1000) : end;
-      // uint64_t cycle_end = i + 1000;
-      for (j = i; j < cycle_end; ++j) {
+      uint64_t _end = begin + (i + 1)*1000;
+      for(uint64_t j = begin + i*1000; j < _end; ++j){
         if (index->Get(key_array[j], true) == NONE) not_found++;
+      }
+      ++i;
+    }
+
+    {
+      auto epoch_guard = Allocator::AquireEpochGuard();
+      for(i = begin + 1000*round; i < end; ++i){
+        if(index->Get(key_array[i], true) == NONE) not_found++;
       }
     }
   } else {
+    T var_key;
+    uint64_t round = (end - begin) / 1000;
+    uint64_t i = 0;
+    uint64_t string_key_size = sizeof(string_key) + _range->length;
+
+    spin_wait();
+    while(i < round){
+      auto epoch_guard = Allocator::AquireEpochGuard();
+      uint64_t _end = begin + (i + 1)*1000;
+      for(uint64_t j = begin + i*1000; j < _end; ++j){
+        var_key = reinterpret_cast<T>(workload + string_key_size * j);
+        if (index->Get(var_key, true) == NONE) not_found++;
+      }
+      ++i;
+    }
+
+    {
+      auto epoch_guard = Allocator::AquireEpochGuard();
+      for(i = begin + 1000*round; i < end; ++i){
+        var_key = reinterpret_cast<T>(workload + string_key_size * i);
+        if (index->Get(var_key, true) == NONE) not_found++;
+      }
+    }
+
+    /*
     T var_key;
     uint64_t j;
     uint64_t string_key_size = sizeof(string_key) + _range->length;
@@ -217,6 +250,7 @@ void concurr_search(struct range *_range, Hash<T> *index) {
         if (index->Get(var_key, true) == NONE) not_found++;
       }
     }
+    */
   }
   std::cout << "not_found = " << not_found << std::endl;
   end_notify();
@@ -290,7 +324,7 @@ void mixed(struct range *_range, Hash<T> *index) {
     if (random < insert_sign) { /*insert*/
       index->Insert(key, DEFAULT);
     } else if (random < read_sign) { /*get*/
-      if (index->Get(key) == NONE) {
+      if (index->Get(key, true) == NONE) {
         not_found++;
       }
     } else { /*delete*/
@@ -319,7 +353,7 @@ void GeneralBench(range *rarray, Hash<T> *index, int thread_num,
   bar_c = thread_num;
 
   std::cout << profile_name << " Begin" << std::endl;
-  // System::profile(profile_name, [&]() {
+ //System::profile(profile_name, [&]() {
   for (uint64_t i = 0; i < thread_num; ++i) {
     thread_array[i] = new std::thread(*test_func, &rarray[i], index);
   }
@@ -362,6 +396,7 @@ void *GenerateWorkload(int generate_num, int length) {
     std::cout << "Genereate workload for variable length key " << std::endl;
     workload = malloc(generate_num * (length + sizeof(string_key)));
     generate_16B(workload, generate_num, length, false);
+    std::cout << "Finish Generation" << std::endl;
   }
   return workload;
 }
@@ -381,8 +416,11 @@ void Run() {
   void *workload = GenerateWorkload(generate_num, 16);
   void *insert_workload;
   if (key_type != "fixed") {
-    Allocator::ZAllocate((void **)&insert_workload, kCacheLineSize,
+    PMEMoid ptr;
+    Allocator::ZAllocate(&ptr, kCacheLineSize,
                          (sizeof(string_key) + 16) * generate_num);
+    insert_workload = pmemobj_direct(ptr);
+                         std::cout << "allocate finish for pm" << std::endl;
     memcpy(insert_workload, workload, (sizeof(string_key) + 16) * generate_num);
   } else {
     insert_workload = workload;
@@ -459,13 +497,14 @@ void Run() {
     }
     GeneralBench<T>(rarray, index, thread_num, operation_num, "Mixed", &mixed);
   } else { /*do the benchmark for all single operations*/
+  std::cout << "insertion start" << std::endl;
     for (int i = 0; i < thread_num; ++i) {
       rarray[i].workload = not_used_insert_workload;
     }
     GeneralBench<T>(rarray, index, thread_num, operation_num, "Insert",
                     &concurr_insert);
 
-    index->Recovery();
+    //index->Recovery();
     for (int i = 0; i < thread_num; ++i) {
       rarray[i].workload = not_used_workload;
     }
@@ -497,7 +536,7 @@ void Run() {
                         (double)(tv2.tv_sec - tv1.tv_sec);
         std::cout << "Recovery Time(s): " << duration << std::endl;
     */
-    
+    /*
     for (int i = 0; i < thread_num; ++i) {
       rarray[i].begin = i * chunk_size;
       rarray[i].end = (i + 1) * chunk_size;
@@ -505,7 +544,7 @@ void Run() {
     rarray[thread_num - 1].end = operation_num;
     GeneralBench<T>(rarray, index, thread_num, operation_num, "Delete",
                     &concurr_delete);
-    index->getNumber();
+    index->getNumber();*/
   }
 
   /*TODO Free the workload memory*/
