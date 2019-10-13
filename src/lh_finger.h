@@ -20,7 +20,7 @@
 #define SINGLE 1
 #define DOUBLE_EXPANSION 1
 #define EPOCH 1
-#define PREALLOC 1
+//#define PREALLOC 1
 //#define COUNTING 1
 
 #ifdef PMEM
@@ -110,8 +110,6 @@ const uint64_t recoverLockBit = recoverBit | lockBit;
 #define ORG_BITMAP(var) ((~((var)&allocMask)) & allocMask)
 #define PROBE_BITMAP(var) ((var)&allocMask)
 
-#define likely(x) __builtin_expect(!!(x), 1)
-#define unlikely(x) __builtin_expect(!!(x), 0)
 #define PARTITION 1
 
 const int tab32[32] = {0,  9,  1,  10, 13, 21, 2,  29, 11, 14, 16,
@@ -132,8 +130,6 @@ inline bool var_compare(char *str1, char *str2, int len1, int len2) {
   return !memcmp(str1, str2, len1);
 }
 
-#define likely(x) __builtin_expect(!!(x), 1)
-#define unlikely(x) __builtin_expect(!!(x), 0)
 #define PARTITION 1
 
 inline uint32_t pow2(int shift_index) { return (1 << shift_index); }
@@ -2092,6 +2088,7 @@ void Table<T>::Insert4merge(T key, Value_t value, size_t key_hash,
 template <class T>
 class Linear : public Hash<T> {
  public:
+  Linear(void);
   Linear(PMEMobjpool *_pool);
   ~Linear(void);
   int Insert(T key, Value_t value);
@@ -2396,6 +2393,13 @@ Linear<T>::Linear(PMEMobjpool *_pool) {
       curr_bucket->set_initialize();
     }
   }
+}
+
+template<class T>
+Linear<T>::Linear(void){
+  std::cout << "Reinitialize Up for linear hashing" << std::endl;
+  std::cout << "N = " << (dir.N_next >> 32) << std::endl;
+  std::cout << "next = " <<  (uint32_t)dir.N_next << std::endl;
 }
 
 template <class T>

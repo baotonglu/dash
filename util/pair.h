@@ -2,6 +2,10 @@
 #define UTIL_PAIR_H_
 
 #include <cstdlib>
+#include <immintrin.h>
+
+#define likely(x)       __builtin_expect((x),1)
+#define unlikely(x)     __builtin_expect((x),0)
 
 typedef size_t Key_t;
 typedef const char* Value_t;

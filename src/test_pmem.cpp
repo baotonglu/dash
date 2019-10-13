@@ -16,9 +16,9 @@
 #include "libpmemobj.h"
 #include "utils.h"
 
-static const char *pool_name = "/mnt/pmem0/pmem_hash.data";
+std::string pool_name = "/mnt/pmem0/";
 //static const char *pool_name = "pmem_hash.data";
-static const size_t pool_size = 1024ul * 1024ul * 1024ul * 30ul;
+static const size_t pool_size = 1024ul * 1024ul * 1024ul * 10ul;
 DEFINE_string(index, "dash-ex",
               "which index to evaluate:dash-ex/dash-lh/cceh/level");
 DEFINE_string(k, "fixed", "the type of stored keys: fixed/variable");
@@ -68,18 +68,39 @@ void set_affinity(uint32_t idx) {
 template <class T>
 Hash<T> *InitializeIndex(int seg_num) {
   Hash<T> *eh;
+  bool file_exist = false;
   if (index_type == "dash-ex") {
+    std::string index_pool_name = pool_name + "pmem_ex.data";
+    if(FileExists(index_pool_name.c_str())) file_exist = true;
+    Allocator::Initialize(index_pool_name.c_str(), pool_size);
+
+    std::cout << "pool addr is " << Allocator::Get()->pm_pool_ << std::endl;
     std::cout << "Initialize Extendible Hashing" << std::endl;
+#ifdef PREALLOC    
     extendible::TlsTablePool<Key_t>::Initialize();
+#endif
     eh = reinterpret_cast<Hash<T> *>(
         Allocator::GetRoot(sizeof(extendible::Finger_EH<T>)));
-    new (eh) extendible::Finger_EH<T>(seg_num, Allocator::Get()->pm_pool_);
+    if(!file_exist){
+      new (eh) extendible::Finger_EH<T>(seg_num, Allocator::Get()->pm_pool_);
+    }else{
+      new (eh) extendible::Finger_EH<T>();
+    }
   } else if (index_type == "dash-lh") {
+    std::string index_pool_name = pool_name + "pmem_lh.data";
+    if(FileExists(index_pool_name.c_str())) file_exist = true;
+    Allocator::Initialize(index_pool_name.c_str(), pool_size);
     std::cout << "Initialize Linear Hashing" << std::endl;
+#ifdef PREALLOC    
      linear::TlsTablePool<Key_t>::Initialize();
+#endif
     eh = reinterpret_cast<Hash<T> *>(
         Allocator::GetRoot(sizeof(linear::Linear<T>)));
-    new (eh) linear::Linear<T>(Allocator::Get()->pm_pool_);
+    if(!file_exist){
+      new (eh) linear::Linear<T>(Allocator::Get()->pm_pool_);
+    }else{
+      new (eh) linear::Linear<T>();
+    }
   }
   return eh;
 }
@@ -167,7 +188,6 @@ void concurr_insert(struct range *_range, Hash<T> *index) {
   T key;
 
   spin_wait();
-
   // if(key_type == "fixed"){/*fixed length key benchmark*/
   if constexpr (!std::is_pointer_v<T>) {
     T *key_array = reinterpret_cast<T *>(workload);
@@ -410,8 +430,6 @@ void Run() {
   unsigned long long init[4] = {0x12345ULL, 0x23456ULL, 0x34567ULL, 0x45678ULL},
                      length = 4;
   init_by_array64(init, length); /*initialize random number generation*/
-  Allocator::Initialize(pool_name, pool_size); /* allocator initialization*/
-
   /* Initialize Index for Finger_EH*/
   Hash<T> *index = InitializeIndex<T>(initCap);
 

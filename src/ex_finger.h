@@ -25,9 +25,9 @@ namespace extendible {
 
 #define _INVALID 0 /* we use 0 as the invalid key*/
 #define SINGLE 1
-#define COUNTING 1
+//#define COUNTING 1
 #define EPOCH 1
-#define PREALLOC 1
+//#define PREALLOC 1
 
 #define SIMD 1
 #define SIMD_CMP8(src, key)                                         \
@@ -1601,6 +1601,11 @@ Finger_EH<T>::Finger_EH(size_t initCap, PMEMobjpool *_pool) {
   dir->depth_count = initCap;
 }
 
+template<class T>
+Finger_EH<T>::Finger_EH(){
+  std::cout << "Reinitialize up" << std::endl;
+}
+
 template <class T>
 Finger_EH<T>::~Finger_EH(void) {
   // TO-DO
@@ -1882,6 +1887,7 @@ void Finger_EH<T>::Recovery() {
 
 template <class T>
 int Finger_EH<T>::Insert(T key, Value_t value) {
+  std::cout << "Insert key " << key << "pool addr is "<< pool_addr<< std::endl;
 #ifdef EPOCH
   auto epoch_guard = Allocator::AquireEpochGuard();
 #endif
@@ -1892,6 +1898,7 @@ int Finger_EH<T>::Insert(T key, Value_t value) {
   } else {
     key_hash = h(&key, sizeof(key));
   }
+  
   auto meta_hash = ((uint8_t)(key_hash & kMask));  // the last 8 bits
 RETRY:
   auto old_sa = dir;
@@ -1979,14 +1986,13 @@ RETRY:
 
 template <class T>
 Value_t Finger_EH<T>::Get(T key, bool is_in_epoch) {
-  if (is_in_epoch) {
-    return Get(key);
-  } else {
+  if (unlikely(!is_in_epoch)) {
 #ifdef EPOCH
     auto epoch_guard = Allocator::AquireEpochGuard();
 #endif
     return Get(key);
   }
+    return Get(key);
 }
 
 template <class T>
@@ -2005,7 +2011,7 @@ RETRY:
   auto dir_entry = old_sa->_;
   Table<T> *target = dir_entry[x];
 
-  if (((uint64_t)target & recoverBit)) {
+  if (unlikely((uint64_t)target & recoverBit)) {
     recoverTable(&dir_entry[x]);
     goto RETRY;
   }
@@ -2021,11 +2027,6 @@ RETRY:
   if ((old_version & lockSet) || (old_neighbor_version & lockSet)) {
     goto RETRY;
   }
-  /*
-  if (target_bucket->test_lock_set(old_version) ||
-      neighbor_bucket->test_lock_set(old_neighbor_version)) {
-    goto RETRY;
-  }*/
 
   /*verification procedure*/
   old_sa = dir;

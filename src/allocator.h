@@ -6,7 +6,7 @@
 #include "x86intrin.h"
 
 static const char* layout_name = "hashtable";
-static const constexpr uint64_t pool_addr = 0x7ff700000000;
+static const constexpr uint64_t pool_addr = 0x7ff600000000;
 
 typedef void (*DestroyCallback)(void* callback_context, void* object);
 
@@ -118,16 +118,6 @@ struct Allocator {
     }
     TX_ONABORT { LOG_FATAL("txn allocation error"); }
     TX_END
-    /*
-    PMEMoid pm_ptr;
-    auto ret =
-        pmemobj_zalloc(instance_->pm_pool_, &pm_ptr, size, TOID_TYPE_NUM(char));
-
-    if (ret) {
-      LOG_FATAL("allocation error");
-    }
-    *ptr = pmemobj_direct(pm_ptr);
-    */
 #else
     posix_memalign(ptr, alignment, size);
     memset(*ptr, 0, size);
