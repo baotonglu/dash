@@ -195,31 +195,21 @@ struct Segment {
 
 template <class T>
 struct Seg_array {
-  Segment<T> **_; /*physical addr*/
+  typedef Segment<T> *seg_p;
   size_t global_depth;
-  Seg_array(size_t capacity) {
-    global_depth = static_cast<size_t>(log2(capacity));
-    _ = new Segment<T> *[capacity];
-  }
+  seg_p _[0];
 
   static void New(Seg_array **sa, size_t capacity) {
-    PMEMoid ptr;
-    Segment<T> **seg_array{nullptr};
-    Allocator::ZAllocate(&ptr, kCacheLineSize, sizeof(uint64_t) * capacity);
-    seg_array = reinterpret_cast<Segment<T> **>(pmemobj_direct(ptr));
 #ifdef PMEM
     auto callback = [](PMEMobjpool *pool, void *ptr, void *arg) {
-      auto value_ptr =
-          reinterpret_cast<std::pair<Segment<T> **, size_t> *>(arg);
+      auto value_ptr = reinterpret_cast<size_t*>(arg);
       auto sa_ptr = reinterpret_cast<Seg_array *>(ptr);
-      sa_ptr->_ = value_ptr->first;
-      sa_ptr->global_depth = static_cast<size_t>(log2(value_ptr->second));
+      sa_ptr->global_depth =  static_cast<size_t>(log2(*value_ptr));
+      memset(sa_ptr->_, 0, (*value_ptr) * sizeof(uint64_t));
       return 0;
     };
-    auto call_args = std::make_pair(seg_array, capacity);
-    Allocator::Allocate(&ptr, kCacheLineSize, sizeof(Seg_array), callback,
-                        reinterpret_cast<void *>(&call_args));
-    *sa = reinterpret_cast<Seg_array *>(pmemobj_direct(ptr));
+    Allocator::Allocate((void**)sa, kCacheLineSize, sizeof(Seg_array) + sizeof(uint64_t) * capacity, callback,
+                        reinterpret_cast<void *>(&capacity));
 #else
     Allocator::ZAllocate((void **)sa, kCacheLineSize, sizeof(Seg_array));
     new (*sa) Seg_array(capacity);
@@ -255,8 +245,8 @@ struct Directory {
 
   static void New(Directory **dir, size_t capacity) {
     // std::cout << "Allocate seg_array" << std::endl;
-    Seg_array<T> *temp_sa;
-    Seg_array<T>::New(&temp_sa, capacity);
+    //Seg_array<T> *temp_sa;
+    //Seg_array<T>::New(&temp_sa, capacity);
 #ifdef PMEM
     auto callback = [](PMEMobjpool *pool, void *ptr, void *arg) {
       auto value_ptr =
@@ -270,7 +260,7 @@ struct Directory {
       return 0;
     };
 
-    auto call_args = std::make_pair(capacity, temp_sa);
+    auto call_args = std::make_pair(capacity, nullptr);
     Allocator::Allocate((void **)dir, kCacheLineSize, sizeof(Directory),
                         callback, reinterpret_cast<void *>(&call_args));
 #else
@@ -329,7 +319,7 @@ class CCEH : public Hash<T> {
   Value_t FindAnyway(T);
   double Utilization(void);
   size_t Capacity(void);
-  void Recovery(void) { std::cout << "Stay tuned" << std::endl; }
+  void Recovery(void);
   void Directory_Doubling(int x, Segment<T> *s0, PMEMoid *s1);
   void Directory_Update(int x, Segment<T> *s0, PMEMoid *s1);
   void Lock_Directory();
@@ -561,6 +551,7 @@ PMEMoid *Segment<T>::Split(PMEMobjpool *pool_addr, size_t key_hash,
 template <class T>
 CCEH<T>::CCEH(int initCap, PMEMobjpool *_pool) {
   Directory<T>::New(&dir, initCap);
+  Seg_array<T>::New(&dir->sa, initCap);
   auto dir_entry = dir->sa->_;
   for (int i = 0; i < dir->capacity; ++i) {
     Segment<T>::New(&dir_entry[i], dir->sa->global_depth);
@@ -580,6 +571,13 @@ CCEH<T>::CCEH(void) {
 
 template <class T>
 CCEH<T>::~CCEH(void) {}
+
+template <class T>
+void CCEH<T>::Recovery(void){
+
+
+
+}
 
 template <class T>
 void CCEH<T>::TX_Swap(void **entry, PMEMoid *new_seg) {
@@ -612,8 +610,7 @@ void CCEH<T>::Directory_Doubling(int x, Segment<T> *s0, PMEMoid *s1) {
   TX_Swap((void **)&dd[2 * x + 1], s1);
 
 #ifdef PMEM
-  Allocator::Persist(dd, sizeof(Segment<T> *) * 2 * dir->capacity);
-  Allocator::Persist(dir->new_sa, sizeof(Seg_array<T>));
+  Allocator::Persist(dir->new_sa, sizeof(Seg_array<T>) + sizeof(Segment<T> *) * 2 * dir->capacity);
 #endif
   TX_BEGIN(pool_addr) {
     pmemobj_tx_add_range_direct(&dir->sa, sizeof(dir->sa));
@@ -628,7 +625,6 @@ void CCEH<T>::Directory_Doubling(int x, Segment<T> *s0, PMEMoid *s1) {
   }
   TX_END
   
-  Allocator::Free(d);
   Allocator::Free(sa);
   printf("Done!!Directory_Doubling towards %lld\n", global_depth);
 }
