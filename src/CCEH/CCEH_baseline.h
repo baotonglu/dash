@@ -199,17 +199,18 @@ struct Seg_array {
   size_t global_depth;
   seg_p _[0];
 
-  static void New(Seg_array **sa, size_t capacity) {
+  static void New(PMEMoid *sa, size_t capacity) {
 #ifdef PMEM
     auto callback = [](PMEMobjpool *pool, void *ptr, void *arg) {
-      auto value_ptr = reinterpret_cast<size_t*>(arg);
+      auto value_ptr = reinterpret_cast<size_t *>(arg);
       auto sa_ptr = reinterpret_cast<Seg_array *>(ptr);
-      sa_ptr->global_depth =  static_cast<size_t>(log2(*value_ptr));
+      sa_ptr->global_depth = static_cast<size_t>(log2(*value_ptr));
       memset(sa_ptr->_, 0, (*value_ptr) * sizeof(uint64_t));
       return 0;
     };
-    Allocator::Allocate((void**)sa, kCacheLineSize, sizeof(Seg_array) + sizeof(uint64_t) * capacity, callback,
-                        reinterpret_cast<void *>(&capacity));
+    Allocator::Allocate(sa, kCacheLineSize,
+                        sizeof(Seg_array) + sizeof(uint64_t) * capacity,
+                        callback, reinterpret_cast<void *>(&capacity));
 #else
     Allocator::ZAllocate((void **)sa, kCacheLineSize, sizeof(Seg_array));
     new (*sa) Seg_array(capacity);
@@ -221,7 +222,8 @@ template <class T>
 struct Directory {
   static const size_t kDefaultDirectorySize = 1024;
   Seg_array<T> *sa;
-  Seg_array<T> *new_sa;
+  // Seg_array<T> *new_sa;
+  PMEMoid new_sa;
   size_t capacity;
   bool lock;
   int sema = 0;
@@ -229,7 +231,7 @@ struct Directory {
   Directory(Seg_array<T> *_sa) {
     capacity = kDefaultDirectorySize;
     sa = _sa;
-    new_sa = nullptr;
+    new_sa = OID_NULL;
     lock = false;
     sema = 0;
   }
@@ -238,15 +240,12 @@ struct Directory {
     capacity = size;
     // sa = new Seg_array<T>(capacity);
     sa = _sa;
-    new_sa = nullptr;
+    new_sa = OID_NULL;
     lock = false;
     sema = 0;
   }
 
   static void New(Directory **dir, size_t capacity) {
-    // std::cout << "Allocate seg_array" << std::endl;
-    //Seg_array<T> *temp_sa;
-    //Seg_array<T>::New(&temp_sa, capacity);
 #ifdef PMEM
     auto callback = [](PMEMobjpool *pool, void *ptr, void *arg) {
       auto value_ptr =
@@ -254,6 +253,7 @@ struct Directory {
       auto dir_ptr = reinterpret_cast<Directory *>(ptr);
       dir_ptr->capacity = value_ptr->first;
       dir_ptr->sa = value_ptr->second;
+      dir_ptr->new_sa = OID_NULL;
       dir_ptr->lock = false;
       dir_ptr->sema = 0;
       dir_ptr = nullptr;
@@ -272,24 +272,38 @@ struct Directory {
   ~Directory(void) {}
 
   void get_item_num() {
-    /*
     size_t count = 0;
     size_t seg_num = 0;
     Seg_array<T> *seg = sa;
-    Segment<T>** dir_entry = seg->_;
+    Segment<T> **dir_entry = seg->_;
     Segment<T> *ss;
     auto global_depth = seg->global_depth;
     size_t depth_diff;
-    for (int i = 0; i < capacity;)
-    {
+    for (int i = 0; i < capacity;) {
       ss = dir_entry[i];
       depth_diff = global_depth - ss->local_depth;
-      count += ss->count;
+
+      for (unsigned i = 0; i < Segment<T>::kNumSlot; ++i) {
+        if constexpr (std::is_pointer_v<T>) {
+          if ((ss->_[i].key != (T)INVALID) &&
+              ((h(ss->_[i].key->key, ss->_[i].key->length) >>
+                (64 - ss->local_depth)) == ss->pattern)) {
+            ++count;
+          }
+        } else {
+          if ((ss->_[i].key != (T)INVALID) &&
+              ((h(&ss->_[i].key, sizeof(Key_t)) >> (64 - ss->local_depth)) ==
+               ss->pattern)) {
+            ++count;
+          }
+        }
+      }
+
       seg_num++;
       i += pow(2, depth_diff);
     }
     printf("#items: %lld\n", count);
-    printf("load_factor: %f\n", (double)count/(seg_num*256*4));*/
+    printf("load_factor: %f\n", (double)count / (seg_num * 256 * 4));
   }
 
   bool Acquire(void) {
@@ -551,14 +565,20 @@ PMEMoid *Segment<T>::Split(PMEMobjpool *pool_addr, size_t key_hash,
 template <class T>
 CCEH<T>::CCEH(int initCap, PMEMobjpool *_pool) {
   Directory<T>::New(&dir, initCap);
-  Seg_array<T>::New(&dir->sa, initCap);
+  Seg_array<T>::New(&dir->new_sa, initCap);
+  dir->sa = reinterpret_cast<Seg_array<T> *>(pmemobj_direct(dir->new_sa));
+  dir->new_sa = OID_NULL;
   auto dir_entry = dir->sa->_;
   for (int i = 0; i < dir->capacity; ++i) {
     Segment<T>::New(&dir_entry[i], dir->sa->global_depth);
     dir_entry[i]->pattern = i;
   }
   /*clear the log area*/
-  memset(log, 0, sizeof(log_entry) * LOG_NUM);
+  for (int i = 0; i < LOG_NUM; ++i) {
+    log[i].lock = 0;
+    log[i].temp = OID_NULL;
+  }
+
   seg_num = 0;
   restart = 0;
   pool_addr = _pool;
@@ -573,10 +593,42 @@ template <class T>
 CCEH<T>::~CCEH(void) {}
 
 template <class T>
-void CCEH<T>::Recovery(void){
+void CCEH<T>::Recovery(void) {
+  std::cout << "Start the Recovery" << std::endl;
+  for (int i = 0; i < LOG_NUM; ++i) {
+    if (!OID_IS_NULL(log[i].temp)) {
+      pmemobj_free(&log[i].temp);
+    }
+  }
 
+  if (dir != nullptr) {
+    dir->lock = 0;
+    if (!OID_IS_NULL(dir->new_sa)) {
+      pmemobj_free(&dir->new_sa);
+    }
 
-
+    if (dir->sa == nullptr) return;
+    auto dir_entry = dir->sa->_;
+    size_t global_depth = dir->sa->global_depth;
+    size_t depth_cur, buddy, stride, i = 0;
+    /*Recover the Directory*/
+    while (i < dir->capacity) {
+      auto target = dir_entry[i];
+      depth_cur = target->local_depth;
+      target->sema = 0;
+      stride = pow(2, global_depth - depth_cur);
+      buddy = i + stride;
+      for (int j = buddy - 1; j > i; j--) {
+        target = dir_entry[j];
+        if (dir_entry[j] != dir_entry[i]) {
+          dir_entry[j] = dir_entry[i];
+          target->pattern = i >> (global_depth - depth_cur);
+        }
+      }
+      i = i + stride;
+    }
+  }
+  std::cout << "Finish the recovery" << std::endl;
 }
 
 template <class T>
@@ -600,7 +652,9 @@ void CCEH<T>::Directory_Doubling(int x, Segment<T> *s0, PMEMoid *s1) {
   /* new segment array*/
   // auto new_sa = new Seg_array<T>(2*dir->capacity);
   Seg_array<T>::New(&dir->new_sa, 2 * dir->capacity);
-  auto dd = dir->new_sa->_;
+  auto new_seg_array =
+      reinterpret_cast<Seg_array<T> *>(pmemobj_direct(dir->new_sa));
+  auto dd = new_seg_array->_;
 
   for (unsigned i = 0; i < dir->capacity; ++i) {
     dd[2 * i] = d[i];
@@ -610,21 +664,23 @@ void CCEH<T>::Directory_Doubling(int x, Segment<T> *s0, PMEMoid *s1) {
   TX_Swap((void **)&dd[2 * x + 1], s1);
 
 #ifdef PMEM
-  Allocator::Persist(dir->new_sa, sizeof(Seg_array<T>) + sizeof(Segment<T> *) * 2 * dir->capacity);
+  Allocator::Persist(
+      new_seg_array,
+      sizeof(Seg_array<T>) + sizeof(Segment<T> *) * 2 * dir->capacity);
 #endif
   TX_BEGIN(pool_addr) {
     pmemobj_tx_add_range_direct(&dir->sa, sizeof(dir->sa));
     pmemobj_tx_add_range_direct(&dir->new_sa, sizeof(dir->new_sa));
-    pmemobj_tx_add_range_direct(&dir->capacity, sizeof(dir->capacity));    
-    dir->sa = dir->new_sa;
-    dir->new_sa = nullptr;
+    pmemobj_tx_add_range_direct(&dir->capacity, sizeof(dir->capacity));
+    dir->sa = reinterpret_cast<Seg_array<T> *>(pmemobj_direct(dir->new_sa));
+    dir->new_sa = OID_NULL;
     dir->capacity *= 2;
   }
   TX_ONABORT {
     std::cout << "TXN fails during doubling directory" << std::endl;
   }
   TX_END
-  
+
   Allocator::Free(sa);
   printf("Done!!Directory_Doubling towards %lld\n", global_depth);
 }
@@ -705,11 +761,10 @@ RETRY:
       goto RETRY;
     }
 
-    target->pattern = (key_hash >> (8 * sizeof(key_hash) - target->local_depth))
-                      << 1;
     auto ss = reinterpret_cast<Segment<T> *>(pmemobj_direct(*s));
     ss->pattern =
         ((key_hash >> (8 * sizeof(key_hash) - ss->local_depth + 1)) << 1) + 1;
+    Allocator::Persist(&ss->pattern, sizeof(ss->pattern));
 
     // Directory management
     Lock_Directory();
@@ -724,6 +779,9 @@ RETRY:
       } else {  // directory doubling
         Directory_Doubling(x, target, s);
       }
+      target->pattern =
+          (key_hash >> (8 * sizeof(key_hash) - target->local_depth)) << 1;
+      Allocator::Persist(&target->pattern, sizeof(target->pattern));
       target->local_depth += 1;
       Allocator::Persist(&target->local_depth, sizeof(target->local_depth));
 #ifdef INPLACE

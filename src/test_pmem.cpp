@@ -541,7 +541,14 @@ void Run() {
     GeneralBench<T>(rarray, index, thread_num, operation_num, "Insert",
                     &concurr_insert);
     index->getNumber();
-    // index->Recovery();
+
+    gettimeofday(&tv1, NULL);
+    index->Recovery();
+    gettimeofday(&tv2, NULL);
+    auto duration = (double)(tv2.tv_usec - tv1.tv_usec) / 1000000 +
+                    (double)(tv2.tv_sec - tv1.tv_sec);
+    std::cout << "Recovery Time(s): " << duration << std::endl;
+    
     for (int i = 0; i < thread_num; ++i) {
       rarray[i].workload = not_used_workload;
     }
