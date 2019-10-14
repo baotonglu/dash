@@ -10,11 +10,12 @@
 #include "../util/System.hpp"
 #include "../util/random.h"
 #include "../util/uniform.hpp"
+#include "./CCEH/CCEH_baseline.h"
+#include "./Level/level.h"
 #include "allocator.h"
 #include "ex_finger.h"
 #include "lh_finger.h"
 #include "libpmemobj.h"
-#include "./CCEH/CCEH_baseline.h"
 #include "utils.h"
 
 std::string pool_name = "/mnt/pmem0/";
@@ -103,7 +104,7 @@ Hash<T> *InitializeIndex(int seg_num) {
     } else {
       new (eh) linear::Linear<T>();
     }
-  }else if (index_type == "cceh"){
+  } else if (index_type == "cceh") {
     std::string index_pool_name = pool_name + "pmem_cceh.data";
     if (FileExists(index_pool_name.c_str())) file_exist = true;
     Allocator::Initialize(index_pool_name.c_str(), pool_size);
@@ -116,6 +117,22 @@ Hash<T> *InitializeIndex(int seg_num) {
       new (eh) cceh::CCEH<T>();
     }
     std::cout << "Finish the initialization of CCEH" << std::endl;
+  } else if (index_type == "level") {
+    std::string index_pool_name = pool_name + "pmem_level.data";
+    if (FileExists(index_pool_name.c_str())) file_exist = true;
+    Allocator::Initialize(index_pool_name.c_str(), pool_size);
+    std::cout << "Initialize Level Hashing" << std::endl;
+    eh = reinterpret_cast<Hash<T> *>(
+        Allocator::GetRoot(sizeof(linear::Linear<T>)));
+    if (!file_exist) {
+      new (eh) level::LevelHashing<T>();
+      int level_size = 13;
+      level::initialize_level(Allocator::Get()->pm_pool_,
+                              reinterpret_cast<level::LevelHashing<T> *>(eh),
+                              &level_size);
+    } else {
+      new (eh) level::LevelHashing<T>();
+    }
   }
   return eh;
 }
@@ -548,7 +565,7 @@ void Run() {
     auto duration = (double)(tv2.tv_usec - tv1.tv_usec) / 1000000 +
                     (double)(tv2.tv_sec - tv1.tv_sec);
     std::cout << "Recovery Time(s): " << duration << std::endl;
-    
+
     for (int i = 0; i < thread_num; ++i) {
       rarray[i].workload = not_used_workload;
     }

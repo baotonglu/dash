@@ -14,7 +14,7 @@
 
 #define LOG(msg) std::cout << msg << "\n"
 #define LAYOUT "_level"
-//#define FIXED 1
+#define FIXED 1
 //#define MIXED_TEST 1
 //#define TEST_BANDWIDTH 1
 
@@ -26,7 +26,7 @@ PMEMobjpool *pop;
 #ifdef FIXED
 LevelHashing<Key_t> *level;
 #else
-LevelHashing<char *> *level;
+LevelHashing<string_key *> *level;
 #endif
 
 uint64_t *workload;
@@ -40,11 +40,6 @@ int bar_c;// use to notify the
 std::mutex mtx;
 std::condition_variable cv;
 bool finished = false;
-//ADD and SUB return the value after add or sub
-#define ADD(_p, _v) (__atomic_add_fetch (_p, _v, __ATOMIC_SEQ_CST))
-#define SUB(_p, _v) (__atomic_sub_fetch (_p, _v, __ATOMIC_SEQ_CST))
-#define LOAD(_p) (__atomic_load_n (_p, __ATOMIC_SEQ_CST))
-#define STORE(_p, _v) (__atomic_store_n (_p, _v, __ATOMIC_SEQ_CST))
  
 struct my_root{
 	PMEMoid _level;
@@ -100,9 +95,9 @@ void mixed(struct range *_range) {
     random = rng.next_uint32()%10;
     if(random <= 1){
       value = _value_workload[i];
-      level->Insert(pop, key, value);
+      level->Insert(key, value);
     }else{
-      if (level->Get(pop, key) == NONE)
+      if (level->Get(key) == NONE)
       {
         not_found++;
       }
@@ -145,7 +140,7 @@ void concurr_insert(struct range *_range) {
     key = reinterpret_cast<char *>(var_workload + i);
  #endif
     value = _value_workload[i];
-    level->Insert(pop, key, value);
+    level->Insert(key, value);
   }
 
   /*the last thread notify the main thread to wake up*/
@@ -179,7 +174,7 @@ void concurr_get(struct range *_range) {
  #else
     key = reinterpret_cast<char *>(var_workload + i);
  #endif
-    if (level->Get(pop, key) == NONE)
+    if (level->Get(key) == NONE)
     {
       not_found++;
     }
@@ -216,7 +211,7 @@ void concurr_delete(struct range *_range) {
  #else
     key = reinterpret_cast<char *>(var_workload + i);
  #endif
-    if (level->Delete(pop, key) == false) {
+    if (level->Delete(key) == false) {
 	    not_found++;
     } 
   }
@@ -249,8 +244,8 @@ void initialize_index(int initCap){
 			pmemobj_zalloc(pop, &rr->_level, sizeof(LevelHashing<Key_t>), LEVEL_TYPE);
 			level = (LevelHashing<Key_t> *)pmemobj_direct(rr->_level);
 #else
-			pmemobj_zalloc(pop, &rr->_level, sizeof(LevelHashing<char *>), LEVEL_TYPE);
-			level = (LevelHashing<char *> *)pmemobj_direct(rr->_level);
+			pmemobj_zalloc(pop, &rr->_level, sizeof(LevelHashing<string_key *>), LEVEL_TYPE);
+			level = (LevelHashing<string_key *> *)pmemobj_direct(rr->_level);
 #endif
 			initialize_level(pop, level, &initCap);
 			//Initialize_CCEH(pop, eh, initCap);
@@ -268,7 +263,7 @@ void initialize_index(int initCap){
 #ifdef FIXED
 			level = (LevelHashing<Key_t> *)pmemobj_direct(rr->_level);
 #else
-			level = (LevelHashing<char *> *)pmemobj_direct(rr->_level);
+			level = (LevelHashing<string_key *> *)pmemobj_direct(rr->_level);
 #endif
 			remapping(level);
 			std::cout<<"Successfully open a pool"<<std::endl;
