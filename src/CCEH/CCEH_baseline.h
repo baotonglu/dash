@@ -607,14 +607,6 @@ void CCEH<T>::Directory_Doubling(int x, Segment<T> *s0, PMEMoid *s1) {
   for (unsigned i = 0; i < dir->capacity; ++i) {
     dd[2 * i] = d[i];
     dd[2 * i + 1] = d[i];
-    /*
-    if (i == x) {
-      dd[2*i] = s0;
-      dd[2*i+1] = s1;
-    } else {
-      dd[2*i] = d[i];
-      dd[2*i+1] = d[i];
-    }*/
   }
 
   TX_Swap((void **)&dd[2 * x + 1], s1);
@@ -654,39 +646,32 @@ void CCEH<T>::Unlock_Directory() {
 
 template <class T>
 void CCEH<T>::Directory_Update(int x, Segment<T> *s0, PMEMoid *s1) {
-  //  printf("directory update for %d\n", x);
   Segment<T> **dir_entry = dir->sa->_;
   auto global_depth = dir->sa->global_depth;
   unsigned depth_diff = global_depth - s0->local_depth;
-  if (depth_diff == 0) {
+  if (depth_diff == 1) {
     if (x % 2 == 0) {
-      // dir_entry[x+1] = s1;
       TX_Swap((void **)&dir_entry[x + 1], s1);
 #ifdef PMEM
       Allocator::Persist(&dir_entry[x + 1], sizeof(Segment<T> *));
 #endif
     } else {
-      // dir_entry[x] = s1;
       TX_Swap((void **)&dir_entry[x], s1);
 #ifdef PMEM
       Allocator::Persist(&dir_entry[x], sizeof(Segment<T> *));
 #endif
     }
   } else {
-    int chunk_size = pow(2, global_depth - (s0->local_depth - 1));
+    int chunk_size = pow(2, global_depth - (s0->local_depth));
     x = x - (x % chunk_size);
-    /*first to do the atomic attach*/
-    TX_Swap((void **)&dir_entry[x + chunk_size / 2], s1);
-    auto seg_ptr = dir_entry[x + chunk_size / 2];
-    for (int i = 1; i < chunk_size / 2; ++i) {
-      dir_entry[x + chunk_size / 2 + i] = seg_ptr;
+    int base = chunk_size / 2;
+    TX_Swap((void **)&dir_entry[x + base + base - 1], s1);
+    auto seg_ptr = dir_entry[x + base + base - 1];
+    for (int i = base - 2; i >= 0; --i) {
+      dir_entry[x + base + i] = seg_ptr;
+      Allocator::Persist(&dir_entry[x + base + i], sizeof(uint64_t));
     }
-#ifdef PMEM
-    Allocator::Persist(&dir_entry[x + chunk_size / 2],
-                       sizeof(Segment<T> *) * chunk_size / 2);
-#endif
   }
-  //  printf("Done!directory update for %d\n", x);
 }
 
 template <class T>
@@ -720,15 +705,9 @@ RETRY:
     if (s == nullptr) {
       goto RETRY;
     }
-    // printf("Done!!Segment split for key %lld\n", key);
-    target->local_depth += 1;
-    // clflush((char*)&target->local_depth, sizeof(target->local_depth));
-#ifdef PMEM
-    Allocator::Persist(&target->local_depth, sizeof(target->local_depth));
-#endif
 
-    target->pattern =
-        (key_hash >> (8 * sizeof(key_hash) - target->local_depth + 1)) << 1;
+    target->pattern = (key_hash >> (8 * sizeof(key_hash) - target->local_depth))
+                      << 1;
     auto ss = reinterpret_cast<Segment<T> *>(pmemobj_direct(*s));
     ss->pattern =
         ((key_hash >> (8 * sizeof(key_hash) - ss->local_depth + 1)) << 1) + 1;
@@ -741,15 +720,13 @@ RETRY:
 
       x = (key_hash >> (8 * sizeof(key_hash) - sa->global_depth));
       target = dir_entry[x];
-#ifdef INPLACE
-      if (target->local_depth - 1 < sa->global_depth) {
-#else
       if (target->local_depth < sa->global_depth) {
-#endif
         Directory_Update(x, target, s);
       } else {  // directory doubling
         Directory_Doubling(x, target, s);
       }
+      target->local_depth += 1;
+      Allocator::Persist(&target->local_depth, sizeof(target->local_depth));
 #ifdef INPLACE
       target->sema = 0;
       target->release_lock(pool_addr);
