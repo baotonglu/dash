@@ -1,23 +1,23 @@
 #include <gflags/gflags.h>
 #include <immintrin.h>
 #include <sys/time.h>
+#include <atomic>
 #include <chrono>
 #include <condition_variable>
 #include <cstring>
 #include <mutex>
-#include <atomic>
 #include <thread>
 #include "../util/System.hpp"
 #include "../util/random.h"
 #include "../util/uniform.hpp"
 #include "allocator.h"
-#include "lh_finger.h"
 #include "ex_finger.h"
+#include "lh_finger.h"
 #include "libpmemobj.h"
 #include "utils.h"
 
 std::string pool_name = "/mnt/pmem0/";
-//static const char *pool_name = "pmem_hash.data";
+// static const char *pool_name = "pmem_hash.data";
 static const size_t pool_size = 1024ul * 1024ul * 1024ul * 10ul;
 DEFINE_string(index, "dash-ex",
               "which index to evaluate:dash-ex/dash-lh/cceh/level");
@@ -71,34 +71,34 @@ Hash<T> *InitializeIndex(int seg_num) {
   bool file_exist = false;
   if (index_type == "dash-ex") {
     std::string index_pool_name = pool_name + "pmem_ex.data";
-    if(FileExists(index_pool_name.c_str())) file_exist = true;
+    if (FileExists(index_pool_name.c_str())) file_exist = true;
     Allocator::Initialize(index_pool_name.c_str(), pool_size);
 
     std::cout << "pool addr is " << Allocator::Get()->pm_pool_ << std::endl;
     std::cout << "Initialize Extendible Hashing" << std::endl;
-#ifdef PREALLOC    
+#ifdef PREALLOC
     extendible::TlsTablePool<Key_t>::Initialize();
 #endif
     eh = reinterpret_cast<Hash<T> *>(
         Allocator::GetRoot(sizeof(extendible::Finger_EH<T>)));
-    if(!file_exist){
+    if (!file_exist) {
       new (eh) extendible::Finger_EH<T>(seg_num, Allocator::Get()->pm_pool_);
-    }else{
+    } else {
       new (eh) extendible::Finger_EH<T>();
     }
   } else if (index_type == "dash-lh") {
     std::string index_pool_name = pool_name + "pmem_lh.data";
-    if(FileExists(index_pool_name.c_str())) file_exist = true;
+    if (FileExists(index_pool_name.c_str())) file_exist = true;
     Allocator::Initialize(index_pool_name.c_str(), pool_size);
     std::cout << "Initialize Linear Hashing" << std::endl;
-#ifdef PREALLOC    
-     linear::TlsTablePool<Key_t>::Initialize();
+#ifdef PREALLOC
+    linear::TlsTablePool<Key_t>::Initialize();
 #endif
     eh = reinterpret_cast<Hash<T> *>(
         Allocator::GetRoot(sizeof(linear::Linear<T>)));
-    if(!file_exist){
+    if (!file_exist) {
       new (eh) linear::Linear<T>(Allocator::Get()->pm_pool_);
-    }else{
+    } else {
       new (eh) linear::Linear<T>();
     }
   }
@@ -220,11 +220,11 @@ void concurr_search(struct range *_range, Hash<T> *index) {
     uint64_t round = (end - begin) / 1000;
     uint64_t i = 0;
     spin_wait();
-    
-    while(i < round){
+
+    while (i < round) {
       auto epoch_guard = Allocator::AquireEpochGuard();
-      uint64_t _end = begin + (i + 1)*1000;
-      for(uint64_t j = begin + i*1000; j < _end; ++j){
+      uint64_t _end = begin + (i + 1) * 1000;
+      for (uint64_t j = begin + i * 1000; j < _end; ++j) {
         if (index->Get(key_array[j], true) == NONE) not_found++;
       }
       ++i;
@@ -232,8 +232,8 @@ void concurr_search(struct range *_range, Hash<T> *index) {
 
     {
       auto epoch_guard = Allocator::AquireEpochGuard();
-      for(i = begin + 1000*round; i < end; ++i){
-        if(index->Get(key_array[i], true) == NONE) not_found++;
+      for (i = begin + 1000 * round; i < end; ++i) {
+        if (index->Get(key_array[i], true) == NONE) not_found++;
       }
     }
   } else {
@@ -243,10 +243,10 @@ void concurr_search(struct range *_range, Hash<T> *index) {
     uint64_t string_key_size = sizeof(string_key) + _range->length;
 
     spin_wait();
-    while(i < round){
+    while (i < round) {
       auto epoch_guard = Allocator::AquireEpochGuard();
-      uint64_t _end = begin + (i + 1)*1000;
-      for(uint64_t j = begin + i*1000; j < _end; ++j){
+      uint64_t _end = begin + (i + 1) * 1000;
+      for (uint64_t j = begin + i * 1000; j < _end; ++j) {
         var_key = reinterpret_cast<T>(workload + string_key_size * j);
         if (index->Get(var_key, true) == NONE) not_found++;
       }
@@ -255,7 +255,7 @@ void concurr_search(struct range *_range, Hash<T> *index) {
 
     {
       auto epoch_guard = Allocator::AquireEpochGuard();
-      for(i = begin + 1000*round; i < end; ++i){
+      for (i = begin + 1000 * round; i < end; ++i) {
         var_key = reinterpret_cast<T>(workload + string_key_size * i);
         if (index->Get(var_key, true) == NONE) not_found++;
       }
@@ -377,7 +377,7 @@ void GeneralBench(range *rarray, Hash<T> *index, int thread_num,
   bar_c = thread_num;
 
   std::cout << profile_name << " Begin" << std::endl;
- //System::profile(profile_name, [&]() {
+  // System::profile(profile_name, [&]() {
   for (uint64_t i = 0; i < thread_num; ++i) {
     thread_array[i] = new std::thread(*test_func, &rarray[i], index);
   }
@@ -442,7 +442,7 @@ void Run() {
     Allocator::ZAllocate(&ptr, kCacheLineSize,
                          (sizeof(string_key) + 16) * generate_num);
     insert_workload = pmemobj_direct(ptr);
-                         std::cout << "allocate finish for pm" << std::endl;
+    std::cout << "allocate finish for pm" << std::endl;
     memcpy(insert_workload, workload, (sizeof(string_key) + 16) * generate_num);
   } else {
     insert_workload = workload;
@@ -519,20 +519,20 @@ void Run() {
     }
     GeneralBench<T>(rarray, index, thread_num, operation_num, "Mixed", &mixed);
   } else { /*do the benchmark for all single operations*/
-  std::cout << "insertion start" << std::endl;
+    std::cout << "insertion start" << std::endl;
     for (int i = 0; i < thread_num; ++i) {
       rarray[i].workload = not_used_insert_workload;
     }
     GeneralBench<T>(rarray, index, thread_num, operation_num, "Insert",
                     &concurr_insert);
     index->getNumber();
-    //index->Recovery();
+    // index->Recovery();
     for (int i = 0; i < thread_num; ++i) {
       rarray[i].workload = not_used_workload;
     }
     GeneralBench<T>(rarray, index, thread_num, operation_num, "Pos_search",
                     &concurr_search);
-    //index->getNumber();
+    // index->getNumber();
 
     for (int i = 0; i < thread_num; ++i) {
       rarray[i].begin = operation_num + i * chunk_size;

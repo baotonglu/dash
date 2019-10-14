@@ -1005,7 +1005,7 @@ struct Directory {
   typedef Table<T> *table_p;
   uint64_t N_next;
   table_p _[directorySize];
-  Directory() { N_next = baseShifBits << 32; }
+  // Directory() { N_next = baseShifBits << 32; }
 
   static void New(PMEMoid *dir) {
     auto callback = [](PMEMobjpool *pool, void *ptr, void *arg) {
@@ -2108,6 +2108,8 @@ class Linear : public Hash<T> {
     uint64_t old_N_next = dir.N_next;
     uint32_t N = old_N_next >> 32;
     uint32_t next = (uint32_t)old_N_next;
+    std::cout << "N = " << N << std::endl;
+    std::cout << "next = " << next << std::endl;
     uint32_t occupied_bucket = pow2(N) + next;
     uint64_t recount_num = 0;
 
@@ -2379,6 +2381,7 @@ sizeof(Table<T>) * seg_size);*/
 
 template <class T>
 Linear<T>::Linear(PMEMobjpool *_pool) {
+  std::cout << "Start to initialize from scratch" << std::endl;
   pool_addr = _pool;
   lock = 0;
   dir.N_next = baseShifBits << 32;
@@ -2395,11 +2398,9 @@ Linear<T>::Linear(PMEMobjpool *_pool) {
   }
 }
 
-template<class T>
-Linear<T>::Linear(void){
+template <class T>
+Linear<T>::Linear(void) {
   std::cout << "Reinitialize Up for linear hashing" << std::endl;
-  std::cout << "N = " << (dir.N_next >> 32) << std::endl;
-  std::cout << "next = " <<  (uint32_t)dir.N_next << std::endl;
 }
 
 template <class T>
