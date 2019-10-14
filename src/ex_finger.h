@@ -1500,7 +1500,7 @@ class Finger_EH : public Hash<T> {
   Finger_EH(void);
   Finger_EH(size_t, PMEMobjpool *_pool);
   ~Finger_EH(void);
-  int Insert(T key, Value_t value);
+  void Insert(T key, Value_t value);
   bool Delete(T);
   inline Value_t Get(T);
   Value_t Get(T key, bool is_in_epoch);
@@ -1886,14 +1886,12 @@ void Finger_EH<T>::Recovery() {
 }
 
 template <class T>
-int Finger_EH<T>::Insert(T key, Value_t value) {
-  std::cout << "Insert key " << key << "pool addr is "<< pool_addr<< std::endl;
+void Finger_EH<T>::Insert(T key, Value_t value) {
 #ifdef EPOCH
   auto epoch_guard = Allocator::AquireEpochGuard();
 #endif
   uint64_t key_hash;
   if constexpr (std::is_pointer_v<T>) {
-    // key_hash = h(key, (reinterpret_cast<string_key *>(key))->length);
     key_hash = h(key->key, key->length);
   } else {
     key_hash = h(&key, sizeof(key));
@@ -1980,8 +1978,6 @@ RETRY:
   } else if (ret == -2) {
     goto RETRY;
   }
-
-  return 0;
 }
 
 template <class T>

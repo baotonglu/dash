@@ -15,14 +15,18 @@
 #include "../../util/pair.h"
 #include "../../util/persist.h"
 #include "../allocator.h"
+#include "../Hash.h"
 
 #ifdef PMEM
 #include <libpmemobj.h>
 #endif
 
 #define PERSISTENT_LOCK 1
-
 #define INPLACE 1
+#define EPOCH 1
+
+namespace cceh{
+
 template<class T>
 struct _Pair{
   T key;
@@ -38,11 +42,6 @@ constexpr size_t kNumPairPerCacheLine = kCacheLineSize/16;
 constexpr size_t kNumCacheLine = 4;
 
 uint64_t clflushCount;
-
-struct string_key{
-  char key[16];
-  int length;
-};
 
 inline bool var_compare(char *str1, char *str2, int len1, int len2){
    if(len1 != len2) return false;
@@ -65,7 +64,7 @@ struct Segment {
     memset((void*)&_[0],255,sizeof(_Pair<T>)*kNumSlot);
   }
 
-  static void New(Segment **seg, size_t depth){
+  static void New(Segment<T> **seg, size_t depth){
 #ifdef PMEM
   auto callback = [](PMEMobjpool *pool, void *ptr, void *arg){
     auto value_ptr = reinterpret_cast<size_t*>(arg);
@@ -81,8 +80,10 @@ struct Segment {
     //pmemobj_persist(pool, seg_ptr, sizeof(Segment<T>));
     return 0;
   };
-  Allocator::Allocate((void**)seg, kCacheLineSize, sizeof(Segment),
+  PMEMoid ptr;
+  Allocator::Allocate(&ptr, kCacheLineSize, sizeof(Segment),
                       callback, reinterpret_cast<void*>(&depth));
+  *seg = reinterpret_cast<Segment<T>*>(pmemobj_direct(ptr));
 #else
   Allocator::ZAllocate((void **)seg, kCacheLineSize, sizeof(Segment));
   new (*seg) Segment(depth);
@@ -201,9 +202,11 @@ struct Seg_array{
   }
 
   static void New(Seg_array **sa, size_t capacity){
+    PMEMoid ptr;
     Segment<T> **seg_array{nullptr};
-    Allocator::ZAllocate((void**)&seg_array, kCacheLineSize,
+    Allocator::ZAllocate(&ptr, kCacheLineSize,
                            sizeof(uint64_t) * capacity);
+    seg_array = reinterpret_cast<Segment<T> **>(pmemobj_direct(ptr));
 #ifdef PMEM
     auto callback = [](PMEMobjpool *pool, void *ptr, void *arg){
       auto value_ptr = reinterpret_cast<std::pair<Segment<T>**, size_t> *>(arg);
@@ -213,8 +216,9 @@ struct Seg_array{
       return 0;
     };
     auto call_args = std::make_pair(seg_array, capacity);
-    Allocator::Allocate((void**)sa, kCacheLineSize, sizeof(Seg_array), callback,
+    Allocator::Allocate( &ptr, kCacheLineSize, sizeof(Seg_array), callback,
                           reinterpret_cast<void*>(&call_args));
+    *sa = reinterpret_cast<Seg_array*>(pmemobj_direct(ptr));
 #else
     Allocator::ZAllocate((void**)sa, kCacheLineSize, sizeof(Seg_array));
     new (*sa) Seg_array(capacity);
@@ -249,6 +253,7 @@ struct Directory {
   }
 
   static void New(Directory** dir, size_t capacity){
+    //std::cout << "Allocate seg_array" << std::endl;
     Seg_array<T>* temp_sa;
     Seg_array<T>::New(&temp_sa, capacity);
 #ifdef PMEM
@@ -312,19 +317,22 @@ struct Directory {
 };
 
 template<class T>
-class CCEH{
+class CCEH : public Hash<T>{
   public:
     CCEH(void);
-    CCEH(int);
+    CCEH(int, PMEMobjpool *_pool);
     ~CCEH(void);
     void Insert(T key, Value_t value);
     bool InsertOnly(T, Value_t);
     bool Delete(T);
     Value_t Get(T);
+    Value_t Get(T, bool is_in_epoch);
     Value_t FindAnyway(T);
     double Utilization(void);
     size_t Capacity(void);
-    bool Recovery(void);
+    void Recovery(void){
+      std::cout << "Stay tuned" << std::endl;
+    }
     void Directory_Doubling(int x, Segment<T> *s0, Segment<T> *s1);
     void Directory_Update(int x, Segment<T> *s0, Segment<T> *s1);
     void Lock_Directory();
@@ -362,8 +370,8 @@ int Segment<T>::Insert(PMEMobjpool *pool_addr, T key, Value_t value, size_t loc,
   {
     slot = (loc+i)%kNumSlot;
     if constexpr (std::is_pointer_v<T>){
-      //if (_[slot].key != (T)INVALID && (strcmp(key, _[slot].key) == 0))
-      if (_[slot].key != (T)INVALID && (var_compare((reinterpret_cast<string_key*>(key))->key, _[slot].key, (reinterpret_cast<string_key*>(key))->length, (reinterpret_cast<string_key*>(_[slot].key))->length)))
+      //if (_[slot].key != (T)INVALID && (var_compare((reinterpret_cast<string_key*>(key))->key, _[slot].key, (reinterpret_cast<string_key*>(key))->length, (reinterpret_cast<string_key*>(_[slot].key))->length)))
+      if (_[slot].key != (T)INVALID && (var_compare(key->key, _[slot].key->key, key->length, _[slot].key->length)))
       {
         release_lock(pool_addr);
         return 0;
@@ -381,7 +389,7 @@ int Segment<T>::Insert(PMEMobjpool *pool_addr, T key, Value_t value, size_t loc,
     slot = (loc + i) % kNumSlot;
     if constexpr (std::is_pointer_v<T>){
       //if ((_[slot].key != (T)INVALID) && ((h(_[slot].key,strlen(_[slot].key)) >> (8*sizeof(key_hash)-local_depth)) != pattern)) {
-      if ((_[slot].key != (T)INVALID) && ((h(_[slot].key,(reinterpret_cast<string_key*>(_[slot].key))->length) >> (8*sizeof(key_hash)-local_depth)) != pattern)) {
+      if ((_[slot].key != (T)INVALID) && ((h(_[slot].key->key, _[slot].key->length) >> (8*sizeof(key_hash)-local_depth)) != pattern)) {
         _[slot].key = (T)INVALID;
       }
       if (CAS(&_[slot].key, &LOCK, SENTINEL)) {
@@ -491,8 +499,8 @@ Segment<T>* Segment<T>::Split(PMEMobjpool *pool_addr){
     if constexpr (std::is_pointer_v<T>){
       if (_[i].key != (T)INVALID)
        {
-         //key_hash = h(_[i].key, strlen(_[i].key));
-         key_hash = h(_[i].key, (reinterpret_cast<string_key*>(_[i].key))->length);
+         //key_hash = h(_[i].key, (reinterpret_cast<string_key*>(_[i].key))->length);
+         key_hash = h(_[i].key->key, _[i].key->length);
        } 
     }else{
       key_hash = h(&_[i].key, sizeof(Key_t));
@@ -544,19 +552,23 @@ Segment<T>* Segment<T>::Split(PMEMobjpool *pool_addr){
 }
 
 template<class T>
-CCEH<T>::CCEH(int initCap)
+CCEH<T>::CCEH(int initCap, PMEMobjpool *_pool)
 {
-  //dir = new Directory<T>(initCap);
   Directory<T>::New(&dir, initCap); 
   auto dir_entry = dir->sa->_;
   for (int i = 0; i < dir->capacity; ++i)
   {
-    //dir_entry[i] = new Segment<T>(dir->sa->global_depth);
     Segment<T>::New(&dir_entry[i], dir->sa->global_depth);
     dir_entry[i]->pattern = i;
   }
   seg_num = 0;
   restart = 0;
+  pool_addr = _pool;
+}
+
+template<class T>
+CCEH<T>::CCEH(void){
+  std::cout << "Reintialize Up for CCEH" << std::endl;
 }
 
 template<class T>
@@ -652,11 +664,14 @@ void CCEH<T>::Directory_Update(int x, Segment<T> *s0, Segment<T> *s1){
 
 template<class T>
 void CCEH<T>::Insert(T key, Value_t value) {
+#ifdef EPOCH
+  auto epoch_guard = Allocator::AquireEpochGuard();
+#endif
 STARTOVER:
   uint64_t key_hash;
   if constexpr (std::is_pointer_v<T>){
-    //key_hash = h(key, strlen(key));
-    key_hash = h(key, (reinterpret_cast<string_key *>(key))->length);
+    //key_hash = h(key, (reinterpret_cast<string_key *>(key))->length);
+    key_hash = h(key->key, key->length);
   }else{
     key_hash = h(&key, sizeof(key));
   }
@@ -673,7 +688,6 @@ RETRY:
   }
 
   auto ret = target->Insert(pool_addr, key, value, y, key_hash);
-  //std::cout<<"I am inserting "<<key<<", the x = "<<x<<std::endl;
 
   if (ret == 1) {
     Segment<T>* s = target->Split(pool_addr);
@@ -724,10 +738,12 @@ RETRY:
 // TODO
 template<class T>
 bool CCEH<T>::Delete(T key) {
+#ifdef EPOCH
+  auto epoch_guard = Allocator::AquireEpochGuard();
+#endif
   uint64_t key_hash;
   if constexpr (std::is_pointer_v<T>){
-    //key_hash = h(key, strlen(key));
-    key_hash = h(key, (reinterpret_cast<string_key *>(key))->length);
+    key_hash = h(key->key, key->length);
   }else{
     key_hash = h(&key, sizeof(key));
   }
@@ -758,8 +774,8 @@ RETRY:
   for (unsigned i = 0; i < kNumPairPerCacheLine * kNumCacheLine; ++i) {
     auto slot = (y+i) % Segment<T>::kNumSlot;
     if constexpr (std::is_pointer_v<T>){
-      //if ((dir_->_[slot].key != (T)INVALID) && (strcmp(dir_->_[slot].key, key) == 0))
-      if ((dir_->_[slot].key != (T)INVALID) && (var_compare((reinterpret_cast<string_key*>(key))->key, dir_->_[slot].key, (reinterpret_cast<string_key*>(key))->length, (reinterpret_cast<string_key*>(dir_->_[slot].key)->length))))
+      //if ((dir_->_[slot].key != (T)INVALID) && (var_compare((reinterpret_cast<string_key*>(key))->key, dir_->_[slot].key, (reinterpret_cast<string_key*>(key))->length, (reinterpret_cast<string_key*>(dir_->_[slot].key)->length))))
+      if ((dir_->_[slot].key != (T)INVALID) && (var_compare(key->key, dir_->_[slot].key->key, key->length, dir_->_[slot].key->length)))
       {
          dir_->_[slot].key = (T)INVALID;
          Allocator::Persist(&dir_->_[slot], sizeof(_Pair<T>));
@@ -786,12 +802,23 @@ RETRY:
 }
 
 template<class T>
+Value_t CCEH<T>::Get(T key, bool is_in_epoch){
+  if (is_in_epoch) {
+#ifdef EPOCH
+    auto epoch_guard = Allocator::AquireEpochGuard();
+#endif
+    return Get(key);
+  }
+  return Get(key);
+}
+
+template<class T>
 Value_t CCEH<T>::Get(T key) {
   //std::cout<<"Begin: Get key "<<key<<std::endl;
   uint64_t key_hash;
   if constexpr (std::is_pointer_v<T>){
-    //key_hash = h(key, strlen(key));
-    key_hash = h(key, (reinterpret_cast<string_key *>(key))->length);
+    key_hash = h(key->key, key->length);
+    //key_hash = h(key, (reinterpret_cast<string_key *>(key))->length);
   }else{
     key_hash = h(&key, sizeof(key));
   }
@@ -820,8 +847,8 @@ RETRY:
   for (unsigned i = 0; i < kNumPairPerCacheLine * kNumCacheLine; ++i) {
     auto slot = (y+i) % Segment<T>::kNumSlot;
     if constexpr (std::is_pointer_v<T>){
-      //if ((dir_->_[slot].key != (T)INVALID) && (strcmp(dir_->_[slot].key, key) == 0))
-      if ((dir_->_[slot].key != (T)INVALID) && (var_compare((reinterpret_cast<string_key*>(key))->key, dir_->_[slot].key, (reinterpret_cast<string_key*>(key))->length, (reinterpret_cast<string_key*>(dir_->_[slot].key)->length))))
+      //if ((dir_->_[slot].key != (T)INVALID) && (var_compare((reinterpret_cast<string_key*>(key))->key, dir_->_[slot].key, (reinterpret_cast<string_key*>(key))->length, (reinterpret_cast<string_key*>(dir_->_[slot].key)->length))))
+      if ((dir_->_[slot].key != (T)INVALID) && (var_compare(key->key, dir_->_[slot].key->key, key->length, dir_->_[slot].key->length)))
       {
          auto value = dir_->_[slot].value;
   #ifdef INPLACE
@@ -930,3 +957,4 @@ void Directory::SanityCheck(void* addr) {
     }
   }
 }*/
+}

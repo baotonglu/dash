@@ -2091,7 +2091,7 @@ class Linear : public Hash<T> {
   Linear(void);
   Linear(PMEMobjpool *_pool);
   ~Linear(void);
-  int Insert(T key, Value_t value);
+  void Insert(T key, Value_t value);
   bool Delete(T);
   inline Value_t Get(T);
   Value_t Get(T key, bool is_in_epoch);
@@ -2541,7 +2541,7 @@ void Linear<T>::recoverSegment(Table<T> **seg_ptr, size_t index) {
 }
 
 template <class T>
-int Linear<T>::Insert(T key, Value_t value) {
+void Linear<T>::Insert(T key, Value_t value) {
 #ifdef EPOCH
   auto epoch_guard = Allocator::AquireEpochGuard();
 #endif
@@ -2581,7 +2581,6 @@ RETRY:
   } else if (ret == -1) {
     Expand(2);
   }
-  return 0;
 }
 
 template <class T>

@@ -52,8 +52,7 @@ struct Allocator {
   static Allocator* instance_;
   static Allocator* Get() { return instance_; }
 
-  /*Need to use the TXN to allocate the memory, so no need to persisit the
-   * memory by ourselves*/
+  /* Must ensure that this pointer is in persistent memory*/
   static void Allocate(void** ptr, uint32_t alignment, size_t size,
                        int (*alloc_constr)(PMEMobjpool* pool, void* ptr,
                                            void* arg),
@@ -63,7 +62,7 @@ struct Allocator {
       *ptr = pmemobj_direct(pmemobj_tx_alloc(size, TOID_TYPE_NUM(char)));
       alloc_constr(instance_->pm_pool_, *ptr, arg);
     }
-    TX_ONABORT { LOG_FATAL("allocation txn failure"); }
+    TX_ONABORT {LOG_FATAL("Allocate: TXN Allocation Error");}
     TX_END
     /*
     PMEMoid pm_ptr;
@@ -82,7 +81,7 @@ struct Allocator {
     auto ret = pmemobj_alloc(instance_->pm_pool_, pm_ptr, size,
                              TOID_TYPE_NUM(char), alloc_constr, arg);
     if (ret) {
-      LOG_FATAL("allocation error");
+      LOG_FATAL("Allocate: TXN Allocation Error");
     }
   }
 
@@ -110,13 +109,14 @@ struct Allocator {
     posix_memalign(ptr, alignment, size);
   }
 
+  /*Must ensure that this pointer is in persistent memory*/
   static void ZAllocate(void** ptr, uint32_t alignment, size_t size) {
 #ifdef PMEM
     TX_BEGIN(instance_->pm_pool_) {
       pmemobj_tx_add_range_direct(ptr, sizeof(*ptr));
       *ptr = pmemobj_direct(pmemobj_tx_zalloc(size, TOID_TYPE_NUM(char)));
     }
-    TX_ONABORT { LOG_FATAL("txn allocation error"); }
+    TX_ONABORT { LOG_FATAL("ZAllocate: TXN Allocation Error"); }
     TX_END
 #else
     posix_memalign(ptr, alignment, size);

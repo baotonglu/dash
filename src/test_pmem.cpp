@@ -14,6 +14,7 @@
 #include "ex_finger.h"
 #include "lh_finger.h"
 #include "libpmemobj.h"
+#include "./CCEH/CCEH_baseline.h"
 #include "utils.h"
 
 std::string pool_name = "/mnt/pmem0/";
@@ -75,7 +76,7 @@ Hash<T> *InitializeIndex(int seg_num) {
     Allocator::Initialize(index_pool_name.c_str(), pool_size);
 
     std::cout << "pool addr is " << Allocator::Get()->pm_pool_ << std::endl;
-    std::cout << "Initialize Extendible Hashing" << std::endl;
+    std::cout << "Initialize DASH-Extendible Hashing" << std::endl;
 #ifdef PREALLOC
     extendible::TlsTablePool<Key_t>::Initialize();
 #endif
@@ -86,11 +87,12 @@ Hash<T> *InitializeIndex(int seg_num) {
     } else {
       new (eh) extendible::Finger_EH<T>();
     }
+
   } else if (index_type == "dash-lh") {
     std::string index_pool_name = pool_name + "pmem_lh.data";
     if (FileExists(index_pool_name.c_str())) file_exist = true;
     Allocator::Initialize(index_pool_name.c_str(), pool_size);
-    std::cout << "Initialize Linear Hashing" << std::endl;
+    std::cout << "Initialize DASH-Linear Hashing" << std::endl;
 #ifdef PREALLOC
     linear::TlsTablePool<Key_t>::Initialize();
 #endif
@@ -101,6 +103,19 @@ Hash<T> *InitializeIndex(int seg_num) {
     } else {
       new (eh) linear::Linear<T>();
     }
+  }else if (index_type == "cceh"){
+    std::string index_pool_name = pool_name + "pmem_cceh.data";
+    if (FileExists(index_pool_name.c_str())) file_exist = true;
+    Allocator::Initialize(index_pool_name.c_str(), pool_size);
+    std::cout << "Initialize CCEH" << std::endl;
+    eh = reinterpret_cast<Hash<T> *>(
+        Allocator::GetRoot(sizeof(linear::Linear<T>)));
+    if (!file_exist) {
+      new (eh) cceh::CCEH<T>(seg_num, Allocator::Get()->pm_pool_);
+    } else {
+      new (eh) cceh::CCEH<T>();
+    }
+    std::cout << "Finish the initialization of CCEH" << std::endl;
   }
   return eh;
 }
