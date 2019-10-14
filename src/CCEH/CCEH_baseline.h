@@ -615,18 +615,21 @@ void CCEH<T>::Directory_Doubling(int x, Segment<T> *s0, PMEMoid *s1) {
   Allocator::Persist(dd, sizeof(Segment<T> *) * 2 * dir->capacity);
   Allocator::Persist(dir->new_sa, sizeof(Seg_array<T>));
 #endif
-  dir->sa = dir->new_sa;
-  dir->new_sa = nullptr;
-#ifdef PMEM
-  Allocator::Persist(&dir->sa, sizeof(dir->sa));
-  Allocator::Persist(&dir->new_sa, sizeof(dir->new_sa));
-#endif
-  dir->capacity *= 2;
-#ifdef PMEM
-  Allocator::Persist(&dir->capacity, sizeof(dir->capacity));
-#endif
-  // delete [] d;
-  // delete sa;
+  TX_BEGIN(pool_addr) {
+    pmemobj_tx_add_range_direct(&dir->sa, sizeof(dir->sa));
+    pmemobj_tx_add_range_direct(&dir->new_sa, sizeof(dir->new_sa));
+    pmemobj_tx_add_range_direct(&dir->capacity, sizeof(dir->capacity));    
+    dir->sa = dir->new_sa;
+    dir->new_sa = nullptr;
+    dir->capacity *= 2;
+  }
+  TX_ONABORT {
+    std::cout << "TXN fails during doubling directory" << std::endl;
+  }
+  TX_END
+  
+  Allocator::Free(d);
+  Allocator::Free(sa);
   printf("Done!!Directory_Doubling towards %lld\n", global_depth);
 }
 
