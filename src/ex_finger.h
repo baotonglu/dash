@@ -1739,7 +1739,7 @@ void Finger_EH<T>::Directory_Doubling(int x, Table<T> *new_b) {
 #else
   dir = new_sa;
 #endif
-  printf("Done!!Directory_Doubling towards %lld\n", dir->global_depth);
+  //printf("Done!!Directory_Doubling towards %lld\n", dir->global_depth);
 }
 
 template <class T>

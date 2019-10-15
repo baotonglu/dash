@@ -965,7 +965,6 @@ double CCEH::Utilization(void) {
   }
   return ((double)sum)/((double)set.size()*Segment::kNumSlot)*100.0;
 }
-
 size_t CCEH::Capacity(void) {
   std::unordered_map<Segment*, bool> set;
   for (size_t i = 0; i < dir.capacity; ++i) {
@@ -973,7 +972,6 @@ size_t CCEH::Capacity(void) {
   }
   return set.size() * Segment::kNumSlot;
 }
-
 size_t Segment::numElem(void) {
   size_t sum = 0;
   for (unsigned i = 0; i < kNumSlot; ++i) {
@@ -983,7 +981,6 @@ size_t Segment::numElem(void) {
   }
   return sum;
 }
-
 bool CCEH::Recovery(void) {
   bool recovered = false;
   size_t i = 0;
@@ -1004,7 +1001,6 @@ bool CCEH::Recovery(void) {
   }
   return recovered;
 }
-
 // for debugging
 Value_t CCEH::FindAnyway(Key_t& key) {
   using namespace std;
@@ -1021,7 +1017,6 @@ bitset<32>(x) << endl; return dir._[i]->_[j].value;
   }
   return NONE;
 }
-
 void Directory::SanityCheck(void* addr) {
   using namespace std;
   for (unsigned i = 0; i < capacity; ++i) {

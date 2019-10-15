@@ -26,7 +26,7 @@ DEFINE_string(index, "dash-ex",
 DEFINE_string(k, "fixed", "the type of stored keys: fixed/variable");
 DEFINE_uint64(i, 64, "the initial number of segments in extendible hashing");
 DEFINE_uint64(t, 1, "the number of concurrent threads");
-DEFINE_uint64(n, 0, "the number of load");
+DEFINE_uint64(n, 0, "the number of pre-insertion load");
 DEFINE_uint64(p, 20000000,
               "the number of operations(insert/search/deletion) to execute");
 DEFINE_string(op, "full",
@@ -44,7 +44,7 @@ double read_ratio, insert_ratio, delete_ratio;
 std::mutex mtx;
 std::condition_variable cv;
 bool finished = false;
-struct timeval tv1, tv2;
+struct timeval tv1, tv2, tv3;
 
 struct range {
   int index;
@@ -110,7 +110,7 @@ Hash<T> *InitializeIndex(int seg_num) {
     Allocator::Initialize(index_pool_name.c_str(), pool_size);
     std::cout << "Initialize CCEH" << std::endl;
     eh = reinterpret_cast<Hash<T> *>(
-        Allocator::GetRoot(sizeof(linear::Linear<T>)));
+        Allocator::GetRoot(sizeof(cceh::CCEH<T>)));
     if (!file_exist) {
       new (eh) cceh::CCEH<T>(seg_num, Allocator::Get()->pm_pool_);
     } else {
@@ -123,7 +123,7 @@ Hash<T> *InitializeIndex(int seg_num) {
     Allocator::Initialize(index_pool_name.c_str(), pool_size);
     std::cout << "Initialize Level Hashing" << std::endl;
     eh = reinterpret_cast<Hash<T> *>(
-        Allocator::GetRoot(sizeof(linear::Linear<T>)));
+        Allocator::GetRoot(sizeof(level::LevelHashing<T>)));
     if (!file_exist) {
       new (eh) level::LevelHashing<T>();
       int level_size = 13;
@@ -292,23 +292,16 @@ void concurr_search(struct range *_range, Hash<T> *index) {
         if (index->Get(var_key, true) == NONE) not_found++;
       }
     }
-
-    /*
-    T var_key;
-    uint64_t j;
-    uint64_t string_key_size = sizeof(string_key) + _range->length;
-    for (uint64_t i = begin; i < end; i += 1000) {
-      auto epoch_guard = Allocator::AquireEpochGuard();
-      uint64_t cycle_end = ((i + 1000) < end) ? (i + 1000) : end;
-      // uint64_t cycle_end = i + 1000;
-      for (j = i; j < cycle_end; ++j) {
-        var_key = reinterpret_cast<T>(workload + string_key_size * j);
-        if (index->Get(var_key, true) == NONE) not_found++;
-      }
-    }
-    */
   }
-  std::cout << "not_found = " << not_found << std::endl;
+  /*
+  gettimeofday(&tv3, NULL); 
+  double duration = (double)(tv3.tv_usec - tv1.tv_usec) / 1000000 +
+             (double)(tv3.tv_sec - tv1.tv_sec);
+  printf(
+      "%d thread, Time = %f s\n",
+      _range->index, duration);
+  */
+  //std::cout << "not_found = " << not_found << std::endl;
   end_notify();
 }
 
@@ -341,7 +334,7 @@ void concurr_delete(struct range *_range, Hash<T> *index) {
       }
     }
   }
-  std::cout << "not_found = " << not_found << std::endl;
+  //std::cout << "not_found = " << not_found << std::endl;
   end_notify();
 }
 
@@ -557,6 +550,7 @@ void Run() {
     }
     GeneralBench<T>(rarray, index, thread_num, operation_num, "Insert",
                     &concurr_insert);
+    /*
     index->getNumber();
 
     gettimeofday(&tv1, NULL);
@@ -565,13 +559,12 @@ void Run() {
     auto duration = (double)(tv2.tv_usec - tv1.tv_usec) / 1000000 +
                     (double)(tv2.tv_sec - tv1.tv_sec);
     std::cout << "Recovery Time(s): " << duration << std::endl;
-
+    */
     for (int i = 0; i < thread_num; ++i) {
       rarray[i].workload = not_used_workload;
     }
     GeneralBench<T>(rarray, index, thread_num, operation_num, "Pos_search",
                     &concurr_search);
-    // index->getNumber();
 
     for (int i = 0; i < thread_num; ++i) {
       rarray[i].begin = operation_num + i * chunk_size;
@@ -580,24 +573,7 @@ void Run() {
     rarray[thread_num - 1].end = 2 * operation_num;
     GeneralBench<T>(rarray, index, thread_num, operation_num, "Neg_search",
                     &concurr_search);
-    /*
-    index->Recovery();
-    for (int i = 0; i < thread_num; ++i) {
-    rarray[i].begin = i * chunk_size;
-    rarray[i].end = (i + 1) * chunk_size;
-    }
-    rarray[thread_num - 1].end = operation_num;
-    GeneralBench<T>(rarray, index, thread_num, operation_num, "Pos_search",
-        &concurr_search);
 
-        gettimeofday(&tv1, NULL);
-        index->Recovery();
-        gettimeofday(&tv2, NULL);
-        auto duration = (double)(tv2.tv_usec - tv1.tv_usec) / 1000000 +
-                        (double)(tv2.tv_sec - tv1.tv_sec);
-        std::cout << "Recovery Time(s): " << duration << std::endl;
-    */
-    /*
     for (int i = 0; i < thread_num; ++i) {
       rarray[i].begin = i * chunk_size;
       rarray[i].end = (i + 1) * chunk_size;
@@ -605,7 +581,7 @@ void Run() {
     rarray[thread_num - 1].end = operation_num;
     GeneralBench<T>(rarray, index, thread_num, operation_num, "Delete",
                     &concurr_delete);
-    index->getNumber();*/
+    index->getNumber();
   }
 
   /*TODO Free the workload memory*/
