@@ -87,9 +87,6 @@ inline bool var_compare(char *str1, char *str2, int len1, int len2) {
   return !memcmp(str1, str2, len1);
 }
 
-#define COUNTING 1
-#define EPOCH 1
-
 template <class T>
 struct Bucket {
   inline int find_empty_slot() {
@@ -1018,7 +1015,6 @@ struct Table {
   size_t local_depth;
   size_t pattern;
   int number;
-  // Table<T> *next;
   PMEMoid next;
   int state; /*-1 means this bucket is merging, -2 means this bucket is
                 splitting, so we cannot count the depth_count on it during
@@ -1500,8 +1496,10 @@ class Finger_EH : public Hash<T> {
   Finger_EH(void);
   Finger_EH(size_t, PMEMobjpool *_pool);
   ~Finger_EH(void);
-  void Insert(T key, Value_t value);
-  bool Delete(T);
+  inline void Insert(T key, Value_t value);
+  void Insert(T key, Value_t value, bool);
+  inline bool Delete(T);
+  bool Delete(T, bool);
   inline Value_t Get(T);
   Value_t Get(T key, bool is_in_epoch);
   void TryMerge(uint64_t);
@@ -1642,13 +1640,6 @@ void Finger_EH<T>::Halve_Directory() {
   new_dir->depth_count = 0;
   auto capacity = pow(2, new_dir->global_depth);
   bool skip = false;
-  /*
-  for (int i = 0; i < capacity; ++i) {
-    _dir[i] = d[2 * i];
-    if (_dir[i]->local_depth == (dir->global_depth - 1)) {
-      new_dir->depth_count += 1;
-    }
-  }*/
   for (int i = 0; i < capacity; ++i) {
     _dir[i] = d[2 * i];
     assert(d[2 * i] == d[2 * i + 1]);
@@ -1723,7 +1714,7 @@ void Finger_EH<T>::Directory_Doubling(int x, Table<T> *new_b) {
     pmemobj_tx_add_range_direct(&back_dir, sizeof(back_dir));
     dir = new_sa;
     back_dir = OID_NULL;
-  }
+  } 
   TX_ONABORT {
     std::cout << "TXN fails during doubling directory" << std::endl;
   }
@@ -1885,11 +1876,18 @@ void Finger_EH<T>::Recovery() {
 #endif
 }
 
+template<class T>
+void Finger_EH<T>::Insert(T key, Value_t value, bool is_in_epoch){
+  if(!is_in_epoch){
+    auto epoch_guard = Allocator::AquireEpochGuard();
+    return Insert(key, value);
+  }
+
+  return Insert(key, value);
+}
+
 template <class T>
 void Finger_EH<T>::Insert(T key, Value_t value) {
-#ifdef EPOCH
-  auto epoch_guard = Allocator::AquireEpochGuard();
-#endif
   uint64_t key_hash;
   if constexpr (std::is_pointer_v<T>) {
     key_hash = h(key->key, key->length);
@@ -2234,16 +2232,26 @@ void Finger_EH<T>::TryMerge(size_t key_hash) {
   } while (true);
 }
 
+template<class T>
+bool Finger_EH<T>::Delete(T key, bool is_in_epoch){
+  if(!is_in_epoch){
+    auto epoch_guard = Allocator::AquireEpochGuard();
+    return Delete(key);
+  }
+  return Delete(key);
+}
+
 /*the delete operation of the */
 template <class T>
 bool Finger_EH<T>::Delete(T key) {
+/*
 #ifdef EPOCH
   auto epoch_guard = Allocator::AquireEpochGuard();
 #endif
+*/
   /*Basic delete operation and merge operation*/
   uint64_t key_hash;
   if constexpr (std::is_pointer_v<T>) {
-    // key_hash = h(key, (reinterpret_cast<string_key *>(key))->length);
     key_hash = h(key->key, key->length);
   } else {
     key_hash = h(&key, sizeof(key));
@@ -2293,7 +2301,6 @@ RETRY:
       TryMerge(key_hash);
     }
 #endif
-
     return true;
   }
 

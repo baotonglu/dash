@@ -129,58 +129,89 @@ struct Segment {
   bool Put(T, Value_t, size_t);
   PMEMoid *Split(PMEMobjpool *, size_t, log_entry *);
 
-  void get_lock(PMEMobjpool *pop) {
-#ifdef PERSISTENT_LOCK
+  void get_lock(PMEMobjpool* pop) {
+    #ifdef PERSISTENT_LOCK
     pmemobj_rwlock_wrlock(pop, &rwlock);
-#else
+    #else
+    /*
+    uint64_t temp = 0;
+    while(!CAS(&seg_lock, &temp, 1)){
+      temp = 0;
+    }*/
     mutex.lock();
-#endif
+    #endif
   }
 
-  void release_lock(PMEMobjpool *pop) {
-#ifdef PERSISTENT_LOCK
+  void release_lock(PMEMobjpool* pop) {
+    #ifdef PERSISTENT_LOCK
     pmemobj_rwlock_unlock(pop, &rwlock);
-#else
+    #else
+    /*
+    uint64_t temp = 1;
+    while(!CAS(&seg_lock, &temp, 0)){
+      temp = 1;
+    }
+    */
     mutex.unlock();
-#endif
+    #endif
   }
 
-  void get_rd_lock(PMEMobjpool *pop) {
-#ifdef PERSISTENT_LOCK
+  void get_rd_lock(PMEMobjpool* pop){
+    #ifdef PERSISTENT_LOCK
     pmemobj_rwlock_rdlock(pop, &rwlock);
-#else
+    #else
+    /*
+    uint64_t temp = 0;
+    while(!CAS(&seg_lock, &temp, 1)){
+      temp = 0;
+    }*/
     mutex.lock_shared();
-#endif
+    #endif
   }
 
-  void release_rd_lock(PMEMobjpool *pop) {
-#ifdef PERSISTENT_LOCK
+  void release_rd_lock(PMEMobjpool* pop){
+    #ifdef PERSISTENT_LOCK
     pmemobj_rwlock_unlock(pop, &rwlock);
-#else
+    #else
+    /*
+    uint64_t temp = 1;
+    while(!CAS(&seg_lock, &temp, 0)){
+      temp = 1;
+    }*/
     mutex.unlock_shared();
-#endif
+    #endif
   }
 
-  bool try_get_lock(PMEMobjpool *pop) {
-#ifdef PERSISTENT_LOCK
-    if (pmemobj_rwlock_trywrlock(pop, &rwlock) == 0) {
+  bool try_get_lock(PMEMobjpool* pop){
+    #ifdef PERSISTENT_LOCK   
+    if (pmemobj_rwlock_trywrlock(pop, &rwlock) == 0)
+    {
       return true;
     }
     return false;
-#else
+    #else
+    /*
+    uint64_t temp = 0;
+    return CAS(&seg_lock, &temp, 1);
+    */
     return mutex.try_lock();
-#endif
+    #endif
   }
 
-  bool try_get_rd_lock(PMEMobjpool *pop) {
-#ifdef PERSISTENT_LOCK
-    if (pmemobj_rwlock_tryrdlock(pop, &rwlock) == 0) {
+  bool try_get_rd_lock(PMEMobjpool* pop){
+    #ifdef PERSISTENT_LOCK
+    if (pmemobj_rwlock_tryrdlock(pop, &rwlock) == 0)
+    {
       return true;
     }
     return false;
-#else
+    #else
+    /*
+    uint64_t temp = 0;
+    return CAS(&seg_lock, &temp, 1);
+    */
     return mutex.try_lock_shared();
-#endif
+    #endif
   }
 
   _Pair<T> _[kNumSlot];
@@ -326,8 +357,10 @@ class CCEH : public Hash<T> {
   CCEH(int, PMEMobjpool *_pool);
   ~CCEH(void);
   void Insert(T key, Value_t value);
+  void Insert(T key, Value_t value, bool);
   bool InsertOnly(T, Value_t);
   bool Delete(T);
+  bool Delete(T, bool);
   Value_t Get(T);
   Value_t Get(T, bool is_in_epoch);
   Value_t FindAnyway(T);
@@ -729,15 +762,25 @@ void CCEH<T>::Directory_Update(int x, Segment<T> *s0, PMEMoid *s1) {
   }
 }
 
+template<class T>
+void CCEH<T>::Insert(T key, Value_t value, bool is_in_epoch){
+  if(!is_in_epoch){
+    auto epoch_guard = Allocator::AquireEpochGuard();
+    return Insert(key, value);
+  }
+  return Insert(key, value);
+}
+
 template <class T>
 void CCEH<T>::Insert(T key, Value_t value) {
+/*
 #ifdef EPOCH
   auto epoch_guard = Allocator::AquireEpochGuard();
 #endif
+*/
 STARTOVER:
   uint64_t key_hash;
   if constexpr (std::is_pointer_v<T>) {
-    // key_hash = h(key, (reinterpret_cast<string_key *>(key))->length);
     key_hash = h(key->key, key->length);
   } else {
     key_hash = h(&key, sizeof(key));
@@ -798,12 +841,23 @@ RETRY:
   }
 }
 
+template<class T>
+bool CCEH<T>::Delete(T key, bool is_in_epoch){
+  if(!is_in_epoch){
+    auto epoch_guard = Allocator::AquireEpochGuard();
+    return Delete(key);
+  }
+  return Delete(key);
+}
+
 // TODO
 template <class T>
 bool CCEH<T>::Delete(T key) {
+/*
 #ifdef EPOCH
   auto epoch_guard = Allocator::AquireEpochGuard();
 #endif
+*/
   uint64_t key_hash;
   if constexpr (std::is_pointer_v<T>) {
     key_hash = h(key->key, key->length);
@@ -823,13 +877,11 @@ RETRY:
   if (sema == -1) {
     goto RETRY;
   }
-  // dir_->mutex.lock_shared();
   dir_->get_lock(pool_addr);
 
   if ((key_hash >> (8 * sizeof(key_hash) - dir_->local_depth)) !=
           dir_->pattern ||
       dir_->sema == -1) {
-    // dir_->mutex.unlock_shared();
     dir_->release_lock(pool_addr);
     goto RETRY;
   }
@@ -838,17 +890,12 @@ RETRY:
   for (unsigned i = 0; i < kNumPairPerCacheLine * kNumCacheLine; ++i) {
     auto slot = (y + i) % Segment<T>::kNumSlot;
     if constexpr (std::is_pointer_v<T>) {
-      // if ((dir_->_[slot].key != (T)INVALID) &&
-      // (var_compare((reinterpret_cast<string_key*>(key))->key,
-      // dir_->_[slot].key, (reinterpret_cast<string_key*>(key))->length,
-      // (reinterpret_cast<string_key*>(dir_->_[slot].key)->length))))
       if ((dir_->_[slot].key != (T)INVALID) &&
           (var_compare(key->key, dir_->_[slot].key->key, key->length,
                        dir_->_[slot].key->length))) {
         dir_->_[slot].key = (T)INVALID;
         Allocator::Persist(&dir_->_[slot], sizeof(_Pair<T>));
 #ifdef INPLACE
-        // dir_->mutex.unlock_shared();
         dir_->release_lock(pool_addr);
 #endif
         return true;
@@ -858,7 +905,6 @@ RETRY:
         dir_->_[slot].key = (T)INVALID;
         Allocator::Persist(&dir_->_[slot], sizeof(_Pair<T>));
 #ifdef INPLACE
-        // dir_->mutex.unlock_shared();
         dir_->release_lock(pool_addr);
 #endif
         return true;
@@ -917,10 +963,6 @@ RETRY:
   for (unsigned i = 0; i < kNumPairPerCacheLine * kNumCacheLine; ++i) {
     auto slot = (y + i) % Segment<T>::kNumSlot;
     if constexpr (std::is_pointer_v<T>) {
-      // if ((dir_->_[slot].key != (T)INVALID) &&
-      // (var_compare((reinterpret_cast<string_key*>(key))->key,
-      // dir_->_[slot].key, (reinterpret_cast<string_key*>(key))->length,
-      // (reinterpret_cast<string_key*>(dir_->_[slot].key)->length))))
       if ((dir_->_[slot].key != (T)INVALID) &&
           (var_compare(key->key, dir_->_[slot].key->key, key->length,
                        dir_->_[slot].key->length))) {

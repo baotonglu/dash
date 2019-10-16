@@ -20,7 +20,7 @@
 
 std::string pool_name = "/mnt/pmem0/";
 // static const char *pool_name = "pmem_hash.data";
-static const size_t pool_size = 1024ul * 1024ul * 1024ul * 10ul;
+static const size_t pool_size = 1024ul * 1024ul * 1024ul * 30ul;
 DEFINE_string(index, "dash-ex",
               "which index to evaluate:dash-ex/dash-lh/cceh/level");
 DEFINE_string(k, "fixed", "the type of stored keys: fixed/variable");
@@ -34,6 +34,7 @@ DEFINE_string(op, "full",
 DEFINE_double(r, 1, "read ratio for mixed workload");
 DEFINE_double(s, 0, "insert ratio for mixed workload");
 DEFINE_double(d, 0, "delete ratio for mixed workload");
+DEFINE_bool(e, true, "whether register epoch in application level");
 
 uint64_t initCap, thread_num, load_num, operation_num;
 std::string operation;
@@ -44,6 +45,7 @@ double read_ratio, insert_ratio, delete_ratio;
 std::mutex mtx;
 std::condition_variable cv;
 bool finished = false;
+bool open_epoch;
 struct timeval tv1, tv2, tv3;
 
 struct range {
@@ -109,8 +111,7 @@ Hash<T> *InitializeIndex(int seg_num) {
     if (FileExists(index_pool_name.c_str())) file_exist = true;
     Allocator::Initialize(index_pool_name.c_str(), pool_size);
     std::cout << "Initialize CCEH" << std::endl;
-    eh = reinterpret_cast<Hash<T> *>(
-        Allocator::GetRoot(sizeof(cceh::CCEH<T>)));
+    eh = reinterpret_cast<Hash<T> *>(Allocator::GetRoot(sizeof(cceh::CCEH<T>)));
     if (!file_exist) {
       new (eh) cceh::CCEH<T>(seg_num, Allocator::Get()->pm_pool_);
     } else {
@@ -212,7 +213,7 @@ inline void end_notify() {
 }
 
 template <class T>
-void concurr_insert(struct range *_range, Hash<T> *index) {
+void concurr_insert_without_epoch(struct range *_range, Hash<T> *index) {
   set_affinity(_range->index);
   int begin = _range->begin;
   int end = _range->end;
@@ -235,6 +236,63 @@ void concurr_insert(struct range *_range, Hash<T> *index) {
     }
   }
 
+  end_notify();
+}
+
+template <class T>
+void concurr_insert(struct range *_range, Hash<T> *index) {
+  set_affinity(_range->index);
+  int begin = _range->begin;
+  int end = _range->end;
+  char *workload = reinterpret_cast<char *>(_range->workload);
+  T key;
+
+  if constexpr (!std::is_pointer_v<T>) {
+    T *key_array = reinterpret_cast<T *>(workload);
+    uint64_t round = (end - begin) / 1000;
+    uint64_t i = 0;
+    spin_wait();
+
+    while (i < round) {
+      auto epoch_guard = Allocator::AquireEpochGuard();
+      uint64_t _end = begin + (i + 1) * 1000;
+      for (uint64_t j = begin + i * 1000; j < _end; ++j) {
+        index->Insert(key_array[j], DEFAULT, true);
+      }
+      ++i;
+    }
+
+    {
+      auto epoch_guard = Allocator::AquireEpochGuard();
+      for (i = begin + 1000 * round; i < end; ++i) {
+        index->Insert(key_array[i], DEFAULT, true);
+      }
+    }
+  } else {
+    T var_key;
+    uint64_t round = (end - begin) / 1000;
+    uint64_t i = 0;
+    uint64_t string_key_size = sizeof(string_key) + _range->length;
+
+    spin_wait();
+    while (i < round) {
+      auto epoch_guard = Allocator::AquireEpochGuard();
+      uint64_t _end = begin + (i + 1) * 1000;
+      for (uint64_t j = begin + i * 1000; j < _end; ++j) {
+        var_key = reinterpret_cast<T>(workload + string_key_size * j);
+        index->Insert(var_key, DEFAULT, true);
+      }
+      ++i;
+    }
+
+    {
+      auto epoch_guard = Allocator::AquireEpochGuard();
+      for (i = begin + 1000 * round; i < end; ++i) {
+        var_key = reinterpret_cast<T>(workload + string_key_size * i);
+        index->Insert(var_key, DEFAULT, true);
+      }
+    }
+  }
   end_notify();
 }
 
@@ -293,20 +351,11 @@ void concurr_search(struct range *_range, Hash<T> *index) {
       }
     }
   }
-  /*
-  gettimeofday(&tv3, NULL); 
-  double duration = (double)(tv3.tv_usec - tv1.tv_usec) / 1000000 +
-             (double)(tv3.tv_sec - tv1.tv_sec);
-  printf(
-      "%d thread, Time = %f s\n",
-      _range->index, duration);
-  */
-  //std::cout << "not_found = " << not_found << std::endl;
   end_notify();
 }
 
 template <class T>
-void concurr_delete(struct range *_range, Hash<T> *index) {
+void concurr_search_without_epcoh(struct range *_range, Hash<T> *index) {
   set_affinity(_range->index);
   int begin = _range->begin;
   int end = _range->end;
@@ -316,7 +365,37 @@ void concurr_delete(struct range *_range, Hash<T> *index) {
 
   spin_wait();
 
-  // if(key_type == "fixed"){/*fixed length key benchmark*/
+  if constexpr (!std::is_pointer_v<T>) {
+    T *key_array = reinterpret_cast<T *>(workload);
+    for (uint64_t i = begin; i < end; ++i) {
+      if (index->Get(key_array[i]) == NONE) {
+        not_found++;
+      }
+    }
+  } else {
+    T var_key;
+    uint64_t string_key_size = sizeof(string_key) + _range->length;
+    for (uint64_t i = begin; i < end; ++i) {
+      var_key = reinterpret_cast<T>(workload + string_key_size * i);
+      if (index->Get(var_key) == NONE) {
+        not_found++;
+      }
+    }
+  }
+  // std::cout << "not_found = " << not_found << std::endl;
+  end_notify();
+}
+
+template <class T>
+void concurr_delete_without_epoch(struct range *_range, Hash<T> *index) {
+  set_affinity(_range->index);
+  int begin = _range->begin;
+  int end = _range->end;
+  char *workload = reinterpret_cast<char *>(_range->workload);
+  T key;
+  uint64_t not_found = 0;
+
+  spin_wait();
   if constexpr (!std::is_pointer_v<T>) {
     T *key_array = reinterpret_cast<T *>(workload);
     for (uint64_t i = begin; i < end; ++i) {
@@ -334,15 +413,72 @@ void concurr_delete(struct range *_range, Hash<T> *index) {
       }
     }
   }
-  //std::cout << "not_found = " << not_found << std::endl;
+  std::cout << "not_found = " << not_found << std::endl;
   end_notify();
 }
 
 template <class T>
-void mixed(struct range *_range, Hash<T> *index) {
+void concurr_delete(struct range *_range, Hash<T> *index) {
   set_affinity(_range->index);
   int begin = _range->begin;
   int end = _range->end;
+  char *workload = reinterpret_cast<char *>(_range->workload);
+  T key;
+
+  if constexpr (!std::is_pointer_v<T>) {
+    T *key_array = reinterpret_cast<T *>(workload);
+    uint64_t round = (end - begin) / 1000;
+    uint64_t i = 0;
+    spin_wait();
+
+    while (i < round) {
+      auto epoch_guard = Allocator::AquireEpochGuard();
+      uint64_t _end = begin + (i + 1) * 1000;
+      for (uint64_t j = begin + i * 1000; j < _end; ++j) {
+        index->Delete(key_array[j], true);
+      }
+      ++i;
+    }
+
+    {
+      auto epoch_guard = Allocator::AquireEpochGuard();
+      for (i = begin + 1000 * round; i < end; ++i) {
+        index->Delete(key_array[i], true);
+      }
+    }
+  } else {
+    T var_key;
+    uint64_t round = (end - begin) / 1000;
+    uint64_t i = 0;
+    uint64_t string_key_size = sizeof(string_key) + _range->length;
+
+    spin_wait();
+    while (i < round) {
+      auto epoch_guard = Allocator::AquireEpochGuard();
+      uint64_t _end = begin + (i + 1) * 1000;
+      for (uint64_t j = begin + i * 1000; j < _end; ++j) {
+        var_key = reinterpret_cast<T>(workload + string_key_size * j);
+        index->Delete(var_key, true);
+      }
+      ++i;
+    }
+
+    {
+      auto epoch_guard = Allocator::AquireEpochGuard();
+      for (i = begin + 1000 * round; i < end; ++i) {
+        var_key = reinterpret_cast<T>(workload + string_key_size * i);
+        index->Delete(var_key, true);
+      }
+    }
+  }
+  end_notify();
+}
+
+template <class T>
+void mixed_without_epoch(struct range *_range, Hash<T> *index) {
+  set_affinity(_range->index);
+  uint64_t begin = _range->begin;
+  uint64_t end = _range->end;
   char *workload = reinterpret_cast<char *>(_range->workload);
   T *key_array = reinterpret_cast<T *>(_range->workload);
   T key;
@@ -358,9 +494,7 @@ void mixed(struct range *_range, Hash<T> *index) {
   std::cout << "insert sign = " << insert_sign << std::endl;
   std::cout << "read sign = " << read_sign << std::endl;
 
-  SUB(&bar_b, 1);
-  while (LOAD(&bar_a) == 1)
-    ; /*spinning*/
+  spin_wait();
 
   for (uint64_t i = begin; i < end; ++i) {
     if constexpr (std::is_pointer_v<T>) { /* variable length*/
@@ -373,7 +507,7 @@ void mixed(struct range *_range, Hash<T> *index) {
     if (random < insert_sign) { /*insert*/
       index->Insert(key, DEFAULT);
     } else if (random < read_sign) { /*get*/
-      if (index->Get(key, true) == NONE) {
+      if (index->Get(key) == NONE) {
         not_found++;
       }
     } else { /*delete*/
@@ -382,11 +516,83 @@ void mixed(struct range *_range, Hash<T> *index) {
   }
   std::cout << "not_found = " << not_found << std::endl;
   /*the last thread notify the main thread to wake up*/
-  if (SUB(&bar_c, 1) == 0) {
-    std::unique_lock<std::mutex> lck(mtx);
-    finished = true;
-    cv.notify_one();
+  end_notify();
+}
+
+template <class T>
+void mixed(struct range *_range, Hash<T> *index) {
+  set_affinity(_range->index);
+  uint64_t begin = _range->begin;
+  uint64_t end = _range->end;
+  char *workload = reinterpret_cast<char *>(_range->workload);
+  T *key_array = reinterpret_cast<T *>(_range->workload);
+  T key;
+  int string_key_size = sizeof(string_key) + _range->length;
+  std::cout << "string_key_size = " << string_key_size << std::endl;
+
+  UniformRandom rng(_range->random_num);
+  uint32_t random;
+  uint64_t not_found = 0;
+
+  uint32_t insert_sign = (uint32_t)(insert_ratio * 100);
+  uint32_t read_sign = (uint32_t)(read_ratio * 100) + insert_sign;
+  uint32_t delete_sign = (uint32_t)(delete_ratio * 100) + read_sign;
+  std::cout << "insert sign = " << insert_sign << std::endl;
+  std::cout << "read sign = " << read_sign << std::endl;
+
+  uint64_t round = (end - begin) / 1000;
+  uint64_t i = 0;
+  spin_wait();
+
+  while (i < round) {
+    auto epoch_guard = Allocator::AquireEpochGuard();
+    uint64_t _end = begin + (i + 1) * 1000;
+    for (uint64_t j = begin + i * 1000; j < _end; ++j) {
+      if constexpr (std::is_pointer_v<T>) { /* variable length*/
+        key = reinterpret_cast<T>(workload + string_key_size * j);
+      } else {
+        key = key_array[j];
+      }
+
+      random = rng.next_uint32() % 100;
+      if (random < insert_sign) { /*insert*/
+        index->Insert(key, DEFAULT, true);
+      } else if (random < read_sign) { /*get*/
+        if (index->Get(key, true) == NONE) {
+          not_found++;
+        }
+      } else { /*delete*/
+        index->Delete(key, true);
+      }
+    }
+    ++i;
   }
+
+  {
+    auto epoch_guard = Allocator::AquireEpochGuard();
+    for (i = begin + 1000 * round; i < end; ++i) {
+      if constexpr (std::is_pointer_v<T>) { /* variable length*/
+        key = reinterpret_cast<T>(workload + string_key_size * i);
+      } else {
+        key = key_array[i];
+      }
+
+      random = rng.next_uint32() % 100;
+      if (random < insert_sign) { /*insert*/
+        index->Insert(key, DEFAULT, true);
+      } else if (random < read_sign) { /*get*/
+        if (index->Get(key, true) == NONE) {
+          not_found++;
+        }
+      } else { /*delete*/
+        index->Delete(key, true);
+      }
+    }
+  }
+
+  std::cout << "not_found = " << not_found << std::endl;
+  /*the last thread notify the main thread to wake up*/
+  end_notify();
 }
 
 template <class T>
@@ -413,8 +619,9 @@ void GeneralBench(range *rarray, Hash<T> *index, int thread_num,
 
   gettimeofday(&tv1, NULL);
   STORE(&bar_a, 0);  // start test
-  while (!finished)
+  while (!finished) {
     cv.wait(lck);  // go to sleep and wait for the wake-up from child threads
+  }
   gettimeofday(&tv2, NULL);  // test end
 
   for (int i = 0; i < thread_num; ++i) {
@@ -509,8 +716,13 @@ void Run() {
     for (int i = 0; i < thread_num; ++i) {
       rarray[i].workload = not_used_insert_workload;
     }
-    GeneralBench<T>(rarray, index, thread_num, operation_num, "Insert",
-                    &concurr_insert);
+    if (open_epoch == true) {
+      GeneralBench<T>(rarray, index, thread_num, operation_num, "Insert",
+                      &concurr_insert);
+    } else {
+      GeneralBench<T>(rarray, index, thread_num, operation_num, "Insert",
+                      &concurr_insert_without_epoch);
+    }
   } else if (operation == "pos") {
     if (!load_num) {
       std::cout << "Please first specify the # pre_load keys!" << std::endl;
@@ -519,15 +731,25 @@ void Run() {
     for (int i = 0; i < thread_num; ++i) {
       rarray[i].workload = workload;
     }
-    GeneralBench<T>(rarray, index, thread_num, operation_num, "Pos_search",
-                    &concurr_search);
+    if (open_epoch == true) {
+      GeneralBench<T>(rarray, index, thread_num, operation_num, "Pos_search",
+                      &concurr_search);
+    } else {
+      GeneralBench<T>(rarray, index, thread_num, operation_num, "Pos_search",
+                      &concurr_search_without_epcoh);
+    }
   } else if (operation == "neg") {
     if (!load_num) {
       std::cout << "Please first specify the # pre_load keys!" << std::endl;
       return;
     }
-    GeneralBench<T>(rarray, index, thread_num, operation_num, "Neg_search",
-                    &concurr_search);
+    if (open_epoch == true) {
+      GeneralBench<T>(rarray, index, thread_num, operation_num, "Neg_search",
+                      &concurr_search);
+    } else {
+      GeneralBench<T>(rarray, index, thread_num, operation_num, "Neg_search",
+                      &concurr_search_without_epcoh);
+    }
   } else if (operation == "delete") {
     if (!load_num) {
       std::cout << "Please first specify the # pre_load keys!" << std::endl;
@@ -536,20 +758,37 @@ void Run() {
     for (int i = 0; i < thread_num; ++i) {
       rarray[i].workload = workload;
     }
-    GeneralBench<T>(rarray, index, thread_num, operation_num, "Delete",
-                    &concurr_delete);
+    if (open_epoch == true) {
+      GeneralBench<T>(rarray, index, thread_num, operation_num, "Delete",
+                      &concurr_delete);
+    } else {
+      GeneralBench<T>(rarray, index, thread_num, operation_num, "Delete",
+                      &concurr_delete_without_epoch);
+    }
   } else if (operation == "mixed") {
     for (int i = 0; i < thread_num; ++i) {
       rarray[i].workload = not_used_insert_workload;
     }
-    GeneralBench<T>(rarray, index, thread_num, operation_num, "Mixed", &mixed);
+    if (open_epoch == true) {
+      GeneralBench<T>(rarray, index, thread_num, operation_num, "Mixed",
+                      &mixed);
+    } else {
+      GeneralBench<T>(rarray, index, thread_num, operation_num, "Mixed",
+                      &mixed_without_epoch);
+    }
   } else { /*do the benchmark for all single operations*/
     std::cout << "insertion start" << std::endl;
     for (int i = 0; i < thread_num; ++i) {
       rarray[i].workload = not_used_insert_workload;
     }
-    GeneralBench<T>(rarray, index, thread_num, operation_num, "Insert",
-                    &concurr_insert);
+    if (open_epoch == true) {
+      GeneralBench<T>(rarray, index, thread_num, operation_num, "Insert",
+                      &concurr_insert);
+    } else {
+      GeneralBench<T>(rarray, index, thread_num, operation_num, "Insert",
+                      &concurr_insert_without_epoch);
+    }
+
     /*
     index->getNumber();
 
@@ -560,27 +799,44 @@ void Run() {
                     (double)(tv2.tv_sec - tv1.tv_sec);
     std::cout << "Recovery Time(s): " << duration << std::endl;
     */
+
     for (int i = 0; i < thread_num; ++i) {
       rarray[i].workload = not_used_workload;
     }
-    GeneralBench<T>(rarray, index, thread_num, operation_num, "Pos_search",
-                    &concurr_search);
+    if (open_epoch == true) {
+      GeneralBench<T>(rarray, index, thread_num, operation_num, "Pos_search",
+                      &concurr_search);
+    } else {
+      GeneralBench<T>(rarray, index, thread_num, operation_num, "Pos_search",
+                      &concurr_search_without_epcoh);
+    }
 
     for (int i = 0; i < thread_num; ++i) {
       rarray[i].begin = operation_num + i * chunk_size;
       rarray[i].end = operation_num + (i + 1) * chunk_size;
     }
     rarray[thread_num - 1].end = 2 * operation_num;
-    GeneralBench<T>(rarray, index, thread_num, operation_num, "Neg_search",
-                    &concurr_search);
+    if (open_epoch == true) {
+      GeneralBench<T>(rarray, index, thread_num, operation_num, "Neg_search",
+                      &concurr_search);
+    } else {
+      GeneralBench<T>(rarray, index, thread_num, operation_num, "Neg_search",
+                      &concurr_search_without_epcoh);
+    }
 
     for (int i = 0; i < thread_num; ++i) {
       rarray[i].begin = i * chunk_size;
       rarray[i].end = (i + 1) * chunk_size;
     }
     rarray[thread_num - 1].end = operation_num;
-    GeneralBench<T>(rarray, index, thread_num, operation_num, "Delete",
-                    &concurr_delete);
+
+    if (open_epoch == true) {
+      GeneralBench<T>(rarray, index, thread_num, operation_num, "Delete",
+                      &concurr_delete);
+    } else {
+      GeneralBench<T>(rarray, index, thread_num, operation_num, "Delete",
+                      &concurr_delete_without_epoch);
+    }
     index->getNumber();
   }
 
@@ -605,6 +861,9 @@ int main(int argc, char *argv[]) {
   index_type = FLAGS_index;
   std::string fixed("fixed");
   operation = FLAGS_op;
+  open_epoch = FLAGS_e;
+  if (open_epoch == true)
+    std::cout << "EPOCH registration in application level" << std::endl;
 
   read_ratio = FLAGS_r;
   insert_ratio = FLAGS_s;

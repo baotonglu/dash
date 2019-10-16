@@ -64,14 +64,6 @@ struct Allocator {
     }
     TX_ONABORT {LOG_FATAL("Allocate: TXN Allocation Error");}
     TX_END
-    /*
-    PMEMoid pm_ptr;
-    auto ret = pmemobj_alloc(instance_->pm_pool_, &pm_ptr, size,
-                             TOID_TYPE_NUM(char), alloc_constr, arg);
-    if (ret) {
-      LOG_FATAL("allocation error");
-    }
-    *ptr = pmemobj_direct(pm_ptr);*/
   }
 
   static void Allocate(PMEMoid* pm_ptr, uint32_t alignment, size_t size,
@@ -81,7 +73,7 @@ struct Allocator {
     auto ret = pmemobj_alloc(instance_->pm_pool_, pm_ptr, size,
                              TOID_TYPE_NUM(char), alloc_constr, arg);
     if (ret) {
-      LOG_FATAL("Allocate: TXN Allocation Error");
+      LOG_FATAL("Allocate: Allocation Error in PMEMoid");
     }
   }
 
@@ -153,6 +145,14 @@ struct Allocator {
 
   static EpochGuard AquireEpochGuard() {
     return EpochGuard{&instance_->epoch_manager_};
+  }
+
+  static void Protect(){
+    instance_->epoch_manager_.Protect();
+  }
+
+  static void Unprotect(){
+    instance_->epoch_manager_.Unprotect();
   }
 };
 

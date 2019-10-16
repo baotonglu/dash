@@ -107,7 +107,13 @@ class LevelHashing : public Hash<T> {
   }
 
   void Insert(T, Value_t);
+  void Insert(T key, Value_t value, bool is_in_epoch){
+    return Insert(key, value);
+  }
   bool Delete(T);
+  bool Delete(T key, bool is_in_epoch){
+    return Delete(key);
+  }
   Value_t Get(T);
   Value_t Get(T key, bool flag) { return Get(key); }
   void Recovery() { std::cout << "stay tuned" << std::endl; }
