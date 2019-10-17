@@ -50,8 +50,8 @@ namespace extendible {
 
 #define CHECK_BIT(var, pos) ((((var) & (1 << pos)) > 0) ? (1) : (0))
 
-const uint32_t lockSet = ((uint64_t)1 << 31);      /*locking information*/
-const uint32_t lockMask = ((uint64_t)1 << 31) - 1; /*locking mask*/
+const uint32_t lockSet = ((uint32_t)1 << 31);      /*locking information*/
+const uint32_t lockMask = ((uint32_t)1 << 31) - 1; /*locking mask*/
 const int overflowSet = 1 << 15;
 const int countMask = (1 << 4) - 1;
 
@@ -400,7 +400,32 @@ struct Bucket {
         (*((int *)membership)); /*since they are in the same cacheline,
                                    therefore no performance influence?*/
   }
+/*
+  inline void get_lock() {
+    auto old_value = version_lock & lockMask;
+    auto new_value = version_lock | lockSet;
+    while (!CAS(&version_lock, &old_value, new_value)) {
+      old_value = version_lock & lockMask;
+      new_value = version_lock | lockSet;
+    }
+  }
 
+  inline bool try_get_lock() {
+    auto old_value = version_lock & lockMask;
+    auto new_value = version_lock | lockSet;
+    return CAS(&version_lock, &old_value, new_value);
+  }
+
+  inline void release_lock() {
+    auto old_value = version_lock;
+    auto new_value = ((old_value & lockMask) + 1) & lockMask;
+
+    while (!CAS(&version_lock, &old_value, new_value)) {
+      old_value = version_lock;
+      new_value = ((old_value & lockMask) + 1) & lockMask;
+    }
+  }
+*/
   inline void get_lock() {
     uint32_t new_value = 0;
     uint32_t old_value = 0;
@@ -1980,7 +2005,7 @@ RETRY:
 
 template <class T>
 Value_t Finger_EH<T>::Get(T key, bool is_in_epoch) {
-  if (unlikely(!is_in_epoch)) {
+  if (!is_in_epoch) {
 #ifdef EPOCH
     auto epoch_guard = Allocator::AquireEpochGuard();
 #endif
@@ -1989,12 +2014,12 @@ Value_t Finger_EH<T>::Get(T key, bool is_in_epoch) {
     return Get(key);
 }
 
-template <class T>
+template<class T>
 Value_t Finger_EH<T>::Get(T key) {
   uint64_t key_hash;
-  if constexpr (std::is_pointer_v<T>) {
+  if constexpr (std::is_pointer_v<T>){
     key_hash = h(key->key, key->length);
-  } else {
+  }else{
     key_hash = h(&key, sizeof(key));
   }
   auto meta_hash = ((uint8_t)(key_hash & kMask));  // the last 8 bits
@@ -2015,8 +2040,8 @@ RETRY:
   // printf("Get key %lld, x = %d, y = %d, meta_hash = %d\n", key, x,
   // BUCKET_INDEX(key_hash), meta_hash);
 
-  uint32_t old_version = target_bucket->version_lock;
-  uint32_t old_neighbor_version = neighbor_bucket->version_lock;
+  uint32_t old_version = __atomic_load_n(&target_bucket->version_lock, __ATOMIC_ACQUIRE);
+  uint32_t old_neighbor_version = __atomic_load_n(&neighbor_bucket->version_lock, __ATOMIC_ACQUIRE);
 
   if ((old_version & lockSet) || (old_neighbor_version & lockSet)) {
     goto RETRY;
@@ -2030,20 +2055,20 @@ RETRY:
   }
 
   auto ret = target_bucket->check_and_get(meta_hash, key, false);
-  if (target_bucket->test_lock_version_change(old_version)) {
-    goto RETRY;
+  if(target_bucket->test_lock_version_change(old_version)){
+	  goto RETRY;
   }
-  if (ret != NONE) {
+  if (ret != NONE){
     return ret;
   }
 
   /*no need for verification procedure, we use the version number of
    * target_bucket to test whether the bucket has ben spliteted*/
   ret = neighbor_bucket->check_and_get(meta_hash, key, true);
-  if (neighbor_bucket->test_lock_version_change(old_neighbor_version)) {
-    goto RETRY;
+  if(neighbor_bucket->test_lock_version_change(old_neighbor_version)){
+     goto RETRY;
   }
-  if (ret != NONE) {
+  if (ret != NONE){
     return ret;
   }
 
@@ -2117,7 +2142,7 @@ RETRY:
       }
     }
   }
-FINAL:
+  FINAL:
   // printf("the x = %lld, the y = %lld, the meta_hash is %d\n", x, y,
   // meta_hash);
   return NONE;

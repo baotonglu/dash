@@ -34,7 +34,7 @@ DEFINE_string(op, "full",
 DEFINE_double(r, 1, "read ratio for mixed workload");
 DEFINE_double(s, 0, "insert ratio for mixed workload");
 DEFINE_double(d, 0, "delete ratio for mixed workload");
-DEFINE_bool(e, true, "whether register epoch in application level");
+DEFINE_uint32(e, 0, "whether register epoch in application level");
 
 uint64_t initCap, thread_num, load_num, operation_num;
 std::string operation;
@@ -476,6 +476,7 @@ void concurr_delete(struct range *_range, Hash<T> *index) {
 
 template <class T>
 void mixed_without_epoch(struct range *_range, Hash<T> *index) {
+  std::cout << "mixed without epcoh" << std::endl;
   set_affinity(_range->index);
   uint64_t begin = _range->begin;
   uint64_t end = _range->end;
@@ -504,6 +505,7 @@ void mixed_without_epoch(struct range *_range, Hash<T> *index) {
     }
 
     random = rng.next_uint32() % 100;
+    //if(_range->index == 0) std::cout<<i<<std::endl;
     if (random < insert_sign) { /*insert*/
       index->Insert(key, DEFAULT);
     } else if (random < read_sign) { /*get*/
@@ -528,7 +530,7 @@ void mixed(struct range *_range, Hash<T> *index) {
   T *key_array = reinterpret_cast<T *>(_range->workload);
   T key;
   int string_key_size = sizeof(string_key) + _range->length;
-  std::cout << "string_key_size = " << string_key_size << std::endl;
+  //std::cout << "string_key_size = " << string_key_size << std::endl;
 
   UniformRandom rng(_range->random_num);
   uint32_t random;
@@ -861,6 +863,7 @@ int main(int argc, char *argv[]) {
   index_type = FLAGS_index;
   std::string fixed("fixed");
   operation = FLAGS_op;
+  std::cout << "FLAGS_e = " << FLAGS_e << std::endl;
   open_epoch = FLAGS_e;
   if (open_epoch == true)
     std::cout << "EPOCH registration in application level" << std::endl;
