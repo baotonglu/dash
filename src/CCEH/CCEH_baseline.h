@@ -10,6 +10,7 @@
 #include <thread>
 #include <unordered_map>
 #include <vector>
+
 #include "../../util/hash.h"
 #include "../../util/pair.h"
 #include "../../util/persist.h"
@@ -129,23 +130,23 @@ struct Segment {
   bool Put(T, Value_t, size_t);
   PMEMoid *Split(PMEMobjpool *, size_t, log_entry *);
 
-  void get_lock(PMEMobjpool* pop) {
-    #ifdef PERSISTENT_LOCK
+  void get_lock(PMEMobjpool *pop) {
+#ifdef PERSISTENT_LOCK
     pmemobj_rwlock_wrlock(pop, &rwlock);
-    #else
+#else
     /*
     uint64_t temp = 0;
     while(!CAS(&seg_lock, &temp, 1)){
       temp = 0;
     }*/
     mutex.lock();
-    #endif
+#endif
   }
 
-  void release_lock(PMEMobjpool* pop) {
-    #ifdef PERSISTENT_LOCK
+  void release_lock(PMEMobjpool *pop) {
+#ifdef PERSISTENT_LOCK
     pmemobj_rwlock_unlock(pop, &rwlock);
-    #else
+#else
     /*
     uint64_t temp = 1;
     while(!CAS(&seg_lock, &temp, 0)){
@@ -153,65 +154,63 @@ struct Segment {
     }
     */
     mutex.unlock();
-    #endif
+#endif
   }
 
-  void get_rd_lock(PMEMobjpool* pop){
-    #ifdef PERSISTENT_LOCK
+  void get_rd_lock(PMEMobjpool *pop) {
+#ifdef PERSISTENT_LOCK
     pmemobj_rwlock_rdlock(pop, &rwlock);
-    #else
+#else
     /*
     uint64_t temp = 0;
     while(!CAS(&seg_lock, &temp, 1)){
       temp = 0;
     }*/
     mutex.lock_shared();
-    #endif
+#endif
   }
 
-  void release_rd_lock(PMEMobjpool* pop){
-    #ifdef PERSISTENT_LOCK
+  void release_rd_lock(PMEMobjpool *pop) {
+#ifdef PERSISTENT_LOCK
     pmemobj_rwlock_unlock(pop, &rwlock);
-    #else
+#else
     /*
     uint64_t temp = 1;
     while(!CAS(&seg_lock, &temp, 0)){
       temp = 1;
     }*/
     mutex.unlock_shared();
-    #endif
+#endif
   }
 
-  bool try_get_lock(PMEMobjpool* pop){
-    #ifdef PERSISTENT_LOCK   
-    if (pmemobj_rwlock_trywrlock(pop, &rwlock) == 0)
-    {
+  bool try_get_lock(PMEMobjpool *pop) {
+#ifdef PERSISTENT_LOCK
+    if (pmemobj_rwlock_trywrlock(pop, &rwlock) == 0) {
       return true;
     }
     return false;
-    #else
+#else
     /*
     uint64_t temp = 0;
     return CAS(&seg_lock, &temp, 1);
     */
     return mutex.try_lock();
-    #endif
+#endif
   }
 
-  bool try_get_rd_lock(PMEMobjpool* pop){
-    #ifdef PERSISTENT_LOCK
-    if (pmemobj_rwlock_tryrdlock(pop, &rwlock) == 0)
-    {
+  bool try_get_rd_lock(PMEMobjpool *pop) {
+#ifdef PERSISTENT_LOCK
+    if (pmemobj_rwlock_tryrdlock(pop, &rwlock) == 0) {
       return true;
     }
     return false;
-    #else
+#else
     /*
     uint64_t temp = 0;
     return CAS(&seg_lock, &temp, 1);
     */
     return mutex.try_lock_shared();
-    #endif
+#endif
   }
 
   _Pair<T> _[kNumSlot];
@@ -628,6 +627,7 @@ CCEH<T>::~CCEH(void) {}
 template <class T>
 void CCEH<T>::Recovery(void) {
   std::cout << "Start the Recovery" << std::endl;
+  // Allocator::EpochRecovery();
   for (int i = 0; i < LOG_NUM; ++i) {
     if (!OID_IS_NULL(log[i].temp)) {
       pmemobj_free(&log[i].temp);
@@ -701,10 +701,13 @@ void CCEH<T>::Directory_Doubling(int x, Segment<T> *s0, PMEMoid *s1) {
       new_seg_array,
       sizeof(Seg_array<T>) + sizeof(Segment<T> *) * 2 * dir->capacity);
 #endif
+  void **reserve_addr = Allocator::ReserveMemory();
   TX_BEGIN(pool_addr) {
+    pmemobj_tx_add_range_direct(reserve_addr, sizeof(void **));
     pmemobj_tx_add_range_direct(&dir->sa, sizeof(dir->sa));
     pmemobj_tx_add_range_direct(&dir->new_sa, sizeof(dir->new_sa));
     pmemobj_tx_add_range_direct(&dir->capacity, sizeof(dir->capacity));
+    *reserve_addr = sa;
     dir->sa = reinterpret_cast<Seg_array<T> *>(pmemobj_direct(dir->new_sa));
     dir->new_sa = OID_NULL;
     dir->capacity *= 2;
@@ -714,7 +717,6 @@ void CCEH<T>::Directory_Doubling(int x, Segment<T> *s0, PMEMoid *s1) {
   }
   TX_END
 
-  Allocator::Free(sa);
   printf("Done!!Directory_Doubling towards %lld\n", global_depth);
 }
 
@@ -762,9 +764,9 @@ void CCEH<T>::Directory_Update(int x, Segment<T> *s0, PMEMoid *s1) {
   }
 }
 
-template<class T>
-void CCEH<T>::Insert(T key, Value_t value, bool is_in_epoch){
-  if(!is_in_epoch){
+template <class T>
+void CCEH<T>::Insert(T key, Value_t value, bool is_in_epoch) {
+  if (!is_in_epoch) {
     auto epoch_guard = Allocator::AquireEpochGuard();
     return Insert(key, value);
   }
@@ -841,9 +843,9 @@ RETRY:
   }
 }
 
-template<class T>
-bool CCEH<T>::Delete(T key, bool is_in_epoch){
-  if(!is_in_epoch){
+template <class T>
+bool CCEH<T>::Delete(T key, bool is_in_epoch) {
+  if (!is_in_epoch) {
     auto epoch_guard = Allocator::AquireEpochGuard();
     return Delete(key);
   }
@@ -853,11 +855,11 @@ bool CCEH<T>::Delete(T key, bool is_in_epoch){
 // TODO
 template <class T>
 bool CCEH<T>::Delete(T key) {
-/*
-#ifdef EPOCH
-  auto epoch_guard = Allocator::AquireEpochGuard();
-#endif
-*/
+  /*
+  #ifdef EPOCH
+    auto epoch_guard = Allocator::AquireEpochGuard();
+  #endif
+  */
   uint64_t key_hash;
   if constexpr (std::is_pointer_v<T>) {
     key_hash = h(key->key, key->length);

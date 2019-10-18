@@ -1,5 +1,6 @@
 #pragma once
 #include <immintrin.h>
+
 #include <bitset>
 #include <cassert>
 #include <cmath>
@@ -10,11 +11,11 @@
 #include <tuple>
 #include <unordered_map>
 #include <vector>
-#include "Hash.h"
 
 #include "../util/hash.h"
 #include "../util/pair.h"
 #include "../util/persist.h"
+#include "Hash.h"
 #include "allocator.h"
 
 #ifdef PMEM
@@ -25,7 +26,7 @@ namespace extendible {
 
 #define _INVALID 0 /* we use 0 as the invalid key*/
 #define SINGLE 1
-//#define COUNTING 1
+#define COUNTING 1
 #define EPOCH 1
 //#define PREALLOC 1
 
@@ -400,32 +401,32 @@ struct Bucket {
         (*((int *)membership)); /*since they are in the same cacheline,
                                    therefore no performance influence?*/
   }
-/*
-  inline void get_lock() {
-    auto old_value = version_lock & lockMask;
-    auto new_value = version_lock | lockSet;
-    while (!CAS(&version_lock, &old_value, new_value)) {
-      old_value = version_lock & lockMask;
-      new_value = version_lock | lockSet;
+  /*
+    inline void get_lock() {
+      auto old_value = version_lock & lockMask;
+      auto new_value = version_lock | lockSet;
+      while (!CAS(&version_lock, &old_value, new_value)) {
+        old_value = version_lock & lockMask;
+        new_value = version_lock | lockSet;
+      }
     }
-  }
 
-  inline bool try_get_lock() {
-    auto old_value = version_lock & lockMask;
-    auto new_value = version_lock | lockSet;
-    return CAS(&version_lock, &old_value, new_value);
-  }
-
-  inline void release_lock() {
-    auto old_value = version_lock;
-    auto new_value = ((old_value & lockMask) + 1) & lockMask;
-
-    while (!CAS(&version_lock, &old_value, new_value)) {
-      old_value = version_lock;
-      new_value = ((old_value & lockMask) + 1) & lockMask;
+    inline bool try_get_lock() {
+      auto old_value = version_lock & lockMask;
+      auto new_value = version_lock | lockSet;
+      return CAS(&version_lock, &old_value, new_value);
     }
-  }
-*/
+
+    inline void release_lock() {
+      auto old_value = version_lock;
+      auto new_value = ((old_value & lockMask) + 1) & lockMask;
+
+      while (!CAS(&version_lock, &old_value, new_value)) {
+        old_value = version_lock;
+        new_value = ((old_value & lockMask) + 1) & lockMask;
+      }
+    }
+  */
   inline void get_lock() {
     uint32_t new_value = 0;
     uint32_t old_value = 0;
@@ -883,11 +884,12 @@ struct Table {
   int Insert(T key, Value_t value, size_t key_hash, uint8_t meta_hash,
              Directory<T> **);
   void Insert4split(T key, Value_t value, size_t key_hash, uint8_t meta_hash);
-  void Insert4splitWithCheck(T key, Value_t value, size_t key_hash, uint8_t meta_hash);
+  void Insert4splitWithCheck(T key, Value_t value, size_t key_hash,
+                             uint8_t meta_hash);
   void Insert4merge(T key, Value_t value, size_t key_hash, uint8_t meta_hash,
                     bool flag = false);
   Table<T> *Split(size_t);
-  void HelpSplit(Table<T>*);
+  void HelpSplit(Table<T> *);
   void Merge(Table<T> *, bool flag = false);
   int Delete(T key, size_t key_hash, uint8_t meta_hash, Directory<T> **_dir);
   int Next_displace(Bucket<T> *target, Bucket<T> *neighbor,
@@ -1163,12 +1165,12 @@ RETRY:
 
 template <class T>
 void Table<T>::Insert4splitWithCheck(T key, Value_t value, size_t key_hash,
-                            uint8_t meta_hash) {
+                                     uint8_t meta_hash) {
   auto y = BUCKET_INDEX(key_hash);
   Bucket<T> *target = bucket + y;
   Bucket<T> *neighbor = bucket + ((y + 1) & bucketMask);
   auto ret =
-        target->unique_check(meta_hash, key, neighbor, bucket + kNumBucket);
+      target->unique_check(meta_hash, key, neighbor, bucket + kNumBucket);
   if (ret == -1) return;
   Bucket<T> *insert_target;
   bool probe = false;
@@ -1237,7 +1239,6 @@ void Table<T>::Insert4splitWithCheck(T key, Value_t value, size_t key_hash,
     Stash_insert(target, neighbor, key, value, meta_hash, y & stashMask);
   }
 }
-
 
 /*the insert needs to be perfectly balanced, not destory the power of balance*/
 template <class T>
@@ -1399,8 +1400,8 @@ void Table<T>::Insert4merge(T key, Value_t value, size_t key_hash,
   }
 }
 
-template<class T>
-void Table<T>::HelpSplit(Table<T> *next_table){
+template <class T>
+void Table<T>::HelpSplit(Table<T> *next_table) {
   size_t new_pattern = (pattern << 1) + 1;
   size_t old_pattern = pattern << 1;
 
@@ -1802,8 +1803,8 @@ Finger_EH<T>::Finger_EH(size_t initCap, PMEMobjpool *_pool) {
   dir->depth_count = initCap;
 }
 
-template<class T>
-Finger_EH<T>::Finger_EH(){
+template <class T>
+Finger_EH<T>::Finger_EH() {
   std::cout << "Reinitialize up" << std::endl;
 }
 
@@ -1864,10 +1865,13 @@ void Finger_EH<T>::Halve_Directory() {
   Allocator::Persist(new_dir,
                      sizeof(Directory<T>) + sizeof(uint64_t) * capacity);
 
-  auto old_dir = dir;
+  // auto old_dir = dir;
+  void **reserve_addr = Allocator::ReserveMemory();
   TX_BEGIN(pool_addr) {
+    pmemobj_tx_add_range_direct(reserve_addr, sizeof(void *));
     pmemobj_tx_add_range_direct(&dir, sizeof(dir));
     pmemobj_tx_add_range_direct(&back_dir, sizeof(back_dir));
+    *reserve_addr = (void *)dir;
     dir = new_dir;
     back_dir = OID_NULL;
   }
@@ -1875,14 +1879,11 @@ void Finger_EH<T>::Halve_Directory() {
     std::cout << "TXN fails during halvling directory" << std::endl;
   }
   TX_END
-
+/*
 #ifdef EPOCH
   Allocator::Free(old_dir);
 #endif
-  /*
-  FixMe: Free memory should be enrolled into one single TXN with update
-  directory
-  */
+*/
 #else
   dir = new_dir;
 #endif
@@ -1911,29 +1912,29 @@ void Finger_EH<T>::Directory_Doubling(int x, Table<T> *new_b) {
 #ifdef PMEM
   Allocator::Persist(new_sa,
                      sizeof(Directory<T>) + sizeof(uint64_t) * 2 * capacity);
+  void **reserve_addr = Allocator::ReserveMemory();
   auto old_dir = dir;
   TX_BEGIN(pool_addr) {
+    pmemobj_tx_add_range_direct(reserve_addr, sizeof(void *));
     pmemobj_tx_add_range_direct(&dir, sizeof(dir));
     pmemobj_tx_add_range_direct(&back_dir, sizeof(back_dir));
+    *reserve_addr = (void *)dir;
     dir = new_sa;
     back_dir = OID_NULL;
-  } 
+  }
   TX_ONABORT {
     std::cout << "TXN fails during doubling directory" << std::endl;
   }
   TX_END
-
+/*
 #ifdef EPOCH
   Allocator::Free(old_dir);
 #endif
-  /*
-  FixMe: Free memory should be enrolled into one single TXN with update
-  directory
-  */
+*/
 #else
   dir = new_sa;
 #endif
-  //printf("Done!!Directory_Doubling towards %lld\n", dir->global_depth);
+  // printf("Done!!Directory_Doubling towards %lld\n", dir->global_depth);
 }
 
 template <class T>
@@ -2006,19 +2007,20 @@ void Finger_EH<T>::recoverTable(Table<T> **target_table, size_t key_hash) {
 
   target->recoverMetadata();
   if (target->state != 0) {
-    target->pattern = key_hash >> (8*sizeof(key_hash) - target->local_depth);
+    target->pattern = key_hash >> (8 * sizeof(key_hash) - target->local_depth);
     Allocator::Persist(&target->pattern, sizeof(target->pattern));
     Table<T> *next_table = (Table<T> *)pmemobj_direct(target->next);
-    if(target->state == -2){
-      if((next_table->pattern == 0) || (next_table->pattern == ((target->pattern << 1) + 1))){
+    if (target->state == -2) {
+      if ((next_table->pattern == 0) ||
+          (next_table->pattern == ((target->pattern << 1) + 1))) {
         /*Help finish the split operation*/
         next_table->recoverMetadata();
         target->HelpSplit(next_table);
         Lock_Directory();
         auto x = (key_hash >> (8 * sizeof(key_hash) - dir->global_depth));
-        if(target->local_depth < dir->global_depth){
+        if (target->local_depth < dir->global_depth) {
           Directory_Update(dir, x, next_table);
-        }else{
+        } else {
           Directory_Doubling(x, next_table);
         }
         Unlock_Directory();
@@ -2027,15 +2029,15 @@ void Finger_EH<T>::recoverTable(Table<T> **target_table, size_t key_hash) {
         next_table->state = 0;
         Allocator::Persist(&next_table->state, sizeof(int));
       }
-    }else if(target->state == -1){
-      if(next_table->pattern == ((target->pattern << 1) + 1)){
+    } else if (target->state == -1) {
+      if (next_table->pattern == ((target->pattern << 1) + 1)) {
         target->Merge(next_table, true);
         Allocator::Persist(target, sizeof(Table<T>));
         target->next = next_table->next;
-    #ifdef EPOCH
+#ifdef EPOCH
         Allocator::Free(next_table);
-    #endif
-      }  
+#endif
+      }
     }
     target->state = 0;
     Allocator::Persist(&target->state, sizeof(int));
@@ -2049,18 +2051,11 @@ template <class T>
 void Finger_EH<T>::Recovery() {
   /*scan the directory, set the clear bit, and also set the dirty bit in the
    * segment to indicate that this segment is clean*/
+  // Allocator::EpochRecovery();
   lock = 0;
   /*first check the back_dir log*/
   if (!OID_IS_NULL(back_dir)) {
-    Directory<T> *back_dir_pt =
-        reinterpret_cast<Directory<T> *>(pmemobj_direct(back_dir));
-    if (back_dir_pt != dir) {
-      Allocator::Free(back_dir_pt);
-    }
-    back_dir = OID_NULL;
-    /*
-    FixMe: Put in a TXN
-    */
+    pmemobj_free(&back_dir);
   }
 
   auto dir_entry = dir->_;
@@ -2087,7 +2082,7 @@ void Finger_EH<T>::Recovery() {
       if (dir_entry[j] != dir_entry[i]) {
         dir_entry[j] = dir_entry[i];
         target->pattern = i >> (global_depth - depth_cur);
-        //target->state =
+        // target->state =
         //    -3; /*means that this bucket needs to fix its right link*/
       }
     }
@@ -2099,9 +2094,9 @@ void Finger_EH<T>::Recovery() {
 #endif
 }
 
-template<class T>
-void Finger_EH<T>::Insert(T key, Value_t value, bool is_in_epoch){
-  if(!is_in_epoch){
+template <class T>
+void Finger_EH<T>::Insert(T key, Value_t value, bool is_in_epoch) {
+  if (!is_in_epoch) {
     auto epoch_guard = Allocator::AquireEpochGuard();
     return Insert(key, value);
   }
@@ -2117,7 +2112,7 @@ void Finger_EH<T>::Insert(T key, Value_t value) {
   } else {
     key_hash = h(&key, sizeof(key));
   }
-  
+
   auto meta_hash = ((uint8_t)(key_hash & kMask));  // the last 8 bits
 RETRY:
   auto old_sa = dir;
@@ -2205,15 +2200,15 @@ Value_t Finger_EH<T>::Get(T key, bool is_in_epoch) {
 #endif
     return Get(key);
   }
-    return Get(key);
+  return Get(key);
 }
 
-template<class T>
+template <class T>
 Value_t Finger_EH<T>::Get(T key) {
   uint64_t key_hash;
-  if constexpr (std::is_pointer_v<T>){
+  if constexpr (std::is_pointer_v<T>) {
     key_hash = h(key->key, key->length);
-  }else{
+  } else {
     key_hash = h(&key, sizeof(key));
   }
   auto meta_hash = ((uint8_t)(key_hash & kMask));  // the last 8 bits
@@ -2234,8 +2229,10 @@ RETRY:
   // printf("Get key %lld, x = %d, y = %d, meta_hash = %d\n", key, x,
   // BUCKET_INDEX(key_hash), meta_hash);
 
-  uint32_t old_version = __atomic_load_n(&target_bucket->version_lock, __ATOMIC_ACQUIRE);
-  uint32_t old_neighbor_version = __atomic_load_n(&neighbor_bucket->version_lock, __ATOMIC_ACQUIRE);
+  uint32_t old_version =
+      __atomic_load_n(&target_bucket->version_lock, __ATOMIC_ACQUIRE);
+  uint32_t old_neighbor_version =
+      __atomic_load_n(&neighbor_bucket->version_lock, __ATOMIC_ACQUIRE);
 
   if ((old_version & lockSet) || (old_neighbor_version & lockSet)) {
     goto RETRY;
@@ -2249,20 +2246,20 @@ RETRY:
   }
 
   auto ret = target_bucket->check_and_get(meta_hash, key, false);
-  if(target_bucket->test_lock_version_change(old_version)){
-	  goto RETRY;
+  if (target_bucket->test_lock_version_change(old_version)) {
+    goto RETRY;
   }
-  if (ret != NONE){
+  if (ret != NONE) {
     return ret;
   }
 
   /*no need for verification procedure, we use the version number of
    * target_bucket to test whether the bucket has ben spliteted*/
   ret = neighbor_bucket->check_and_get(meta_hash, key, true);
-  if(neighbor_bucket->test_lock_version_change(old_neighbor_version)){
-     goto RETRY;
+  if (neighbor_bucket->test_lock_version_change(old_neighbor_version)) {
+    goto RETRY;
   }
-  if (ret != NONE){
+  if (ret != NONE) {
     return ret;
   }
 
@@ -2336,7 +2333,7 @@ RETRY:
       }
     }
   }
-  FINAL:
+FINAL:
   // printf("the x = %lld, the y = %lld, the meta_hash is %d\n", x, y,
   // meta_hash);
   return NONE;
@@ -2412,21 +2409,30 @@ void Finger_EH<T>::TryMerge(size_t key_hash) {
         if (right_seg->number != 0) {
           left_seg->Merge(right_seg);
         }
-        left_seg->next = right_seg->next;
-        /*
-         *FixMe
-         *Put in a TXN: unlink from neighbour segment and put into the garbage
-         *list
-         */
+        // std::cout << "reserve a memory addr "<<key_hash<< std::endl;
+        void **reserve_addr = Allocator::ReserveMemory();
+        // std::cout << "successfully get a memory addr" << std::endl;
+        TX_BEGIN(pool_addr) {
+          pmemobj_tx_add_range_direct(reserve_addr, sizeof(void *));
+          pmemobj_tx_add_range_direct(&left_seg->next, sizeof(left_seg->next));
+          *reserve_addr = right_seg;
+          left_seg->next = right_seg->next;
+        }
+        TX_ONABORT { std::cout << "Error for merge txn" << std::endl; }
+        TX_END
+
+        // left_seg->next = right_seg->next;
         left_seg->pattern = left_seg->pattern >> 1;
         Allocator::Persist(&left_seg->pattern, sizeof(uint64_t));
         left_seg->state = 0;
         Allocator::Persist(&left_seg->state, sizeof(int));
         right_seg->Release_all_locks();
         left_seg->Release_all_locks();
-#ifdef EPOCH
-        Allocator::Free(right_seg);
-#endif
+        /*
+        #ifdef EPOCH
+                Allocator::Free(right_seg);
+        #endif
+        */
         /*Try to halve directory?*/
         if ((dir->depth_count == 0) && (dir->global_depth > 2)) {
           Lock_Directory();
@@ -2451,9 +2457,9 @@ void Finger_EH<T>::TryMerge(size_t key_hash) {
   } while (true);
 }
 
-template<class T>
-bool Finger_EH<T>::Delete(T key, bool is_in_epoch){
-  if(!is_in_epoch){
+template <class T>
+bool Finger_EH<T>::Delete(T key, bool is_in_epoch) {
+  if (!is_in_epoch) {
     auto epoch_guard = Allocator::AquireEpochGuard();
     return Delete(key);
   }
@@ -2463,11 +2469,11 @@ bool Finger_EH<T>::Delete(T key, bool is_in_epoch){
 /*the delete operation of the */
 template <class T>
 bool Finger_EH<T>::Delete(T key) {
-/*
-#ifdef EPOCH
-  auto epoch_guard = Allocator::AquireEpochGuard();
-#endif
-*/
+  /*
+  #ifdef EPOCH
+    auto epoch_guard = Allocator::AquireEpochGuard();
+  #endif
+  */
   /*Basic delete operation and merge operation*/
   uint64_t key_hash;
   if constexpr (std::is_pointer_v<T>) {

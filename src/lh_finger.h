@@ -2,6 +2,7 @@
 #define Linear_H
 
 #include <immintrin.h>
+
 #include <bitset>
 #include <cassert>
 #include <cmath>
@@ -11,6 +12,7 @@
 #include <thread>
 #include <unordered_map>
 #include <vector>
+
 #include "../util/hash.h"
 #include "../util/pair.h"
 #include "../util/persist.h"
@@ -2299,14 +2301,14 @@ class Linear : public Hash<T> {
    * @return void
    */
   inline void Expand(uint32_t numBuckets) {
-/*
-#ifdef COUNTING
-    int unlock_state = 0;
-    while (!CAS(&lock, &unlock_state, 1)) {
-      unlock_state = 0;
-    }
-#endif
-*/
+    /*
+    #ifdef COUNTING
+        int unlock_state = 0;
+        while (!CAS(&lock, &unlock_state, 1)) {
+          unlock_state = 0;
+        }
+    #endif
+    */
   RE_EXPAND:
     uint64_t old_N_next = dir.N_next;
     uint32_t old_N = old_N_next >> 32;
@@ -2365,11 +2367,11 @@ sizeof(Table<T>) * seg_size);*/
 #ifdef PMEM
     Allocator::Persist(&dir.N_next, sizeof(uint64_t));
 #endif
-/*
-#ifdef COUNTING
-    lock = 0;
-#endif
-*/
+    /*
+    #ifdef COUNTING
+        lock = 0;
+    #endif
+    */
     if ((uint32_t)new_N_next == 0) {
       printf("expand to level %lu\n", new_N_next >> 32);
     }
@@ -2544,22 +2546,22 @@ void Linear<T>::recoverSegment(Table<T> **seg_ptr, size_t index) {
   *seg_ptr = target;
 }
 
-template<class T>
-void Linear<T>::Insert(T key, Value_t value, bool is_in_epoch){
-  if(!is_in_epoch){
+template <class T>
+void Linear<T>::Insert(T key, Value_t value, bool is_in_epoch) {
+  if (!is_in_epoch) {
     auto epoch_guard = Allocator::AquireEpochGuard();
     return Insert(key, value);
   }
-  return Insert(key,value);
+  return Insert(key, value);
 }
 
 template <class T>
 void Linear<T>::Insert(T key, Value_t value) {
-/*
-#ifdef EPOCH
-  auto epoch_guard = Allocator::AquireEpochGuard();
-#endif
-*/
+  /*
+  #ifdef EPOCH
+    auto epoch_guard = Allocator::AquireEpochGuard();
+  #endif
+  */
   uint64_t key_hash;
   if constexpr (std::is_pointer_v<T>) {
     key_hash = h(key->key, key->length);
@@ -2600,7 +2602,7 @@ RETRY:
 
 template <class T>
 Value_t Linear<T>::Get(T key, bool is_in_epoch) {
-  if(!is_in_epoch){
+  if (!is_in_epoch) {
     auto epoch_guard = Allocator::AquireEpochGuard();
     return Get(key);
   }
@@ -2639,8 +2641,10 @@ RETRY:
 
   Bucket<T> *target_bucket = target->bucket + y;
   Bucket<T> *neighbor_bucket = target->bucket + ((y + 1) & bucketMask);
-  uint32_t old_version = __atomic_load_n(&target_bucket->version_lock, __ATOMIC_ACQUIRE);
-  uint32_t old_neighbor_version = __atomic_load_n(&neighbor_bucket->version_lock, __ATOMIC_ACQUIRE);
+  uint32_t old_version =
+      __atomic_load_n(&target_bucket->version_lock, __ATOMIC_ACQUIRE);
+  uint32_t old_neighbor_version =
+      __atomic_load_n(&neighbor_bucket->version_lock, __ATOMIC_ACQUIRE);
 
   if ((old_version & lockSet) || (old_neighbor_version & lockSet)) {
     goto RETRY;
@@ -2770,9 +2774,9 @@ RETRY:
   return NONE;
 }
 
-template<class T>
-bool Linear<T>::Delete(T key, bool is_in_epoch){
-  if(!is_in_epoch){
+template <class T>
+bool Linear<T>::Delete(T key, bool is_in_epoch) {
+  if (!is_in_epoch) {
     auto epoch_guard = Allocator::AquireEpochGuard();
     return Delete(key);
   }
@@ -2782,11 +2786,11 @@ bool Linear<T>::Delete(T key, bool is_in_epoch){
 /*the delete operation of the */
 template <class T>
 bool Linear<T>::Delete(T key) {
-/*
-#ifdef EPOCH
-  auto epoch_guard = Allocator::AquireEpochGuard();
-#endif
-*/
+  /*
+  #ifdef EPOCH
+    auto epoch_guard = Allocator::AquireEpochGuard();
+  #endif
+  */
   uint64_t key_hash;
   if constexpr (std::is_pointer_v<T>) {
     key_hash = h(key->key, key->length);
