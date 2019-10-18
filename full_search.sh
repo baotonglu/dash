@@ -11,7 +11,7 @@ epoch=(0 false true true false)
 #delete the corresponding file
 
 #{1..6}
-for k in 2
+for k in 1
 do
 	for i in 1
 	do 
