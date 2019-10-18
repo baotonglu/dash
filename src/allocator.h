@@ -154,6 +154,18 @@ struct Allocator {
   static void Unprotect(){
     instance_->epoch_manager_.Unprotect();
   }
+
+  static void** ReserveMemory(){
+    return (void**)instance_->garbage_list_.ReserveMemory();
+  }
+
+  static void ResetItem(void *mem){
+    instance_->garbage_list_.ResetItem(mem);
+  }
+
+  static void EpochRecovery(){
+    instance_->garbage_list_.Recovery(&instance_->epoch_manager_, instance_->pm_pool_);
+  }
 };
 
 #ifdef PMEM

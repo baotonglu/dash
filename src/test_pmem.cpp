@@ -1,12 +1,14 @@
 #include <gflags/gflags.h>  
 #include <immintrin.h>
 #include <sys/time.h>
+
 #include <atomic>
 #include <chrono>
 #include <condition_variable>
 #include <cstring>
 #include <mutex>
 #include <thread>
+
 #include "../util/System.hpp"
 #include "../util/random.h"
 #include "../util/uniform.hpp"
@@ -547,7 +549,7 @@ void mixed_without_epoch(struct range *_range, Hash<T> *index) {
     }
 
     random = rng.next_uint32() % 100;
-    //if(_range->index == 0) std::cout<<i<<std::endl;
+    // if(_range->index == 0) std::cout<<i<<std::endl;
     if (random < insert_sign) { /*insert*/
       index->Insert(key, DEFAULT);
     } else if (random < read_sign) { /*get*/
@@ -572,6 +574,7 @@ void mixed(struct range *_range, Hash<T> *index) {
   T *key_array = reinterpret_cast<T *>(_range->workload);
   T key;
   int string_key_size = sizeof(string_key) + _range->length;
+  // std::cout << "string_key_size = " << string_key_size << std::endl;
 
   UniformRandom rng(_range->random_num);
   uint32_t random;
@@ -853,7 +856,6 @@ void Run() {
     auto duration = (double)(tv2.tv_usec - tv1.tv_usec) / 1000000 +
                     (double)(tv2.tv_sec - tv1.tv_sec);
     std::cout << "Recovery Time(s): " << duration << std::endl;
-    */
 
     for (int i = 0; i < thread_num; ++i) {
       rarray[i].workload = not_used_workload;
