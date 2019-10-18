@@ -1845,12 +1845,13 @@ int Table<T>::Insert(T key, Value_t value, size_t key_hash, Directory<T> *_dir,
     }
 
     /*the unique_check is to check whether the key has existed*/
+    /*
     ret = target->unique_check(meta_hash, key, neighbor, stash);
     if (ret == -1) {
       neighbor->release_lock();
       target->release_lock();
       return 0;
-    }
+    }*/
 
     int target_num = GET_COUNT(target->bitmap);
     int neighbor_num = GET_COUNT(neighbor->bitmap);
@@ -2639,8 +2640,10 @@ RETRY:
 
   Bucket<T> *target_bucket = target->bucket + y;
   Bucket<T> *neighbor_bucket = target->bucket + ((y + 1) & bucketMask);
-  uint32_t old_version = __atomic_load_n(&target_bucket->version_lock, __ATOMIC_ACQUIRE);
-  uint32_t old_neighbor_version = __atomic_load_n(&neighbor_bucket->version_lock, __ATOMIC_ACQUIRE);
+  uint32_t old_version = target_bucket->version_lock;
+  uint32_t old_neighbor_version = neighbor_bucket->version_lock;
+  //uint32_t old_version = __atomic_load_n(&target_bucket->version_lock, __ATOMIC_ACQUIRE);
+  //uint32_t old_neighbor_version = __atomic_load_n(&neighbor_bucket->version_lock, __ATOMIC_ACQUIRE);
 
   if ((old_version & lockSet) || (old_neighbor_version & lockSet)) {
     goto RETRY;

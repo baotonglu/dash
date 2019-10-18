@@ -25,8 +25,9 @@ namespace extendible {
 
 #define _INVALID 0 /* we use 0 as the invalid key*/
 #define SINGLE 1
-//#define COUNTING 1
+#define COUNTING 1
 #define EPOCH 1
+#define CRASH 1
 //#define PREALLOC 1
 
 #define SIMD 1
@@ -81,6 +82,10 @@ const uint64_t lockBit = 1UL << 62;
 #define GET_BITMAP(var) (((var) >> 4) & allocMask)
 #define ORG_BITMAP(var) ((~((var)&allocMask)) & allocMask)
 #define PROBE_BITMAP(var) ((var)&allocMask)
+
+#ifdef CRASH
+uint64_t split_num;
+#endif
 
 inline bool var_compare(char *str1, char *str2, int len1, int len2) {
   if (len1 != len2) return false;
@@ -1418,8 +1423,7 @@ Table<T> *Table<T>::Split(size_t _key_hash) {
     *((int *)curr_bucket->membership) =
         (~(invalid_array[i] >> 4)) &
         (*((int *)
-               curr_bucket->membership)); /*since they are in the same
-                                cacheline, therefore no performance influence?*/
+               curr_bucket->membership)); 
   }
 
   // if constexpr (std::is_pointer_v<T>) {
@@ -1467,7 +1471,7 @@ void Table<T>::Merge(Table<T> *neighbor, bool unique_check_flag) {
             key_hash = h(&(curr_bucket->_[j].key), sizeof(Key_t));
           }
           Insert4merge(curr_bucket->_[j].key, curr_bucket->_[j].value, key_hash,
-                       curr_bucket->finger_array[j]); /*this shceme may destory
+                       curr_bucket->finger_array[j], true); /*this shceme may destory
                                                          the balanced segment*/
         }
       }
@@ -1521,6 +1525,7 @@ class Finger_EH : public Hash<T> {
   Finger_EH(void);
   Finger_EH(size_t, PMEMobjpool *_pool);
   ~Finger_EH(void);
+  void Insert(T key, Value_t, int is_crash);
   inline void Insert(T key, Value_t value);
   void Insert(T key, Value_t value, bool);
   inline bool Delete(T);
@@ -1564,6 +1569,9 @@ class Finger_EH : public Hash<T> {
       ss = reinterpret_cast<Table<T> *>(pmemobj_direct(ss->next));
     }
 
+#ifdef CRASH
+    std::cout << "split_num = " << split_num << std::endl;
+#endif
     std::cout << "seg_count = " << seg_count << std::endl;
     std::cout << "verify_seg_count = " << verify_seg_count << std::endl;
 
@@ -1717,6 +1725,8 @@ void Finger_EH<T>::Directory_Doubling(int x, Table<T> *new_b) {
   auto global_depth = dir->global_depth;
   printf("Directory_Doubling towards %lld\n", global_depth + 1);
 
+  std::cout << "current position = "<< x << std::endl;
+  std::cout << "new position = " << 2*x << std::endl; 
   auto capacity = pow(2, global_depth);
   Directory<T>::New(&back_dir, 2 * capacity, dir->version + 1);
   Directory<T> *new_sa =
@@ -1761,6 +1771,14 @@ void Finger_EH<T>::Directory_Doubling(int x, Table<T> *new_b) {
 template <class T>
 void Finger_EH<T>::Directory_Update(Directory<T> *_sa, int x, Table<T> *new_b) {
   // printf("directory update for %d\n", x);
+  /*
+#ifdef CRASH
+      split_num++;
+      if(random()%5000 == 0){
+        abort();
+      }
+#endif
+*/
   Table<T> **dir_entry = _sa->_;
   auto global_depth = _sa->global_depth;
   unsigned depth_diff = global_depth - new_b->local_depth;
@@ -1831,12 +1849,15 @@ void Finger_EH<T>::recoverTable(Table<T> **target_table) {
     /*the link has been fixed, need to handle the on-going split/merge*/
     Table<T> *next_table = (Table<T> *)pmemobj_direct(target->next);
     target->Merge(next_table, true);
+    //target->pattern = target->pattern >> 1;
+    
     Allocator::Persist(target, sizeof(Table<T>));
     target->next = next_table->next;
 #ifdef EPOCH
     Allocator::Free(next_table);
 #endif
     target->state = 0;
+    std::cout << "Successfully recover a table!!!" << std::endl;
     /*FixMe
       Put in a transaction
     */
@@ -1854,6 +1875,7 @@ void Finger_EH<T>::Recovery() {
   lock = 0;
   /*first check the back_dir log*/
   if (!OID_IS_NULL(back_dir)) {
+    std::cout << "Fix the reserved directory" << std::endl;
     Directory<T> *back_dir_pt =
         reinterpret_cast<Directory<T> *>(pmemobj_direct(back_dir));
     if (back_dir_pt != dir) {
@@ -1867,6 +1889,7 @@ void Finger_EH<T>::Recovery() {
 
   auto dir_entry = dir->_;
   int length = pow(2, dir->global_depth);
+  std::cout << "The length = " << length << std::endl;
   Table<T> *target;
   size_t i = 0, global_depth = dir->global_depth, depth_cur, stride, buddy;
   auto old_depth_count = dir->depth_count;
@@ -1887,6 +1910,7 @@ void Finger_EH<T>::Recovery() {
       target->dirty_bit = 1;
       target->lock_bit = 0;
       if (dir_entry[j] != dir_entry[i]) {
+        std::cout << "Fix the link "<< j << std::endl;
         dir_entry[j] = dir_entry[i];
         target->pattern = i >> (global_depth - depth_cur);
         target->state =
@@ -1902,17 +1926,22 @@ void Finger_EH<T>::Recovery() {
 }
 
 template<class T>
+void Finger_EH<T>::Insert(T key, Value_t value){
+  return Insert(key, value, 0);
+}
+
+template<class T>
 void Finger_EH<T>::Insert(T key, Value_t value, bool is_in_epoch){
   if(!is_in_epoch){
     auto epoch_guard = Allocator::AquireEpochGuard();
-    return Insert(key, value);
+    return Insert(key, value, 0);
   }
 
-  return Insert(key, value);
+  return Insert(key, value, 0);
 }
 
 template <class T>
-void Finger_EH<T>::Insert(T key, Value_t value) {
+void Finger_EH<T>::Insert(T key, Value_t value, int is_crash) {
   uint64_t key_hash;
   if constexpr (std::is_pointer_v<T>) {
     key_hash = h(key->key, key->length);
@@ -1930,7 +1959,7 @@ RETRY:
     recoverTable(&dir_entry[x]);
     goto RETRY;
   }
-
+  
   // printf("insert key %lld, x = %d, y = %d, meta_hash = %d\n", key, x,
   // BUCKET_INDEX(key_hash), meta_hash);
   auto ret = target->Insert(key, value, key_hash, meta_hash, &dir);
@@ -1954,6 +1983,12 @@ RETRY:
     auto new_b =
         target->Split(key_hash); /* also needs the verify..., and we use try
                                     lock for this rather than the spin lock*/
+    if(is_crash == 1){
+      //std::cout << "Crash Test" << std::endl;
+      if(random()%30000 == 0){
+        abort();
+      }
+    }
     /* update directory*/
   REINSERT:
     // the following three statements may be unnecessary...
@@ -1976,6 +2011,8 @@ RETRY:
         Unlock_Directory();
         goto REINSERT;
       }
+      std::cout << "target count = " << target->number << std::endl;
+      std::cout << "new table count = " << new_b->number << std::endl;
       Directory_Doubling(x, new_b);
 
       Unlock_Directory();
@@ -2030,7 +2067,7 @@ RETRY:
   auto dir_entry = old_sa->_;
   Table<T> *target = dir_entry[x];
 
-  if (unlikely((uint64_t)target & recoverBit)) {
+  if ((uint64_t)target & recoverBit) {
     recoverTable(&dir_entry[x]);
     goto RETRY;
   }
@@ -2038,8 +2075,8 @@ RETRY:
   Bucket<T> *target_bucket = target->bucket + y;
   Bucket<T> *neighbor_bucket = target->bucket + ((y + 1) & bucketMask);
   // printf("Get key %lld, x = %d, y = %d, meta_hash = %d\n", key, x,
-  // BUCKET_INDEX(key_hash), meta_hash);
-
+  //uint32_t old_version = target_bucket->version_lock;
+  //uint32_t old_neighbor_version = neighbor_bucket->version_lock;
   uint32_t old_version = __atomic_load_n(&target_bucket->version_lock, __ATOMIC_ACQUIRE);
   uint32_t old_neighbor_version = __atomic_load_n(&neighbor_bucket->version_lock, __ATOMIC_ACQUIRE);
 
@@ -2048,9 +2085,9 @@ RETRY:
   }
 
   /*verification procedure*/
-  old_sa = dir;
-  x = (key_hash >> (8 * sizeof(key_hash) - old_sa->global_depth));
-  if (old_sa->_[x] != target) {
+  auto new_sa = dir;
+  x = (key_hash >> (8 * sizeof(key_hash) - new_sa->global_depth));
+  if (new_sa->_[x] != target) {
     goto RETRY;
   }
 

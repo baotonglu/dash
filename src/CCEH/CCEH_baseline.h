@@ -48,7 +48,7 @@ struct log_entry {
 };
 
 // const size_t kCacheLineSize = 64;
-constexpr size_t kSegmentBits = 8;
+constexpr size_t kSegmentBits = 7;
 constexpr size_t kMask = (1 << kSegmentBits) - 1;
 constexpr size_t kShift = kSegmentBits;
 constexpr size_t kSegmentSize = (1 << kSegmentBits) * 16 * 4;

@@ -19,6 +19,7 @@
 #include "utils.h"
 
 std::string pool_name = "/mnt/pmem0/";
+//std::string pool_name = "./";
 // static const char *pool_name = "pmem_hash.data";
 static const size_t pool_size = 1024ul * 1024ul * 1024ul * 30ul;
 DEFINE_string(index, "dash-ex",
@@ -35,6 +36,8 @@ DEFINE_double(r, 1, "read ratio for mixed workload");
 DEFINE_double(s, 0, "insert ratio for mixed workload");
 DEFINE_double(d, 0, "delete ratio for mixed workload");
 DEFINE_uint32(e, 0, "whether register epoch in application level");
+DEFINE_uint32(recover, 0, "whether to recover the data structure");
+DEFINE_uint32(crash, 0, "whether to do the crash insertion");
 
 uint64_t initCap, thread_num, load_num, operation_num;
 std::string operation;
@@ -45,7 +48,9 @@ double read_ratio, insert_ratio, delete_ratio;
 std::mutex mtx;
 std::condition_variable cv;
 bool finished = false;
-bool open_epoch;
+bool open_epoch = false;
+bool recover = false;
+bool is_crash = false;
 struct timeval tv1, tv2, tv3;
 
 struct range {
@@ -90,7 +95,6 @@ Hash<T> *InitializeIndex(int seg_num) {
     } else {
       new (eh) extendible::Finger_EH<T>();
     }
-
   } else if (index_type == "dash-lh") {
     std::string index_pool_name = pool_name + "pmem_lh.data";
     if (FileExists(index_pool_name.c_str())) file_exist = true;
@@ -134,6 +138,16 @@ Hash<T> *InitializeIndex(int seg_num) {
     } else {
       new (eh) level::LevelHashing<T>();
     }
+  }
+
+  if(recover){
+    std::cout << "Execute the recovery algorithms" << std::endl;
+    gettimeofday(&tv1, NULL);
+    eh->Recovery();
+    gettimeofday(&tv2, NULL);  // test end
+    double duration = (double)(tv2.tv_usec - tv1.tv_usec) / 1000000 +
+          (double)(tv2.tv_sec - tv1.tv_sec);
+    std::cout << "The recovery time = " << duration << std::endl;
   }
   return eh;
 }
@@ -233,6 +247,33 @@ void concurr_insert_without_epoch(struct range *_range, Hash<T> *index) {
     for (uint64_t i = begin; i < end; ++i) {
       var_key = reinterpret_cast<T>(workload + string_key_size * i);
       index->Insert(var_key, DEFAULT);
+    }
+  }
+
+  end_notify();
+}
+
+template <class T>
+void concurr_insert_with_crash(struct range *_range, Hash<T> *index) {
+  set_affinity(_range->index);
+  int begin = _range->begin;
+  int end = _range->end;
+  char *workload = reinterpret_cast<char *>(_range->workload);
+  T key;
+
+  spin_wait();
+  // if(key_type == "fixed"){/*fixed length key benchmark*/
+  if constexpr (!std::is_pointer_v<T>) {
+    T *key_array = reinterpret_cast<T *>(workload);
+    for (uint64_t i = begin; i < end; ++i) {
+      index->Insert(key_array[i], DEFAULT, 1);
+    }
+  } else {
+    T var_key;
+    uint64_t string_key_size = sizeof(string_key) + _range->length;
+    for (uint64_t i = begin; i < end; ++i) {
+      var_key = reinterpret_cast<T>(workload + string_key_size * i);
+      index->Insert(var_key, DEFAULT, 1);
     }
   }
 
@@ -351,6 +392,7 @@ void concurr_search(struct range *_range, Hash<T> *index) {
       }
     }
   }
+  std::cout << "not found = " << not_found << std::endl;
   end_notify();
 }
 
@@ -476,7 +518,7 @@ void concurr_delete(struct range *_range, Hash<T> *index) {
 
 template <class T>
 void mixed_without_epoch(struct range *_range, Hash<T> *index) {
-  std::cout << "mixed without epcoh" << std::endl;
+  //std::cout << "mixed without epcoh" << std::endl;
   set_affinity(_range->index);
   uint64_t begin = _range->begin;
   uint64_t end = _range->end;
@@ -492,8 +534,8 @@ void mixed_without_epoch(struct range *_range, Hash<T> *index) {
   uint32_t insert_sign = (uint32_t)(insert_ratio * 100);
   uint32_t read_sign = (uint32_t)(read_ratio * 100) + insert_sign;
   uint32_t delete_sign = (uint32_t)(delete_ratio * 100) + read_sign;
-  std::cout << "insert sign = " << insert_sign << std::endl;
-  std::cout << "read sign = " << read_sign << std::endl;
+  //std::cout << "insert sign = " << insert_sign << std::endl;
+  //std::cout << "read sign = " << read_sign << std::endl;
 
   spin_wait();
 
@@ -516,7 +558,7 @@ void mixed_without_epoch(struct range *_range, Hash<T> *index) {
       index->Delete(key);
     }
   }
-  std::cout << "not_found = " << not_found << std::endl;
+  //std::cout << "not_found = " << not_found << std::endl;
   /*the last thread notify the main thread to wake up*/
   end_notify();
 }
@@ -530,7 +572,6 @@ void mixed(struct range *_range, Hash<T> *index) {
   T *key_array = reinterpret_cast<T *>(_range->workload);
   T key;
   int string_key_size = sizeof(string_key) + _range->length;
-  //std::cout << "string_key_size = " << string_key_size << std::endl;
 
   UniformRandom rng(_range->random_num);
   uint32_t random;
@@ -539,8 +580,8 @@ void mixed(struct range *_range, Hash<T> *index) {
   uint32_t insert_sign = (uint32_t)(insert_ratio * 100);
   uint32_t read_sign = (uint32_t)(read_ratio * 100) + insert_sign;
   uint32_t delete_sign = (uint32_t)(delete_ratio * 100) + read_sign;
-  std::cout << "insert sign = " << insert_sign << std::endl;
-  std::cout << "read sign = " << read_sign << std::endl;
+  //std::cout << "insert sign = " << insert_sign << std::endl;
+  //std::cout << "read sign = " << read_sign << std::endl;
 
   uint64_t round = (end - begin) / 1000;
   uint64_t i = 0;
@@ -592,7 +633,7 @@ void mixed(struct range *_range, Hash<T> *index) {
     }
   }
 
-  std::cout << "not_found = " << not_found << std::endl;
+  //std::cout << "not_found = " << not_found << std::endl;
   /*the last thread notify the main thread to wake up*/
   end_notify();
 }
@@ -767,7 +808,7 @@ void Run() {
       GeneralBench<T>(rarray, index, thread_num, operation_num, "Delete",
                       &concurr_delete_without_epoch);
     }
-  } else if (operation == "mixed") {
+  } else if (operation == "mixed") {    
     for (int i = 0; i < thread_num; ++i) {
       rarray[i].workload = not_used_insert_workload;
     }
@@ -778,7 +819,18 @@ void Run() {
       GeneralBench<T>(rarray, index, thread_num, operation_num, "Mixed",
                       &mixed_without_epoch);
     }
+    //index->getNumber();
   } else { /*do the benchmark for all single operations*/
+    if(is_crash){
+      std::cout << "crash insertion start" << std::endl;
+      for (int i = 0; i < thread_num; ++i) {
+        rarray[i].workload = not_used_insert_workload;
+      }
+      GeneralBench<T>(rarray, index, thread_num, operation_num, "Insert",
+                        &concurr_insert_with_crash);
+      return;
+    }
+
     std::cout << "insertion start" << std::endl;
     for (int i = 0; i < thread_num; ++i) {
       rarray[i].workload = not_used_insert_workload;
@@ -790,6 +842,7 @@ void Run() {
       GeneralBench<T>(rarray, index, thread_num, operation_num, "Insert",
                       &concurr_insert_without_epoch);
     }
+    index->getNumber();
 
     /*
     index->getNumber();
@@ -826,6 +879,7 @@ void Run() {
                       &concurr_search_without_epcoh);
     }
 
+    /*
     for (int i = 0; i < thread_num; ++i) {
       rarray[i].begin = i * chunk_size;
       rarray[i].end = (i + 1) * chunk_size;
@@ -838,7 +892,7 @@ void Run() {
     } else {
       GeneralBench<T>(rarray, index, thread_num, operation_num, "Delete",
                       &concurr_delete_without_epoch);
-    }
+    }*/
     index->getNumber();
   }
 
@@ -867,6 +921,8 @@ int main(int argc, char *argv[]) {
   open_epoch = FLAGS_e;
   if (open_epoch == true)
     std::cout << "EPOCH registration in application level" << std::endl;
+  recover = FLAGS_recover;
+  is_crash = FLAGS_crash;
 
   read_ratio = FLAGS_r;
   insert_ratio = FLAGS_s;
