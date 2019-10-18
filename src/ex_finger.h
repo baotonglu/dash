@@ -22,6 +22,8 @@
 #include <libpmemobj.h>
 #endif
 
+//uint64_t merge_time;
+
 namespace extendible {
 
 #define _INVALID 0 /* we use 0 as the invalid key*/
@@ -1742,7 +1744,6 @@ class Finger_EH : public Hash<T> {
       verify_seg_count++;
       ss = reinterpret_cast<Table<T> *>(pmemobj_direct(ss->next));
     }
-
     std::cout << "seg_count = " << seg_count << std::endl;
     std::cout << "verify_seg_count = " << verify_seg_count << std::endl;
 
@@ -1913,6 +1914,7 @@ void Finger_EH<T>::Directory_Doubling(int x, Table<T> *new_b) {
   Allocator::Persist(new_sa,
                      sizeof(Directory<T>) + sizeof(uint64_t) * 2 * capacity);
   void **reserve_addr = Allocator::ReserveMemory();
+  //++merge_time;
   auto old_dir = dir;
   TX_BEGIN(pool_addr) {
     pmemobj_tx_add_range_direct(reserve_addr, sizeof(void *));
@@ -2409,7 +2411,7 @@ void Finger_EH<T>::TryMerge(size_t key_hash) {
         if (right_seg->number != 0) {
           left_seg->Merge(right_seg);
         }
-        // std::cout << "reserve a memory addr "<<key_hash<< std::endl;
+        //std::cout << "reserve a memory addr "<<++merge_time<< std::endl;
         void **reserve_addr = Allocator::ReserveMemory();
         // std::cout << "successfully get a memory addr" << std::endl;
         TX_BEGIN(pool_addr) {
