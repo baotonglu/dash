@@ -3,15 +3,15 @@
 
 thread_num=(0 1 2 4 8 16 24 48)
 workload=(0 50000000)
-base=(0 0000000)
+base=(0 100000000)
 key_type=(0 fixed variable)
 index_type=(0 dash-ex dash-lh cceh level)
-epoch=(0 1 1 1 0)
+epoch=(0 1 1 1 1)
 
 #delete the corresponding file
 
 #{1..6}
-for k in 1
+for k in 4
 do
 	for i in 1
 	do 
@@ -34,10 +34,10 @@ do
 			#rm -f ./pmem_cceh.data
 			#rm -f ./pmem_level.data
 			rm -f /mnt/pmem0/pmem_ex.data
-			#rm -f /mnt/pmem0/pmem_lh.data
-			#rm -f /mnt/pmem0/pmem_cceh.data
-			#rm -f /mnt/pmem0/pmem_level.data
-			OP_PLACES=threads OMP_PROC_BIND=true OMP_NESTED=true PMEM_IS_PMEM_FORCE=1 LD_PRELOAD="./build/pmdk/src/PMDK/src/nondebug/libpmemobj.so.1 ./build/pmdk/src/PMDK/src/nondebug/libpmem.so.1" numactl $numaarg ./build/test_pmem -n ${base[1]} -p ${workload[1]} -t ${thread_num[$j]} -k ${key_type[$i]} -index ${index_type[$k]} -e ${epoch[$k]} -recover 1 -crash 1 #-s 0.2 -r 0.8
+#			rm -f /mnt/pmem0/pmem_lh.data
+#			rm -f /mnt/pmem0/pmem_cceh.data
+#			rm -f /mnt/pmem0/pmem_level.data
+#			OP_PLACES=threads OMP_PROC_BIND=true OMP_NESTED=true PMEM_IS_PMEM_FORCE=1 LD_PRELOAD="./build/pmdk/src/PMDK/src/nondebug/libpmemobj.so.1 ./build/pmdk/src/PMDK/src/nondebug/libpmem.so.1" numactl $numaarg ./build/test_pmem -n ${base[1]} -p ${workload[1]} -t ${thread_num[$j]} -k ${key_type[$i]} -index ${index_type[$k]} -e ${epoch[$k]} -recover 1 -crash 1 #-s 0.2 -r 0.8
 			OP_PLACES=threads OMP_PROC_BIND=true OMP_NESTED=true PMEM_IS_PMEM_FORCE=1 LD_PRELOAD="./build/pmdk/src/PMDK/src/nondebug/libpmemobj.so.1 ./build/pmdk/src/PMDK/src/nondebug/libpmem.so.1" numactl $numaarg ./build/test_pmem -n ${base[1]} -p ${workload[1]} -t ${thread_num[$j]} -k ${key_type[$i]} -index ${index_type[$k]} -e ${epoch[$k]} -recover 1 #-crash 1 #-s 0.2 -r 0.8
 		done
 	done

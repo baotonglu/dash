@@ -80,13 +80,14 @@ template <class T>
 Hash<T> *InitializeIndex(int seg_num) {
   Hash<T> *eh;
   bool file_exist = false;
+  gettimeofday(&tv1, NULL);
   if (index_type == "dash-ex") {
     std::string index_pool_name = pool_name + "pmem_ex.data";
     if (FileExists(index_pool_name.c_str())) file_exist = true;
     Allocator::Initialize(index_pool_name.c_str(), pool_size);
 
-    std::cout << "pool addr is " << Allocator::Get()->pm_pool_ << std::endl;
-    std::cout << "Initialize DASH-Extendible Hashing" << std::endl;
+    //std::cout << "pool addr is " << Allocator::Get()->pm_pool_ << std::endl;
+    //std::cout << "Initialize DASH-Extendible Hashing" << std::endl;
 #ifdef PREALLOC
     extendible::TlsTablePool<Key_t>::Initialize();
 #endif
@@ -101,7 +102,7 @@ Hash<T> *InitializeIndex(int seg_num) {
     std::string index_pool_name = pool_name + "pmem_lh.data";
     if (FileExists(index_pool_name.c_str())) file_exist = true;
     Allocator::Initialize(index_pool_name.c_str(), pool_size);
-    std::cout << "Initialize DASH-Linear Hashing" << std::endl;
+    //std::cout << "Initialize DASH-Linear Hashing" << std::endl;
 #ifdef PREALLOC
     linear::TlsTablePool<Key_t>::Initialize();
 #endif
@@ -116,7 +117,7 @@ Hash<T> *InitializeIndex(int seg_num) {
     std::string index_pool_name = pool_name + "pmem_cceh.data";
     if (FileExists(index_pool_name.c_str())) file_exist = true;
     Allocator::Initialize(index_pool_name.c_str(), pool_size);
-    std::cout << "Initialize CCEH" << std::endl;
+    //std::cout << "Initialize CCEH" << std::endl;
     eh = reinterpret_cast<Hash<T> *>(Allocator::GetRoot(sizeof(cceh::CCEH<T>)));
     if (!file_exist) {
       new (eh) cceh::CCEH<T>(seg_num, Allocator::Get()->pm_pool_);
@@ -128,7 +129,7 @@ Hash<T> *InitializeIndex(int seg_num) {
     std::string index_pool_name = pool_name + "pmem_level.data";
     if (FileExists(index_pool_name.c_str())) file_exist = true;
     Allocator::Initialize(index_pool_name.c_str(), pool_size);
-    std::cout << "Initialize Level Hashing" << std::endl;
+    //std::cout << "Initialize Level Hashing" << std::endl;
     eh = reinterpret_cast<Hash<T> *>(
         Allocator::GetRoot(sizeof(level::LevelHashing<T>)));
     if (!file_exist) {
@@ -142,9 +143,8 @@ Hash<T> *InitializeIndex(int seg_num) {
     }
   }
 
+  //std::cout << "Execute the recovery algorithms" << std::endl;
   if(recover){
-    std::cout << "Execute the recovery algorithms" << std::endl;
-    gettimeofday(&tv1, NULL);
     eh->Recovery();
     gettimeofday(&tv2, NULL);  // test end
     double duration = (double)(tv2.tv_usec - tv1.tv_usec) / 1000000 +

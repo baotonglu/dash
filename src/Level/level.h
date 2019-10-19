@@ -107,9 +107,8 @@ class LevelHashing : public Hash<T> {
   }
 
   void Insert(T, Value_t);
-  void Insert(T key, Value_t value, bool is_in_epoch){
-    return Insert(key, value);
-  }
+  void Insert(T key, Value_t value, bool is_in_epoch);
+  void Insert(T, Value_t, int);
   bool Delete(T);
   bool Delete(T key, bool is_in_epoch){
     return Delete(key);
@@ -234,9 +233,18 @@ void remapping(LevelHashing<T> *level) {
   level->buckets[1] =
       (Node<T> *)cache_align(pmemobj_direct(level->_buckets[1]));
 }
+template<class T>
+void LevelHashing<T>::Insert(T key, Value_t value){
+  return Insert(key, value, 0);
+}
+
+template<class T>
+void LevelHashing<T>::Insert(T key, Value_t value, bool is_in_epoch){
+  return Insert(key, value, 0);
+}
 
 template <class T>
-void LevelHashing<T>::Insert(T key, Value_t value) {
+void LevelHashing<T>::Insert(T key, Value_t value, int is_crash) {
 RETRY:
   // std::cout<<"Inserting key "<<key<<std::endl;
   while (resizing_lock.load() == 1) {
@@ -254,6 +262,13 @@ RETRY:
   while (pmemobj_rwlock_trywrlock(pop, &mutex[lock_idx]) != 0) {
     if (resizing == true) {
       goto RETRY;
+    }
+  }
+
+  if(is_crash == 1){
+    //std::cout << "Crash Test" << std::endl;
+    if(random()%1000000 == 0){
+      abort();
     }
   }
 

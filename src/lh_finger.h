@@ -2097,6 +2097,7 @@ class Linear : public Hash<T> {
   void Insert(T key, Value_t value);
   bool Delete(T);
   void Insert(T key, Value_t value, bool);
+  void Insert(T , Value_t, int);
   bool Delete(T, bool);
   inline Value_t Get(T);
   Value_t Get(T key, bool is_in_epoch);
@@ -2547,17 +2548,22 @@ void Linear<T>::recoverSegment(Table<T> **seg_ptr, size_t index) {
   *seg_ptr = target;
 }
 
-template <class T>
-void Linear<T>::Insert(T key, Value_t value, bool is_in_epoch) {
-  if (!is_in_epoch) {
+template<class T>
+void Linear<T>::Insert(T key, Value_t value){
+  return Insert(key, value, 0);
+}
+
+template<class T>
+void Linear<T>::Insert(T key, Value_t value, bool is_in_epoch){
+  if(!is_in_epoch){
     auto epoch_guard = Allocator::AquireEpochGuard();
-    return Insert(key, value);
+    return Insert(key, value, 0);
   }
-  return Insert(key, value);
+  return Insert(key, value, 0);
 }
 
 template <class T>
-void Linear<T>::Insert(T key, Value_t value) {
+void Linear<T>::Insert(T key, Value_t value, int is_crash) {
   /*
   #ifdef EPOCH
     auto epoch_guard = Allocator::AquireEpochGuard();
@@ -2588,6 +2594,12 @@ RETRY:
     goto RETRY;
   }
 
+  if(is_crash == 1){
+    //std::cout << "Crash Test" << std::endl;
+    if(random()%1000000 == 0){
+      abort();
+    }
+  }
   Table<T> *target = dir._[dir_idx] + offset;
 
   // printf("insert for key %lld, the bucket_idx is %d, the dir_idx is %d, the

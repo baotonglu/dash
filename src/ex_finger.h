@@ -2099,7 +2099,7 @@ void Finger_EH<T>::Recovery() {
     depth_cur = target->local_depth;
     stride = pow(2, global_depth - depth_cur);
     if (depth_cur == global_depth) dir->depth_count++;
-    target->pattern = i >> (global_depth - depth_cur);
+    //target->pattern = i >> (global_depth - depth_cur);
     buddy = i + stride;
     for (int j = buddy - 1; j > i; j--) {
       dir_entry[j] = (Table<T> *)((uint64_t)dir_entry[j] | recoverBit);
@@ -2156,6 +2156,13 @@ RETRY:
     recoverTable(&dir_entry[x], key_hash);
     goto RETRY;
   }
+
+  if(is_crash == 1){
+    //std::cout << "Crash Test" << std::endl;
+    if(random()%1000000 == 0){
+      abort();
+    }
+  }
   
   // printf("insert key %lld, x = %d, y = %d, meta_hash = %d\n", key, x,
   // BUCKET_INDEX(key_hash), meta_hash);
@@ -2177,12 +2184,6 @@ RETRY:
     auto new_b =
         target->Split(key_hash); /* also needs the verify..., and we use try
                                     lock for this rather than the spin lock*/
-    if(is_crash == 1){
-      //std::cout << "Crash Test" << std::endl;
-      if(random()%5000 == 0){
-        abort();
-      }
-    }
     /* update directory*/
   REINSERT:
     // the following three statements may be unnecessary...

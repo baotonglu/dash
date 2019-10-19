@@ -357,6 +357,7 @@ class CCEH : public Hash<T> {
   ~CCEH(void);
   void Insert(T key, Value_t value);
   void Insert(T key, Value_t value, bool);
+  void Insert(T key, Value_t value, int);
   bool InsertOnly(T, Value_t);
   bool Delete(T);
   bool Delete(T, bool);
@@ -649,6 +650,7 @@ void CCEH<T>::Recovery(void) {
       auto target = dir_entry[i];
       depth_cur = target->local_depth;
       target->sema = 0;
+      //target->pattern = i >> (global_depth - depth_cur);
       stride = pow(2, global_depth - depth_cur);
       buddy = i + stride;
       for (int j = buddy - 1; j > i; j--) {
@@ -764,17 +766,22 @@ void CCEH<T>::Directory_Update(int x, Segment<T> *s0, PMEMoid *s1) {
   }
 }
 
-template <class T>
-void CCEH<T>::Insert(T key, Value_t value, bool is_in_epoch) {
-  if (!is_in_epoch) {
+template<class T>
+void CCEH<T>::Insert(T key, Value_t value){
+  return Insert(key, value, 0);
+}
+
+template<class T>
+void CCEH<T>::Insert(T key, Value_t value, bool is_in_epoch){
+  if(!is_in_epoch){
     auto epoch_guard = Allocator::AquireEpochGuard();
-    return Insert(key, value);
+    return Insert(key, value, 0);
   }
-  return Insert(key, value);
+  return Insert(key, value, 0);
 }
 
 template <class T>
-void CCEH<T>::Insert(T key, Value_t value) {
+void CCEH<T>::Insert(T key, Value_t value, int is_crash) {
 /*
 #ifdef EPOCH
   auto epoch_guard = Allocator::AquireEpochGuard();
@@ -800,6 +807,12 @@ RETRY:
 
   auto ret = target->Insert(pool_addr, key, value, y, key_hash);
 
+  if(is_crash == 1){
+    //std::cout << "Crash Test" << std::endl;
+    if(random()%1000000 == 0){
+      abort();
+    }
+  }
   if (ret == 1) {
     auto s = target->Split(pool_addr, key_hash, log);
     if (s == nullptr) {
