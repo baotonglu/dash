@@ -353,6 +353,7 @@ void concurr_search(struct range *_range, Hash<T> *index) {
       }
     }
   }
+   std::cout << "not_found = " << not_found << std::endl;
   end_notify();
 }
 
@@ -384,7 +385,7 @@ void concurr_search_without_epcoh(struct range *_range, Hash<T> *index) {
       }
     }
   }
-  // std::cout << "not_found = " << not_found << std::endl;
+ std::cout << "not_found = " << not_found << std::endl;
   end_notify();
 }
 
@@ -612,7 +613,7 @@ void GeneralBench(range *rarray, Hash<T> *index, int thread_num,
   bar_c = thread_num;
 
   std::cout << profile_name << " Begin" << std::endl;
-  // System::profile(profile_name, [&]() {
+ //System::profile(profile_name, [&]() {
   for (uint64_t i = 0; i < thread_num; ++i) {
     thread_array[i] = new std::thread(*test_func, &rarray[i], index);
   }

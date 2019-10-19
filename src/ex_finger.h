@@ -22,7 +22,7 @@
 #include <libpmemobj.h>
 #endif
 
-//uint64_t merge_time;
+uint64_t merge_time;
 
 namespace extendible {
 
@@ -1914,7 +1914,7 @@ void Finger_EH<T>::Directory_Doubling(int x, Table<T> *new_b) {
   Allocator::Persist(new_sa,
                      sizeof(Directory<T>) + sizeof(uint64_t) * 2 * capacity);
   void **reserve_addr = Allocator::ReserveMemory();
-  //++merge_time;
+  ++merge_time;
   auto old_dir = dir;
   TX_BEGIN(pool_addr) {
     pmemobj_tx_add_range_direct(reserve_addr, sizeof(void *));
@@ -2411,9 +2411,9 @@ void Finger_EH<T>::TryMerge(size_t key_hash) {
         if (right_seg->number != 0) {
           left_seg->Merge(right_seg);
         }
-        //std::cout << "reserve a memory addr "<<++merge_time<< std::endl;
+        std::cout << "reserve a memory addr "<<++merge_time<< std::endl;
         void **reserve_addr = Allocator::ReserveMemory();
-        // std::cout << "successfully get a memory addr" << std::endl;
+         std::cout << "successfully get a memory addr" << std::endl;
         TX_BEGIN(pool_addr) {
           pmemobj_tx_add_range_direct(reserve_addr, sizeof(void *));
           pmemobj_tx_add_range_direct(&left_seg->next, sizeof(left_seg->next));
