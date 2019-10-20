@@ -144,6 +144,13 @@ struct Allocator {
     instance_->garbage_list_.Push(ptr, callback, context);
   }
 
+  static void Free(GarbageList::Item* item, void* ptr,
+                   DestroyCallback callback = DefaultCallback,
+                   void* context = nullptr) {
+    item->SetValue(ptr, instance_->epoch_manager_.GetCurrentEpoch(), callback,
+                   context);
+  }
+
   static EpochGuard AquireEpochGuard() {
     return EpochGuard{&instance_->epoch_manager_};
   }
