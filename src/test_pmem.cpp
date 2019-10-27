@@ -9,6 +9,9 @@
 #include <mutex>
 #include <thread>
 
+#include "cpucounters.h"
+#include "cpuasynchcounter.h"
+
 #include "../util/System.hpp"
 #include "../util/random.h"
 #include "../util/uniform.hpp"
@@ -21,6 +24,7 @@
 #include "utils.h"
 
 std::string pool_name = "/mnt/pmem0/";
+//std::string pool_name = "";
 // static const char *pool_name = "pmem_hash.data";
 static const size_t pool_size = 1024ul * 1024ul * 1024ul * 30ul;
 DEFINE_string(index, "dash-ex",
@@ -37,6 +41,7 @@ DEFINE_double(r, 1, "read ratio for mixed workload");
 DEFINE_double(s, 0, "insert ratio for mixed workload");
 DEFINE_double(d, 0, "delete ratio for mixed workload");
 DEFINE_uint32(e, 0, "whether register epoch in application level");
+//#define RUNTIME_KEY 1
 
 uint64_t initCap, thread_num, load_num, operation_num;
 std::string operation;
@@ -58,6 +63,7 @@ struct range {
                  indicate the length of the key*/
   void *workload;
   uint64_t random_num;
+  struct timeval tv;
 };
 
 void set_affinity(uint32_t idx) {
@@ -80,7 +86,7 @@ Hash<T> *InitializeIndex(int seg_num) {
     if (FileExists(index_pool_name.c_str())) file_exist = true;
     Allocator::Initialize(index_pool_name.c_str(), pool_size);
 
-    std::cout << "pool addr is " << Allocator::Get()->pm_pool_ << std::endl;
+    //std::cout << "pool addr is " << Allocator::Get()->pm_pool_ << std::endl;
     std::cout << "Initialize DASH-Extendible Hashing" << std::endl;
 #ifdef PREALLOC
     extendible::TlsTablePool<Key_t>::Initialize();
@@ -227,7 +233,11 @@ void concurr_insert_without_epoch(struct range *_range, Hash<T> *index) {
   if constexpr (!std::is_pointer_v<T>) {
     T *key_array = reinterpret_cast<T *>(workload);
     for (uint64_t i = begin; i < end; ++i) {
+#ifdef RUNTIME_KEY
+      index->Insert(i, DEFAULT);
+#else
       index->Insert(key_array[i], DEFAULT);
+#endif
     }
   } else {
     T var_key;
@@ -237,7 +247,7 @@ void concurr_insert_without_epoch(struct range *_range, Hash<T> *index) {
       index->Insert(var_key, DEFAULT);
     }
   }
-
+  gettimeofday(&_range->tv, NULL);
   end_notify();
 }
 
@@ -259,7 +269,11 @@ void concurr_insert(struct range *_range, Hash<T> *index) {
       auto epoch_guard = Allocator::AquireEpochGuard();
       uint64_t _end = begin + (i + 1) * 1000;
       for (uint64_t j = begin + i * 1000; j < _end; ++j) {
+#ifdef RUNTIME_KEY
+        index->Insert(j, DEFAULT, true);
+#else
         index->Insert(key_array[j], DEFAULT, true);
+#endif
       }
       ++i;
     }
@@ -267,7 +281,11 @@ void concurr_insert(struct range *_range, Hash<T> *index) {
     {
       auto epoch_guard = Allocator::AquireEpochGuard();
       for (i = begin + 1000 * round; i < end; ++i) {
+#ifdef RUNTIME_KEY
+        index->Insert(i, DEFAULT, true);
+#else
         index->Insert(key_array[i], DEFAULT, true);
+#endif
       }
     }
   } else {
@@ -295,6 +313,7 @@ void concurr_insert(struct range *_range, Hash<T> *index) {
       }
     }
   }
+  gettimeofday(&_range->tv, NULL);
   end_notify();
 }
 
@@ -312,12 +331,16 @@ void concurr_search(struct range *_range, Hash<T> *index) {
     uint64_t round = (end - begin) / 1000;
     uint64_t i = 0;
     spin_wait();
-
+   // std::cout << (uint64_t)index->Get(key_array[begin], true) << std::endl;
     while (i < round) {
       auto epoch_guard = Allocator::AquireEpochGuard();
       uint64_t _end = begin + (i + 1) * 1000;
       for (uint64_t j = begin + i * 1000; j < _end; ++j) {
+#ifdef RUNTIME_KEY
+        if (index->Get(j, true) == NONE) not_found++;
+#else
         if (index->Get(key_array[j], true) == NONE) not_found++;
+#endif
       }
       ++i;
     }
@@ -325,7 +348,11 @@ void concurr_search(struct range *_range, Hash<T> *index) {
     {
       auto epoch_guard = Allocator::AquireEpochGuard();
       for (i = begin + 1000 * round; i < end; ++i) {
+#ifdef RUNTIME_KEY
+        if (index->Get(i, true) == NONE) not_found++;
+#else
         if (index->Get(key_array[i], true) == NONE) not_found++;
+#endif
       }
     }
   } else {
@@ -353,6 +380,7 @@ void concurr_search(struct range *_range, Hash<T> *index) {
       }
     }
   }
+  gettimeofday(&_range->tv, NULL);
    std::cout << "not_found = " << not_found << std::endl;
   end_notify();
 }
@@ -371,9 +399,13 @@ void concurr_search_without_epcoh(struct range *_range, Hash<T> *index) {
   if constexpr (!std::is_pointer_v<T>) {
     T *key_array = reinterpret_cast<T *>(workload);
     for (uint64_t i = begin; i < end; ++i) {
+#ifdef RUNTIME_KEY
+      if(index->Get(i)==NONE) not_found++;
+#else
       if (index->Get(key_array[i]) == NONE) {
         not_found++;
       }
+#endif
     }
   } else {
     T var_key;
@@ -385,6 +417,7 @@ void concurr_search_without_epcoh(struct range *_range, Hash<T> *index) {
       }
     }
   }
+  gettimeofday(&_range->tv, NULL);
  std::cout << "not_found = " << not_found << std::endl;
   end_notify();
 }
@@ -416,6 +449,7 @@ void concurr_delete_without_epoch(struct range *_range, Hash<T> *index) {
       }
     }
   }
+  gettimeofday(&_range->tv, NULL);
   std::cout << "not_found = " << not_found << std::endl;
   end_notify();
 }
@@ -427,6 +461,7 @@ void concurr_delete(struct range *_range, Hash<T> *index) {
   int end = _range->end;
   char *workload = reinterpret_cast<char *>(_range->workload);
   T key;
+  uint64_t not_found = 0;
 
   if constexpr (!std::is_pointer_v<T>) {
     T *key_array = reinterpret_cast<T *>(workload);
@@ -438,7 +473,7 @@ void concurr_delete(struct range *_range, Hash<T> *index) {
       auto epoch_guard = Allocator::AquireEpochGuard();
       uint64_t _end = begin + (i + 1) * 1000;
       for (uint64_t j = begin + i * 1000; j < _end; ++j) {
-        index->Delete(key_array[j], true);
+        if(index->Delete(key_array[j], true)==false)not_found++;
       }
       ++i;
     }
@@ -446,7 +481,7 @@ void concurr_delete(struct range *_range, Hash<T> *index) {
     {
       auto epoch_guard = Allocator::AquireEpochGuard();
       for (i = begin + 1000 * round; i < end; ++i) {
-        index->Delete(key_array[i], true);
+        if(index->Delete(key_array[i], true)==false)not_found++;
       }
     }
   } else {
@@ -474,6 +509,8 @@ void concurr_delete(struct range *_range, Hash<T> *index) {
       }
     }
   }
+  gettimeofday(&_range->tv, NULL);
+  std::cout << "not_found = " << not_found << std::endl;
   end_notify();
 }
 
@@ -519,6 +556,7 @@ void mixed_without_epoch(struct range *_range, Hash<T> *index) {
       index->Delete(key);
     }
   }
+  gettimeofday(&_range->tv, NULL);
   std::cout << "not_found = " << not_found << std::endl;
   /*the last thread notify the main thread to wake up*/
   end_notify();
@@ -594,7 +632,7 @@ void mixed(struct range *_range, Hash<T> *index) {
       }
     }
   }
-
+  gettimeofday(&_range->tv, NULL);
   std::cout << "not_found = " << not_found << std::endl;
   /*the last thread notify the main thread to wake up*/
   end_notify();
@@ -606,14 +644,14 @@ void GeneralBench(range *rarray, Hash<T> *index, int thread_num,
                   void (*test_func)(struct range *, Hash<T> *)) {
   std::thread *thread_array[1024];
   profile_name = profile_name + std::to_string(thread_num);
-  double duration;
+  double duration = 0;
   finished = false;
   bar_a = 1;
   bar_b = thread_num;
   bar_c = thread_num;
 
   std::cout << profile_name << " Begin" << std::endl;
- //System::profile(profile_name, [&]() {
+// System::profile(profile_name, [&]() {
   for (uint64_t i = 0; i < thread_num; ++i) {
     thread_array[i] = new std::thread(*test_func, &rarray[i], index);
   }
@@ -622,27 +660,43 @@ void GeneralBench(range *rarray, Hash<T> *index, int thread_num,
     ;                                     // Spin
   std::unique_lock<std::mutex> lck(mtx);  // get the lock of condition variable
 
+  //SystemCounterState before_sstate = getSystemCounterState();
   gettimeofday(&tv1, NULL);
   STORE(&bar_a, 0);  // start test
   while (!finished) {
     cv.wait(lck);  // go to sleep and wait for the wake-up from child threads
   }
   gettimeofday(&tv2, NULL);  // test end
+  //SystemCounterState after_sstate = getSystemCounterState();
+  //std::cout << "Instructions per clock:" << getIPC(before_sstate,after_sstate) << std::endl;
 
   for (int i = 0; i < thread_num; ++i) {
     thread_array[i]->join();
     delete thread_array[i];
   }
-  duration = (double)(tv2.tv_usec - tv1.tv_usec) / 1000000 +
-             (double)(tv2.tv_sec - tv1.tv_sec);
+  double longest = (double)(rarray[0].tv.tv_usec - tv1.tv_usec) / 1000000 +
+             (double)(rarray[0].tv.tv_sec - tv1.tv_sec);
+  double shortest = longest;
+  duration = longest;
+
+  for(int i = 1; i < thread_num; ++i){
+    double interval = (double)(rarray[i].tv.tv_usec - tv1.tv_usec) / 1000000 +
+             (double)(rarray[i].tv.tv_sec - tv1.tv_sec);
+    duration += interval;
+    if(shortest > interval) shortest = interval;
+    if(longest < interval) longest = interval;
+  }
+  std::cout << "The time difference is "<<longest-shortest<< std::endl;
+  duration = duration/thread_num;
+  //duration = (double)(tv2.tv_usec - tv1.tv_usec) / 1000000 +
+  //           (double)(tv2.tv_sec - tv1.tv_sec);
   printf(
       "%d threads, Time = %f s, throughput = %f "
-      "ops/s\n",
+      "ops/s, fastest = %f, slowest = %f\n",
       thread_num,
-      (double)(tv2.tv_usec - tv1.tv_usec) / 1000000 +
-          (double)(tv2.tv_sec - tv1.tv_sec),
-      operation_num / duration);
-  //});
+      duration,
+      operation_num / duration, operation_num / shortest, operation_num / longest);
+//  });
   std::cout << profile_name << " End" << std::endl;
 }
 
@@ -782,7 +836,8 @@ void Run() {
                       &mixed_without_epoch);
     }
   } else { /*do the benchmark for all single operations*/
-    std::cout << "insertion start" << std::endl;
+  /*
+   std::cout << "insertion start" << std::endl;
     for (int i = 0; i < thread_num; ++i) {
       rarray[i].workload = not_used_insert_workload;
     }
@@ -793,15 +848,16 @@ void Run() {
       GeneralBench<T>(rarray, index, thread_num, operation_num, "Insert",
                       &concurr_insert_without_epoch);
     }
-    index->getNumber();
-
+//    index->getNumber();
+/*
     gettimeofday(&tv1, NULL);
     index->Recovery();
     gettimeofday(&tv2, NULL);
     auto duration = (double)(tv2.tv_usec - tv1.tv_usec) / 1000000 +
                     (double)(tv2.tv_sec - tv1.tv_sec);
     std::cout << "Recovery Time(s): " << duration << std::endl;
-
+*/ 
+    index->getNumber();
     for (int i = 0; i < thread_num; ++i) {
       rarray[i].workload = not_used_workload;
     }
@@ -825,7 +881,7 @@ void Run() {
       GeneralBench<T>(rarray, index, thread_num, operation_num, "Neg_search",
                       &concurr_search_without_epcoh);
     }
-
+/*
     for (int i = 0; i < thread_num; ++i) {
       rarray[i].begin = i * chunk_size;
       rarray[i].end = (i + 1) * chunk_size;
@@ -839,9 +895,10 @@ void Run() {
       GeneralBench<T>(rarray, index, thread_num, operation_num, "Delete",
                       &concurr_delete_without_epoch);
     }
-    index->getNumber();
-  }
+*/
+//    index->getNumber();
 
+  }
   /*TODO Free the workload memory*/
 }
 
@@ -875,6 +932,16 @@ int main(int argc, char *argv[]) {
     std::cout << "The ratio is wrong!" << std::endl;
     return 0;
   }
+
+  /*
+  PCM * m = PCM::getInstance();
+  PCM::ErrorCode returnResult = m->program();
+  if (returnResult != PCM::Success){
+    std::cerr << "Intel's PCM couldn't start" << std::endl;
+    std::cerr << "Error code: " << returnResult << std::endl;
+    exit(1);
+  }
+  */
 
   if (key_type.compare(fixed) == 0) {
     Run<uint64_t>();

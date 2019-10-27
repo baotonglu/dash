@@ -13,7 +13,7 @@ set(CMAKE_ENABLE_COMPILE_COMMANDS "ON")
 
 if (${CMAKE_BUILD_TYPE} STREQUAL "Release")
   message("-- Release mode, all optimizations enabled")
-  set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} -O3 -Ofast -g -march=native")
+  set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} -O3 -g -Ofast -march=native")
 endif ()
 
 ##################### PMDK ####################
@@ -50,10 +50,20 @@ if (NOT epoch_reclaimer_POPULATED)
   include_directories(${epoch_reclaimer_SOURCE_DIR})
 endif ()
 
+#################### PCM ##############################
+#add_custom_command(OUTPUT libPCM.a
+#	   COMMAND make lib
+#		   WORKING_DIRECTORY ${PROJECT_SOURCE_DIR}/pcm)
+
+	   #add_custom_target(pcm DEPENDS libPCM.a)
+
+include_directories("${PROJECT_SOURCE_DIR}/pcm")
+link_directories("${PROJECT_SOURCE_DIR}/pcm")
+
 option(USE_PMEM "enable persistent memory support" ON)
 
 set(libs_to_link
-        pthread gflags)
+	pthread gflags PCM) 
 
 if (USE_PMEM MATCHES "ON")
   message(STATUS "persistent memory support enabled, going to build with PMDK")

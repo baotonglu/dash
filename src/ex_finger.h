@@ -28,8 +28,10 @@ namespace extendible {
 
 #define _INVALID 0 /* we use 0 as the invalid key*/
 #define SINGLE 1
-#define COUNTING 1
+//#define COUNTING 1
 #define EPOCH 1
+//#define SPINLOCK 1 
+#define READ_OPT 1
 //#define PREALLOC 1
 
 #define SIMD 1
@@ -212,6 +214,7 @@ struct Bucket {
       return -1;
     }
 
+#ifdef READ_OPT
     if (test_stash_check()) {
       auto test_stash = false;
       if (test_overflow()) {
@@ -250,13 +253,14 @@ struct Bucket {
         }
       }
     }
-    /*
+#else
     for (int i = 0; i < stashBucket; ++i) {
           Bucket *curr_bucket = stash + i;
       if (curr_bucket->check_and_get(meta_hash, key, false) != NONE) {
         return -1;
       }
-    }*/
+    }
+#endif
     return 0;
   }
 
@@ -289,7 +293,10 @@ struct Bucket {
                          _key->key,
                          (reinterpret_cast<string_key *>(_[i].key))->length,
                          _key->length))) {
-          return _[i].value;
+                         //_[i].value = (Value_t)((uint64_t)_[i].value | kFingerBits);
+                         auto value = _[i].value;
+                         //Allocator::Persist(&_[i].value, sizeof(_[i].value));
+          return value;
         }
 
         if (CHECK_BIT(mask, i + 1) &&
@@ -297,7 +304,10 @@ struct Bucket {
                          _key->key,
                          (reinterpret_cast<string_key *>(_[i + 1].key))->length,
                          _key->length))) {
-          return _[i + 1].value;
+                        //   _[i+1].value = (Value_t)((uint64_t)_[i+1].value | kFingerBits);
+                           auto value = _[i+1].value;
+                        // Allocator::Persist(&_[i+1].value, sizeof(_[i+1].value));
+          return value;
         }
 
         if (CHECK_BIT(mask, i + 2) &&
@@ -305,7 +315,10 @@ struct Bucket {
                          _key->key,
                          (reinterpret_cast<string_key *>(_[i + 2].key))->length,
                          _key->length))) {
-          return _[i + 2].value;
+                        //  _[i+2].value = (Value_t)((uint64_t)_[i+2].value | kFingerBits);
+                          auto value = _[i+2].value;
+                        // Allocator::Persist(&_[i+2].value, sizeof(_[i+2].value));
+          return value;
         }
 
         if (CHECK_BIT(mask, i + 3) &&
@@ -313,7 +326,10 @@ struct Bucket {
                          _key->key,
                          (reinterpret_cast<string_key *>(_[i + 3].key))->length,
                          _key->length))) {
-          return _[i + 3].value;
+                        //   _[i+3].value = (Value_t)((uint64_t)_[i+3].value | kFingerBits);
+                           auto value = _[i+3].value;
+                        // Allocator::Persist(&_[i+3].value, sizeof(_[i+3].value));
+          return value;
         }
       }
 
@@ -322,7 +338,10 @@ struct Bucket {
                        _key->key,
                        (reinterpret_cast<string_key *>(_[12].key))->length,
                        _key->length))) {
-        return _[12].value;
+                        // _[12].value = (Value_t)((uint64_t)_[12].value | kFingerBits);
+                         auto value = _[12].value;
+                       //  Allocator::Persist(&_[12].value, sizeof(_[12].value));
+        return value;
       }
 
       if (CHECK_BIT(mask, 13) &&
@@ -330,7 +349,10 @@ struct Bucket {
                        _key->key,
                        (reinterpret_cast<string_key *>(_[13].key))->length,
                        _key->length))) {
-        return _[13].value;
+                      //  _[13].value = (Value_t)((uint64_t)_[13].value | kFingerBits);
+                        auto value = _[13].value;
+                      //   Allocator::Persist(&_[13].value, sizeof(_[13].value));
+        return value;
       }
     } else {
       /*loop unrolling*/
@@ -430,6 +452,7 @@ struct Bucket {
     }
   */
   inline void get_lock() {
+#ifndef SPINLOCK
     uint32_t new_value = 0;
     uint32_t old_value = 0;
     do {
@@ -442,9 +465,18 @@ struct Bucket {
       }
       new_value = old_value | lockSet;
     } while (!CAS(&version_lock, &old_value, new_value));
+#else
+    uint32_t old_value = 0;
+    auto new_value = lockSet;
+    while (!CAS(&version_lock, &old_value, new_value)) {
+      old_value = 0;
+      new_value = lockSet;
+    }
+#endif
   }
 
   inline bool try_get_lock() {
+#ifndef SPINLOCK
     uint32_t v = __atomic_load_n(&version_lock, __ATOMIC_ACQUIRE);
     if (v & lockSet) {
       return false;
@@ -452,12 +484,66 @@ struct Bucket {
     auto old_value = v & lockMask;
     auto new_value = v | lockSet;
     return CAS(&version_lock, &old_value, new_value);
+#else
+    uint32_t old_value = 0;
+    auto new_value = lockSet;
+    return CAS(&version_lock, &old_value, new_value);
+#endif
   }
 
   inline void release_lock() {
+#ifndef SPINLOCK
     uint32_t v = version_lock;
     __atomic_store_n(&version_lock, v + 1 - lockSet, __ATOMIC_RELEASE);
+#else
+    __atomic_store_n(&version_lock, 0, __ATOMIC_RELEASE);    
+#endif
   }
+
+  inline void get_read_lock(){
+    uint32_t v = __atomic_load_n(&version_lock, __ATOMIC_ACQUIRE);
+    uint32_t old_value = v & lockMask;
+    auto new_value = ((v & lockMask) + 1) & lockMask;
+    while (!CAS(&version_lock, &old_value, new_value)) {
+      v = __atomic_load_n(&version_lock, __ATOMIC_ACQUIRE);
+      old_value = v & lockMask;
+      new_value = ((v & lockMask) + 1) & lockMask;
+    }
+  }
+
+  inline bool try_get_read_lock(){
+    uint32_t v = __atomic_load_n(&version_lock, __ATOMIC_ACQUIRE);
+    uint32_t old_value = v & lockMask;
+    auto new_value = ((v & lockMask) + 1) & lockMask;
+    return CAS(&version_lock, &old_value, new_value);
+  }
+
+  inline void release_read_lock(){
+    SUB(&version_lock, 1);
+  }
+/*
+  inline void get_spin_lock(){
+    
+    auto old_value = version_lock & lockMask;
+    auto new_value = version_lock | lockSet;
+    while (!CAS(&version_lock, &old_value, new_value)) {
+      old_value = version_lock & lockMask;
+      new_value = version_lock | lockSet;
+    }
+  }
+
+  inline bool try_get_spin_lock(){
+    auto old_value = version_lock & lockMask;
+    auto new_value = version_lock | lockSet;
+    return CAS(&version_lock, &old_value, new_value);
+  }
+
+  void release_spin_lock(){
+    uint32_t v = version_lock & lockMask;
+    __atomic_store_n(&version_lock, v, __ATOMIC_RELEASE);
+  }
+
+  */
 
   /*if the lock is set, return true*/
   inline bool test_lock_set(uint32_t &version) {
@@ -1867,12 +1953,12 @@ void Finger_EH<T>::Halve_Directory() {
                      sizeof(Directory<T>) + sizeof(uint64_t) * capacity);
 
   // auto old_dir = dir;
-  void **reserve_addr = Allocator::ReserveMemory();
+//  void **reserve_addr = Allocator::ReserveMemory();
   TX_BEGIN(pool_addr) {
-    pmemobj_tx_add_range_direct(reserve_addr, sizeof(void *));
+    //pmemobj_tx_add_range_direct(reserve_addr, sizeof(void *));
     pmemobj_tx_add_range_direct(&dir, sizeof(dir));
     pmemobj_tx_add_range_direct(&back_dir, sizeof(back_dir));
-    *reserve_addr = (void *)dir;
+    //*reserve_addr = (void *)dir;
     dir = new_dir;
     back_dir = OID_NULL;
   }
@@ -1913,14 +1999,14 @@ void Finger_EH<T>::Directory_Doubling(int x, Table<T> *new_b) {
 #ifdef PMEM
   Allocator::Persist(new_sa,
                      sizeof(Directory<T>) + sizeof(uint64_t) * 2 * capacity);
-  void **reserve_addr = Allocator::ReserveMemory();
-  ++merge_time;
+//  void **reserve_addr = Allocator::ReserveMemory();
+//  ++merge_time;
   auto old_dir = dir;
   TX_BEGIN(pool_addr) {
-    pmemobj_tx_add_range_direct(reserve_addr, sizeof(void *));
+//    pmemobj_tx_add_range_direct(reserve_addr, sizeof(void *));
     pmemobj_tx_add_range_direct(&dir, sizeof(dir));
     pmemobj_tx_add_range_direct(&back_dir, sizeof(back_dir));
-    *reserve_addr = (void *)dir;
+//    *reserve_addr = (void *)dir;
     dir = new_sa;
     back_dir = OID_NULL;
   }
@@ -2230,7 +2316,9 @@ RETRY:
   Bucket<T> *neighbor_bucket = target->bucket + ((y + 1) & bucketMask);
   // printf("Get key %lld, x = %d, y = %d, meta_hash = %d\n", key, x,
   // BUCKET_INDEX(key_hash), meta_hash);
-
+#ifdef SPINLOCK
+  target_bucket->get_read_lock();
+#else
   uint32_t old_version =
       __atomic_load_n(&target_bucket->version_lock, __ATOMIC_ACQUIRE);
   uint32_t old_neighbor_version =
@@ -2239,6 +2327,7 @@ RETRY:
   if ((old_version & lockSet) || (old_neighbor_version & lockSet)) {
     goto RETRY;
   }
+#endif
 
   /*verification procedure*/
   old_sa = dir;
@@ -2248,23 +2337,46 @@ RETRY:
   }
 
   auto ret = target_bucket->check_and_get(meta_hash, key, false);
+#ifndef SPINLOCK
   if (target_bucket->test_lock_version_change(old_version)) {
     goto RETRY;
   }
+
   if (ret != NONE) {
     return ret;
   }
+#else
+  if(ret != NONE){
+    target_bucket->release_read_lock();
+    return ret;
+  }
+
+  if(!neighbor_bucket->try_get_read_lock()){
+    target_bucket->release_read_lock();
+    goto RETRY;
+  }
+#endif
+  
 
   /*no need for verification procedure, we use the version number of
    * target_bucket to test whether the bucket has ben spliteted*/
   ret = neighbor_bucket->check_and_get(meta_hash, key, true);
+#ifndef SPINLOCK
   if (neighbor_bucket->test_lock_version_change(old_neighbor_version)) {
     goto RETRY;
   }
   if (ret != NONE) {
     return ret;
   }
+#else
+  if(ret != NONE){
+    target_bucket->release_read_lock();
+    neighbor_bucket->release_read_lock();
+    return ret;
+  }
+#endif
 
+#ifdef READ_OPT
   if (target_bucket->test_stash_check()) {
     auto test_stash = false;
     if (target_bucket->test_overflow()) {
@@ -2288,9 +2400,14 @@ RETRY:
                 ((target_bucket->finger_array[19] >> (i * 2)) & stashMask);
             auto ret = stash->check_and_get(meta_hash, key, false);
             if (ret != NONE) {
+#ifndef SPINLOCK
               if (target_bucket->test_lock_version_change(old_version)) {
                 goto RETRY;
               }
+#else
+              target_bucket->release_read_lock();
+              neighbor_bucket->release_read_lock();
+#endif
               return ret;
             }
           }
@@ -2310,9 +2427,14 @@ RETRY:
                 ((neighbor_bucket->finger_array[19] >> (i * 2)) & stashMask);
             auto ret = stash->check_and_get(meta_hash, key, false);
             if (ret != NONE) {
+#ifndef SPINLOCK
               if (target_bucket->test_lock_version_change(old_version)) {
                 goto RETRY;
               }
+#else
+              target_bucket->release_read_lock();
+              neighbor_bucket->release_read_lock();
+#endif
               return ret;
             }
           }
@@ -2327,15 +2449,38 @@ RETRY:
             target->bucket + kNumBucket + ((i + (y & stashMask)) & stashMask);
         auto ret = stash->check_and_get(meta_hash, key, false);
         if (ret != NONE) {
-          if (target_bucket->test_lock_version_change(old_version)) {
-            goto RETRY;
-          }
-          return ret;
+#ifndef SPINLOCK
+              if (target_bucket->test_lock_version_change(old_version)) {
+                goto RETRY;
+              }
+#else
+              target_bucket->release_read_lock();
+              neighbor_bucket->release_read_lock();
+#endif
+              return ret;
         }
       }
     }
   }
+#else
+for (int i = 0; i < stashBucket; ++i) {
+  //Bucket<T> *stash =
+  //    target->bucket + kNumBucket + ((i + (y & stashMask)) & stashMask);
+  Bucket<T> *stash = target->bucket + kNumBucket + i;
+  auto ret = stash->check_and_get(meta_hash, key, false);
+  if (ret != NONE) {
+    if (target_bucket->test_lock_version_change(old_version)) {
+      goto RETRY;
+    }
+    return ret;
+  }
+}
+#endif
 FINAL:
+#ifdef SPINLOCK
+  target_bucket->release_read_lock();
+  neighbor_bucket->release_read_lock();
+#endif
   // printf("the x = %lld, the y = %lld, the meta_hash is %d\n", x, y,
   // meta_hash);
   return NONE;
@@ -2412,12 +2557,12 @@ void Finger_EH<T>::TryMerge(size_t key_hash) {
           left_seg->Merge(right_seg);
         }
         std::cout << "reserve a memory addr "<<++merge_time<< std::endl;
-        void **reserve_addr = Allocator::ReserveMemory();
+//        void **reserve_addr = Allocator::ReserveMemory();
          std::cout << "successfully get a memory addr" << std::endl;
         TX_BEGIN(pool_addr) {
-          pmemobj_tx_add_range_direct(reserve_addr, sizeof(void *));
+//          pmemobj_tx_add_range_direct(reserve_addr, sizeof(void *));
           pmemobj_tx_add_range_direct(&left_seg->next, sizeof(left_seg->next));
-          *reserve_addr = right_seg;
+//          *reserve_addr = right_seg;
           left_seg->next = right_seg->next;
         }
         TX_ONABORT { std::cout << "Error for merge txn" << std::endl; }
@@ -2471,11 +2616,10 @@ bool Finger_EH<T>::Delete(T key, bool is_in_epoch) {
 /*the delete operation of the */
 template <class T>
 bool Finger_EH<T>::Delete(T key) {
-  /*
   #ifdef EPOCH
     auto epoch_guard = Allocator::AquireEpochGuard();
   #endif
-  */
+
   /*Basic delete operation and merge operation*/
   uint64_t key_hash;
   if constexpr (std::is_pointer_v<T>) {
@@ -2548,7 +2692,7 @@ RETRY:
 #endif
     return true;
   }
-
+#ifdef READ_OPT
   if (target->test_stash_check()) {
     auto test_stash = false;
     if (target->test_overflow()) {
@@ -2617,6 +2761,39 @@ RETRY:
       stash->release_lock();
     }
   }
+  #else
+      Bucket<T> *stash = target_table->bucket + kNumBucket;
+      stash->get_lock();
+      for (int i = 0; i < stashBucket; ++i) {
+        //int index = ((i + (y & stashMask)) & stashMask);
+        int index = i;
+        Bucket<T> *curr_stash = target_table->bucket + kNumBucket + index;
+        auto ret = curr_stash->Delete(key, meta_hash, false);
+        if (ret == 0) {
+          /*need to unset indicator in original bucket*/
+          stash->release_lock();
+#ifdef PMEM
+          Allocator::Persist(&curr_stash->bitmap, sizeof(curr_stash->bitmap));
+#endif
+          auto bucket_ix = BUCKET_INDEX(key_hash);
+          auto org_bucket = target_table->bucket + bucket_ix;
+          assert(org_bucket == target);
+          target->unset_indicator(meta_hash, neighbor, key, index);
+#ifdef COUNTING
+          auto num = SUB(&target_table->number, 1);
+#endif
+          neighbor->release_lock();
+          target->release_lock();
+#ifdef COUNTING
+          if (num == 0) {
+            TryMerge(key_hash);
+          }
+#endif
+          return true;
+        }
+      }
+      stash->release_lock();
+  #endif
   neighbor->release_lock();
   target->release_lock();
   // printf("Not found key %lld, the position is %d, the bucket is %lld, the

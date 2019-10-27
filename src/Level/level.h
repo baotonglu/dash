@@ -21,7 +21,8 @@
 #define NODE_TYPE 1000
 #define LEVEL_TYPE 2000
 #define LOCK_TYPE 3000
-#define COUNTING 1
+//#define COUNTING 1
+#define DISABLE_LOCK 1
 
 //#define BATCH 1
 #define UNIQUE_CHECK 1
@@ -119,6 +120,7 @@ class LevelHashing : public Hash<T> {
   Value_t Get(T key, bool flag) { return Get(key); }
   void Recovery() { std::cout << "stay tuned" << std::endl; }
   void getNumber() { 
+    std::cout << "Lock Table Size = " << ((addr_capacity/2/locksize)*sizeof(PMEMrwlock))/1024 << "KB" << std::endl; 
     std::cout << "First items "<< level_item_num[0] << std::endl;
     std::cout << "Second items " << level_item_num[1] << std::endl;
     std::cout << "First load factor = " << (double)level_item_num[0] / (addr_capacity*ASSOC_NUM) << std::endl;
@@ -161,8 +163,20 @@ void LevelHashing<T>::generate_seeds() {
   } while (f_seed == s_seed);
 }
 
+void *cache_align(void *ptr) {
+  // ptr +=  48;
+  uint64_t pp = (uint64_t)ptr;
+  pp += 48;
+  return (void *)pp;
+}
+
 template <class T>
-LevelHashing<T>::LevelHashing(void) {}
+LevelHashing<T>::LevelHashing(void) {
+  buckets[0] =
+      (Node<T> *)cache_align(pmemobj_direct(_buckets[0]));
+  buckets[1] =
+      (Node<T> *)cache_align(pmemobj_direct(_buckets[1]));
+}
 
 template <class T>
 LevelHashing<T>::~LevelHashing(void) {}
@@ -186,13 +200,6 @@ LevelHashing::LevelHashing(size_t _levels)
   level_item_num[1] = 0;
   interim_level_buckets = NULL;
 }*/
-
-void *cache_align(void *ptr) {
-  // ptr +=  48;
-  uint64_t pp = (uint64_t)ptr;
-  pp += 48;
-  return (void *)pp;
-}
 
 template <class T>
 void initialize_level(PMEMobjpool *_pop, LevelHashing<T> *level, void *arg) {
@@ -400,14 +407,7 @@ UNIQUE:
         // std::unique_lock<std::mutex> lock(mutex[f_idx/locksize]);
         // mutex[f_idx/locksize].lock();
         pmemobj_rwlock_wrlock(pop, &mutex[f_idx / locksize]);
-#ifdef TIME
-        cuck_timer.Start();
-#endif
         empty_loc = b2t_movement(pop, f_idx);
-#ifdef TIME
-        cuck_timer.Stop();
-        displacement += cuck_timer.GetSeconds();
-#endif
         if (empty_loc != -1) {
           buckets[1][f_idx].slot[empty_loc].value = value;
           buckets[1][f_idx].slot[empty_loc].key = key;
@@ -764,6 +764,7 @@ RETRY:
   for (i = 0; i < 2; i++) {
     {
       // mutex[f_idx/locksize].lock_shared();
+#ifndef DISABLE_LOCK        
       while (pmemobj_rwlock_tryrdlock(pop, &mutex[f_idx / locksize]) != 0) {
         if (resizing == true) {
           goto RETRY;
@@ -775,33 +776,39 @@ RETRY:
         pmemobj_rwlock_unlock(pop, &mutex[f_idx / locksize]);
         goto RETRY;
       }
+#endif
 
       for (j = 0; j < ASSOC_NUM; j++) {
         if constexpr (std::is_pointer_v<T>) {
           if ((buckets[i][f_idx].token[j] == 1) &&
               var_compare(buckets[i][f_idx].slot[j].key->key, key->key,
                           buckets[i][f_idx].slot[j].key->length, key->length))
-          //  if (buckets[i][f_idx].token[j] == 1 &&
-          //  (strcmp(buckets[i][f_idx].slot[j].key, key) == 0))
           {
             // mutex[f_idx/locksize].unlock_shared();
+#ifndef DISABLE_LOCK
             pmemobj_rwlock_unlock(pop, &mutex[f_idx / locksize]);
+#endif
             return buckets[i][f_idx].slot[j].value;
           }
         } else {
           if (buckets[i][f_idx].token[j] == 1 &&
               buckets[i][f_idx].slot[j].key == key) {
             // mutex[f_idx/locksize].unlock_shared();
+#ifndef DISABLE_LOCK
             pmemobj_rwlock_unlock(pop, &mutex[f_idx / locksize]);
+#endif
             return buckets[i][f_idx].slot[j].value;
           }
         }
       }
       // mutex[f_idx/locksize].unlock_shared();
+#ifndef DISABLE_LOCK
       pmemobj_rwlock_unlock(pop, &mutex[f_idx / locksize]);
+#endif
     }
     {
       //]mutex[s_idx/locksize].lock_shared();
+#ifndef DISABLE_LOCK
       while (pmemobj_rwlock_tryrdlock(pop, &mutex[s_idx / locksize]) != 0) {
         if (resizing == true) {
           goto RETRY;
@@ -813,6 +820,7 @@ RETRY:
         pmemobj_rwlock_unlock(pop, &mutex[s_idx / locksize]);
         goto RETRY;
       }
+#endif
 
       for (j = 0; j < ASSOC_NUM; j++) {
         if constexpr (std::is_pointer_v<T>) {
@@ -821,18 +829,24 @@ RETRY:
           if ((buckets[i][s_idx].token[j] == 1) &&
               var_compare(buckets[i][s_idx].slot[j].key->key, key->key,
                           buckets[i][s_idx].slot[j].key->length, key->length)) {
+#ifndef DISABLE_LOCK
             pmemobj_rwlock_unlock(pop, &mutex[s_idx / locksize]);
+#endif
             return buckets[i][s_idx].slot[j].value;
           }
         } else {
           if (buckets[i][s_idx].token[j] == 1 &&
               buckets[i][s_idx].slot[j].key == key) {
+#ifndef DISABLE_LOCK
             pmemobj_rwlock_unlock(pop, &mutex[s_idx / locksize]);
+#endif
             return buckets[i][s_idx].slot[j].value;
           }
         }
       }
+#ifndef DISABLE_LOCK
       pmemobj_rwlock_unlock(pop, &mutex[s_idx / locksize]);
+#endif
     }
     f_idx = F_IDX(f_hash, addr_capacity / 2);
     s_idx = S_IDX(s_hash, addr_capacity / 2);
