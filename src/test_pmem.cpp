@@ -21,7 +21,7 @@
 #include "utils.h"
 
 std::string pool_name = "/mnt/pmem0/";
-// static const char *pool_name = "pmem_hash.data";
+//static const char *pool_name = "pmem_hash.data";
 static const size_t pool_size = 1024ul * 1024ul * 1024ul * 30ul;
 DEFINE_string(index, "dash-ex",
               "which index to evaluate:dash-ex/dash-lh/cceh/level");
@@ -427,6 +427,7 @@ void concurr_delete(struct range *_range, Hash<T> *index) {
   int end = _range->end;
   char *workload = reinterpret_cast<char *>(_range->workload);
   T key;
+  uint64_t not_found = 0;
 
   if constexpr (!std::is_pointer_v<T>) {
     T *key_array = reinterpret_cast<T *>(workload);
@@ -438,7 +439,7 @@ void concurr_delete(struct range *_range, Hash<T> *index) {
       auto epoch_guard = Allocator::AquireEpochGuard();
       uint64_t _end = begin + (i + 1) * 1000;
       for (uint64_t j = begin + i * 1000; j < _end; ++j) {
-        index->Delete(key_array[j], true);
+        if(!index->Delete(key_array[j], true))not_found++;
       }
       ++i;
     }
@@ -446,7 +447,7 @@ void concurr_delete(struct range *_range, Hash<T> *index) {
     {
       auto epoch_guard = Allocator::AquireEpochGuard();
       for (i = begin + 1000 * round; i < end; ++i) {
-        index->Delete(key_array[i], true);
+        if(!index->Delete(key_array[i], true))not_found++;
       }
     }
   } else {
@@ -461,7 +462,7 @@ void concurr_delete(struct range *_range, Hash<T> *index) {
       uint64_t _end = begin + (i + 1) * 1000;
       for (uint64_t j = begin + i * 1000; j < _end; ++j) {
         var_key = reinterpret_cast<T>(workload + string_key_size * j);
-        index->Delete(var_key, true);
+        if(!index->Delete(var_key, true))not_found++;
       }
       ++i;
     }
@@ -470,16 +471,18 @@ void concurr_delete(struct range *_range, Hash<T> *index) {
       auto epoch_guard = Allocator::AquireEpochGuard();
       for (i = begin + 1000 * round; i < end; ++i) {
         var_key = reinterpret_cast<T>(workload + string_key_size * i);
-        index->Delete(var_key, true);
+        if(!index->Delete(var_key, true))not_found++;
       }
     }
   }
+
+  std::cout << "not_found = " << not_found << std::endl;
   end_notify();
 }
 
 template <class T>
 void mixed_without_epoch(struct range *_range, Hash<T> *index) {
-  std::cout << "mixed without epcoh" << std::endl;
+  //std::cout << "mixed without epcoh" << std::endl;
   set_affinity(_range->index);
   uint64_t begin = _range->begin;
   uint64_t end = _range->end;
@@ -795,13 +798,6 @@ void Run() {
     }
     index->getNumber();
 
-    gettimeofday(&tv1, NULL);
-    index->Recovery();
-    gettimeofday(&tv2, NULL);
-    auto duration = (double)(tv2.tv_usec - tv1.tv_usec) / 1000000 +
-                    (double)(tv2.tv_sec - tv1.tv_sec);
-    std::cout << "Recovery Time(s): " << duration << std::endl;
-
     for (int i = 0; i < thread_num; ++i) {
       rarray[i].workload = not_used_workload;
     }
@@ -868,6 +864,7 @@ int main(int argc, char *argv[]) {
   if (open_epoch == true)
     std::cout << "EPOCH registration in application level" << std::endl;
 
+  //std::cout << "Hello world" << std::endl;
   read_ratio = FLAGS_r;
   insert_ratio = FLAGS_s;
   delete_ratio = FLAGS_d;

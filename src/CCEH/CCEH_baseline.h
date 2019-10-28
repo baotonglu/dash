@@ -701,13 +701,16 @@ void CCEH<T>::Directory_Doubling(int x, Segment<T> *s0, PMEMoid *s1) {
       new_seg_array,
       sizeof(Seg_array<T>) + sizeof(Segment<T> *) * 2 * dir->capacity);
 #endif
-  void **reserve_addr = Allocator::ReserveMemory();
+  //void **reserve_addr = Allocator::ReserveMemory();
+  auto reserve_item = Allocator::ReserveItem();
   TX_BEGIN(pool_addr) {
-    pmemobj_tx_add_range_direct(reserve_addr, sizeof(void **));
+    //pmemobj_tx_add_range_direct(reserve_addr, sizeof(void **));
+    pmemobj_tx_add_range_direct(reserve_item, sizeof(*reserve_item));
     pmemobj_tx_add_range_direct(&dir->sa, sizeof(dir->sa));
     pmemobj_tx_add_range_direct(&dir->new_sa, sizeof(dir->new_sa));
     pmemobj_tx_add_range_direct(&dir->capacity, sizeof(dir->capacity));
-    *reserve_addr = sa;
+    //*reserve_addr = sa;
+    Allocator::Free(reserve_item, sa);
     dir->sa = reinterpret_cast<Seg_array<T> *>(pmemobj_direct(dir->new_sa));
     dir->new_sa = OID_NULL;
     dir->capacity *= 2;

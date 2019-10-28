@@ -21,7 +21,7 @@
 #define NODE_TYPE 1000
 #define LEVEL_TYPE 2000
 #define LOCK_TYPE 3000
-#define COUNTING 1
+//#define COUNTING 1
 
 //#define BATCH 1
 #define UNIQUE_CHECK 1

@@ -28,7 +28,7 @@ namespace extendible {
 
 #define _INVALID 0 /* we use 0 as the invalid key*/
 #define SINGLE 1
-#define COUNTING 1
+//#define COUNTING 1
 #define EPOCH 1
 //#define PREALLOC 1
 
@@ -1867,12 +1867,15 @@ void Finger_EH<T>::Halve_Directory() {
                      sizeof(Directory<T>) + sizeof(uint64_t) * capacity);
 
   // auto old_dir = dir;
-  void **reserve_addr = Allocator::ReserveMemory();
+  //void **reserve_addr = Allocator::ReserveMemory();
+  auto reserve_item = Allocator::ReserveItem();
   TX_BEGIN(pool_addr) {
-    pmemobj_tx_add_range_direct(reserve_addr, sizeof(void *));
+    //pmemobj_tx_add_range_direct(reserve_addr, sizeof(void *));
+    pmemobj_tx_add_range_direct(reserve_item, sizeof(*reserve_item));
     pmemobj_tx_add_range_direct(&dir, sizeof(dir));
     pmemobj_tx_add_range_direct(&back_dir, sizeof(back_dir));
-    *reserve_addr = (void *)dir;
+    //*reserve_addr = (void *)dir;
+    Allocator::Free(reserve_item, dir);
     dir = new_dir;
     back_dir = OID_NULL;
   }
@@ -1880,11 +1883,6 @@ void Finger_EH<T>::Halve_Directory() {
     std::cout << "TXN fails during halvling directory" << std::endl;
   }
   TX_END
-/*
-#ifdef EPOCH
-  Allocator::Free(old_dir);
-#endif
-*/
 #else
   dir = new_dir;
 #endif
@@ -1913,14 +1911,18 @@ void Finger_EH<T>::Directory_Doubling(int x, Table<T> *new_b) {
 #ifdef PMEM
   Allocator::Persist(new_sa,
                      sizeof(Directory<T>) + sizeof(uint64_t) * 2 * capacity);
-  void **reserve_addr = Allocator::ReserveMemory();
+  //void **reserve_addr = Allocator::ReserveMemory();
+  auto reserve_item = Allocator::ReserveItem();
   ++merge_time;
   auto old_dir = dir;
   TX_BEGIN(pool_addr) {
-    pmemobj_tx_add_range_direct(reserve_addr, sizeof(void *));
+    //pmemobj_tx_add_range_direct(reserve_addr, sizeof(void *));
+    pmemobj_tx_add_range_direct(reserve_item, sizeof(*reserve_item));
     pmemobj_tx_add_range_direct(&dir, sizeof(dir));
     pmemobj_tx_add_range_direct(&back_dir, sizeof(back_dir));
-    *reserve_addr = (void *)dir;
+    Allocator::Free(reserve_item, dir);
+    //*reserve_addr = (void *)dir;
+    /*Swap the memory addr between new directory and old directory*/
     dir = new_sa;
     back_dir = OID_NULL;
   }
@@ -2412,12 +2414,15 @@ void Finger_EH<T>::TryMerge(size_t key_hash) {
           left_seg->Merge(right_seg);
         }
         std::cout << "reserve a memory addr "<<++merge_time<< std::endl;
-        void **reserve_addr = Allocator::ReserveMemory();
-         std::cout << "successfully get a memory addr" << std::endl;
+        //void **reserve_addr = Allocator::ReserveMemory();
+        auto reserve_item = Allocator::ReserveItem();
+        std::cout << "successfully get a memory addr" << std::endl;
         TX_BEGIN(pool_addr) {
-          pmemobj_tx_add_range_direct(reserve_addr, sizeof(void *));
+          //pmemobj_tx_add_range_direct(reserve_addr, sizeof(void *));
+          pmemobj_tx_add_range_direct(reserve_item, sizeof(*reserve_item));
           pmemobj_tx_add_range_direct(&left_seg->next, sizeof(left_seg->next));
-          *reserve_addr = right_seg;
+          Allocator::Free(reserve_item, right_seg);
+          //*reserve_addr = right_seg;
           left_seg->next = right_seg->next;
         }
         TX_ONABORT { std::cout << "Error for merge txn" << std::endl; }

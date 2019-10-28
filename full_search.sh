@@ -3,7 +3,7 @@
 
 thread_num=(0 1 2 4 8 16 24 48)
 workload=(0 10000000)
-base=(0 0000000)
+base=(0 00000000)
 key_type=(0 fixed variable)
 index_type=(0 dash-ex dash-lh cceh level)
 epoch=(0 1 1 1 0)
