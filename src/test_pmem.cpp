@@ -10,7 +10,7 @@
 #include <thread>
 
 #include "../util/System.hpp"
-#include "../util/random.h"
+#include "../util/key_generator.hpp"
 #include "../util/uniform.hpp"
 #include "./CCEH/CCEH_baseline.h"
 #include "./Level/level.h"
@@ -26,6 +26,7 @@ static const size_t pool_size = 1024ul * 1024ul * 1024ul * 30ul;
 DEFINE_string(index, "dash-ex",
               "which index to evaluate:dash-ex/dash-lh/cceh/level");
 DEFINE_string(k, "fixed", "the type of stored keys: fixed/variable");
+DEFINE_string(distribution, "uniform", "The distribution of the workload, by default, it is uniform");
 DEFINE_uint64(i, 64, "the initial number of segments in extendible hashing");
 DEFINE_uint64(t, 1, "the number of concurrent threads");
 DEFINE_uint64(n, 0, "the number of pre-insertion load");
@@ -36,19 +37,22 @@ DEFINE_string(op, "full",
 DEFINE_double(r, 1, "read ratio for mixed workload");
 DEFINE_double(s, 0, "insert ratio for mixed workload");
 DEFINE_double(d, 0, "delete ratio for mixed workload");
+DEFINE_double(skew, 0.8, "delete ratio for mixed workload");
 DEFINE_uint32(e, 0, "whether register epoch in application level");
 
 uint64_t initCap, thread_num, load_num, operation_num;
 std::string operation;
+std::string distribution;
 std::string key_type;
 std::string index_type;
 int bar_a, bar_b, bar_c;
-double read_ratio, insert_ratio, delete_ratio;
+double read_ratio, insert_ratio, delete_ratio, skew_factor;
 std::mutex mtx;
 std::condition_variable cv;
 bool finished = false;
 bool open_epoch;
 struct timeval tv1, tv2, tv3;
+key_generator_t *uniform_generator;
 
 struct range {
   int index;
@@ -141,11 +145,11 @@ Hash<T> *InitializeIndex(int seg_num) {
 }
 
 /*generate random 8-byte number and store it in the memory_region*/
-void generate_8B(void *memory_region, int generate_num, bool persist) {
+void generate_8B(void *memory_region, uint64_t generate_num, bool persist, key_generator_t *key_generator) {
   uint64_t *array = reinterpret_cast<uint64_t *>(memory_region);
 
   for (uint64_t i = 0; i < generate_num; ++i) {
-    array[i] = genrand64_int64();
+    array[i] = key_generator->next_uint64();
   }
 
   if (persist) {
@@ -154,10 +158,11 @@ void generate_8B(void *memory_region, int generate_num, bool persist) {
 }
 
 /*generate random 16-byte string and store it in the memory_region*/
-void generate_16B(void *memory_region, int generate_num, int length,
-                  bool persist) {
+void generate_16B(void *memory_region, uint64_t generate_num, int length,
+                  bool persist, key_generator_t *key_generator) {
   string_key *var_key;
   uint64_t *_key;
+  uint64_t random_num;
   char *workload = reinterpret_cast<char *>(memory_region);
 
   int word_num = (length / 8) + (((length % 8) != 0) ? 1 : 0);
@@ -167,8 +172,9 @@ void generate_16B(void *memory_region, int generate_num, int length,
     var_key = reinterpret_cast<string_key *>(workload +
                                              i * (length + sizeof(string_key)));
     var_key->length = length;
+    random_num = key_generator->next_uint64();
     for (int j = 0; j < word_num; ++j) {
-      _key[j] = genrand64_int64();
+      _key[j] = random_num;
     }
     memcpy(var_key->key, _key, length);
   }
@@ -649,33 +655,79 @@ void GeneralBench(range *rarray, Hash<T> *index, int thread_num,
   std::cout << profile_name << " End" << std::endl;
 }
 
-void *GenerateWorkload(int generate_num, int length) {
+void *GenerateWorkload(uint64_t generate_num, int length) {
   /*Since there are both positive search and negative search, it should generate
    * 2 * generate_num workload*/
   void *workload;
   if (key_type == "fixed") {
     workload = malloc(generate_num * sizeof(uint64_t));
-    generate_8B(workload, generate_num, false);
+    generate_8B(workload, generate_num, false, uniform_generator);
   } else { /*Generate the variable lengh workload*/
     std::cout << "Genereate workload for variable length key " << std::endl;
     workload = malloc(generate_num * (length + sizeof(string_key)));
-    generate_16B(workload, generate_num, length, false);
+    generate_16B(workload, generate_num, length, false, uniform_generator);
     std::cout << "Finish Generation" << std::endl;
   }
   return workload;
 }
 
+void *GenerateSkewWorkload(uint64_t load_num, uint64_t exist_num, uint64_t non_exist_num, int length) {
+  void *workload;
+  if (key_type == "fixed") {
+    workload = malloc((load_num + exist_num + non_exist_num) * sizeof(uint64_t));
+    uint64_t *fixed_workload = reinterpret_cast<uint64_t *>(workload);
+    generate_8B(fixed_workload, load_num, false, uniform_generator);
+    if(exist_num){
+      key_generator_t *skew_generator = new zipfian_key_generator_t(1, exist_num, skew_factor);
+      generate_8B(fixed_workload + load_num, exist_num, false, skew_generator);
+      delete skew_generator;
+    }
+
+    if(non_exist_num){
+      key_generator_t *skew_generator = new zipfian_key_generator_t(exist_num, exist_num + non_exist_num, skew_factor);
+      generate_8B(fixed_workload + load_num + exist_num, non_exist_num, false, skew_generator);
+      delete skew_generator;
+    }
+  } else { /*Generate the variable lengh workload*/
+    std::cout << "Genereate workload for variable length key " << std::endl;
+    workload = malloc((load_num + exist_num + non_exist_num) * (length + sizeof(string_key)));
+    generate_16B(workload, load_num, length, false, uniform_generator);
+    char *char_workload = reinterpret_cast<char *>(workload);
+    if(exist_num){
+      key_generator_t *skew_generator = new zipfian_key_generator_t(1, exist_num, skew_factor);
+      generate_16B(char_workload + load_num * (length + sizeof(string_key)), exist_num, length, false, skew_generator);
+      delete skew_generator;
+    }
+
+    if(non_exist_num){
+      key_generator_t *skew_generator = new zipfian_key_generator_t(exist_num, exist_num + non_exist_num, skew_factor);
+      generate_16B(char_workload + (load_num + exist_num) * (length + sizeof(string_key)), non_exist_num, length, false, skew_generator);
+      delete skew_generator;
+    }
+    std::cout << "Finish Generation" << std::endl;
+  }
+  return workload;
+}
+
+
+void GenerateRange(){
+
+}
+
 template <class T>
 void Run() {
-  unsigned long long init[4] = {0x12345ULL, 0x23456ULL, 0x34567ULL, 0x45678ULL},
-                     length = 4;
-  init_by_array64(init, length); /*initialize random number generation*/
   /* Initialize Index for Finger_EH*/
+  uniform_generator = new uniform_key_generator_t();
   Hash<T> *index = InitializeIndex<T>(initCap);
-
   uint64_t generate_num = operation_num * 2 + load_num;
   /* Generate the workload and corresponding range array*/
-  void *workload = GenerateWorkload(generate_num, 16);
+  void *workload;
+  if(distribution == "uniform"){
+    workload = GenerateWorkload(generate_num, 16);
+  }else{
+    workload = GenerateSkewWorkload(load_num, operation_num, operation_num, 16);
+  }
+
   void *insert_workload;
   if (key_type != "fixed") {
     PMEMoid ptr;
@@ -821,7 +873,7 @@ void Run() {
       GeneralBench<T>(rarray, index, thread_num, operation_num, "Neg_search",
                       &concurr_search_without_epcoh);
     }
-
+/*
     for (int i = 0; i < thread_num; ++i) {
       rarray[i].begin = i * chunk_size;
       rarray[i].end = (i + 1) * chunk_size;
@@ -836,8 +888,8 @@ void Run() {
                       &concurr_delete_without_epoch);
     }
     index->getNumber();
+*/
   }
-
   /*TODO Free the workload memory*/
 }
 
@@ -857,6 +909,8 @@ int main(int argc, char *argv[]) {
   operation_num = FLAGS_p;
   key_type = FLAGS_k;
   index_type = FLAGS_index;
+  distribution = FLAGS_distribution;
+  std::cout << "Distribution = " << distribution << std::endl;
   std::string fixed("fixed");
   operation = FLAGS_op;
   std::cout << "FLAGS_e = " << FLAGS_e << std::endl;
@@ -868,6 +922,7 @@ int main(int argc, char *argv[]) {
   read_ratio = FLAGS_r;
   insert_ratio = FLAGS_s;
   delete_ratio = FLAGS_d;
+  skew_factor = FLAGS_skew;
   if (!check_ratio()) {
     std::cout << "The ratio is wrong!" << std::endl;
     return 0;

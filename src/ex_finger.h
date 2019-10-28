@@ -28,7 +28,7 @@ namespace extendible {
 
 #define _INVALID 0 /* we use 0 as the invalid key*/
 #define SINGLE 1
-//#define COUNTING 1
+#define COUNTING 1
 #define EPOCH 1
 //#define PREALLOC 1
 
