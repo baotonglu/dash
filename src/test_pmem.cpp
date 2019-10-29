@@ -1,6 +1,7 @@
 #include <gflags/gflags.h>
 #include <immintrin.h>
 #include <sys/time.h>
+#include <unistd.h>
 
 #include <atomic>
 #include <chrono>
@@ -40,6 +41,7 @@ DEFINE_double(s, 0, "insert ratio for mixed workload");
 DEFINE_double(d, 0, "delete ratio for mixed workload");
 DEFINE_double(skew, 0.8, "delete ratio for mixed workload");
 DEFINE_uint32(e, 0, "whether register epoch in application level");
+DEFINE_uint32(ms, 100, "#miliseconds to sample the operations");
 
 uint64_t initCap, thread_num, load_num, operation_num;
 std::string operation;
@@ -52,9 +54,16 @@ std::mutex mtx;
 std::condition_variable cv;
 bool finished = false;
 bool open_epoch;
+uint32_t msec;
 struct timeval tv1, tv2, tv3;
 key_generator_t *uniform_generator;
-uint64_t operation_record[1024];
+
+struct operation_record_t{
+  uint64_t number;
+  uint64_t dummy[7];/*avoid false sharing*/
+};
+
+operation_record_t operation_record[1024];
 
 struct range {
   int index;
@@ -222,6 +231,10 @@ inline void end_notify() {
   }
 }
 
+inline void end_sub(){
+  SUB(&bar_c, 1);
+}
+
 template <class T>
 void concurr_insert_without_epoch(struct range *_range, Hash<T> *index) {
   set_affinity(_range->index);
@@ -304,6 +317,76 @@ void concurr_insert(struct range *_range, Hash<T> *index) {
     }
   }
   end_notify();
+}
+
+/*In this search version, the thread also needs to do the record its */
+template <class T>
+void concurr_search_sample(struct range *_range, Hash<T> *index) {
+  uint64_t curr_index = _range->index;
+  set_affinity(curr_index);
+  operation_record[curr_index].number = 0;
+  uint64_t begin = _range->begin;
+  uint64_t end = _range->end;
+  char *workload = reinterpret_cast<char *>(_range->workload);
+  T key;
+  uint64_t not_found = 0;
+
+  if constexpr (!std::is_pointer_v<T>) {
+    T *key_array = reinterpret_cast<T *>(workload);
+    uint64_t round = (end - begin) / 1000;
+    uint64_t i = 0;
+    spin_wait();
+
+    while (i < round) {
+      auto epoch_guard = Allocator::AquireEpochGuard();
+      uint64_t _end = begin + (i + 1) * 1000;
+      for (uint64_t j = begin + i * 1000; j < _end; ++j) {
+        index->Get(key_array[j], true);
+        operation_record[curr_index].number++;
+        //if (index->Get(key_array[j], true) == NONE) not_found++;
+      }
+      ++i;
+    }
+
+    {
+      auto epoch_guard = Allocator::AquireEpochGuard();
+      for (i = begin + 1000 * round; i < end; ++i) {
+        index->Get(key_array[i], true);
+        //if (index->Get(key_array[i], true) == NONE) not_found++;
+        operation_record[curr_index].number++;
+      }
+    }
+  } else {
+    T var_key;
+    uint64_t round = (end - begin) / 1000;
+    uint64_t i = 0;
+    uint64_t string_key_size = sizeof(string_key) + _range->length;
+
+    spin_wait();
+    while (i < round) {
+      auto epoch_guard = Allocator::AquireEpochGuard();
+      uint64_t _end = begin + (i + 1) * 1000;
+      for (uint64_t j = begin + i * 1000; j < _end; ++j) {
+        var_key = reinterpret_cast<T>(workload + string_key_size * j);
+        index->Get(var_key, true);
+        operation_record[curr_index].number++;
+        //if (index->Get(var_key, true) == NONE) not_found++;
+      }
+      ++i;
+    }
+
+    {
+      auto epoch_guard = Allocator::AquireEpochGuard();
+      for (i = begin + 1000 * round; i < end; ++i) {
+        var_key = reinterpret_cast<T>(workload + string_key_size * i);
+        //if (index->Get(var_key, true) == NONE) not_found++;
+        index->Get(var_key, true);
+        operation_record[curr_index].number++;
+      }
+    }
+  }
+  //std::cout << "not_found = " << not_found << std::endl;
+  end_sub();
 }
 
 template <class T>
@@ -669,11 +752,15 @@ void RecoveryBench(range *rarray, Hash<T> *index, int thread_num,
   bar_a = 1;
   bar_b = thread_num;
   bar_c = thread_num;
+  uint64_t *last_record = new uint64_t[thread_num];
+  uint64_t *curr_record = new uint64_t[thread_num];
+  memset(last_record, 0, sizeof(uint64_t)*thread_num);
+  memset(curr_record, 0, sizeof(uint64_t)*thread_num);
+  double seconds = (double)msec / 1000;
 
   std::cout << profile_name << " Begin" << std::endl;
- //System::profile(profile_name, [&]() {
   for (uint64_t i = 0; i < thread_num; ++i) {
-    thread_array[i] = new std::thread(concurr_search, &rarray[i], index);
+    thread_array[i] = new std::thread(concurr_search_sample<T>, &rarray[i], index);
   }
 
   while (LOAD(&bar_b) != 0)
@@ -682,9 +769,18 @@ void RecoveryBench(range *rarray, Hash<T> *index, int thread_num,
   STORE(&bar_a, 0);  // start test
   /* Start to do the sampling and record in the file*/
   while(bar_c != 0){
-
+    msleep(msec);
+    for(int i = 0; i < thread_num; ++i){
+      curr_record[i] = operation_record[i].number;
+    }
+    uint64_t operation_num = 0;
+    for(int i = 0; i < thread_num; ++i){
+      operation_num += (curr_record[i] - last_record[i]);
+    }
+    double throughput = (double)operation_num/(double)1000000/seconds;
+    std::cout << throughput << std::endl;/*Mops/s*/
+    memcpy(last_record, curr_record, sizeof(uint64_t) * thread_num);
   }
-  
   gettimeofday(&tv2, NULL);  // test end
 
   for (int i = 0; i < thread_num; ++i) {
@@ -694,7 +790,7 @@ void RecoveryBench(range *rarray, Hash<T> *index, int thread_num,
   duration = (double)(tv2.tv_usec - tv1.tv_usec) / 1000000 +
              (double)(tv2.tv_sec - tv1.tv_sec);
   printf(
-      "%d threads, Time = %f s, throughput = %f "
+      "%d threads, Time = %f s, Total throughput = %f "
       "ops/s\n",
       thread_num,
       (double)(tv2.tv_usec - tv1.tv_usec) / 1000000 +
@@ -885,7 +981,25 @@ void Run() {
       GeneralBench<T>(rarray, index, thread_num, operation_num, "Mixed",
                       &mixed_without_epoch);
     }
-  } else { /*do the benchmark for all single operations*/
+  }else if (operation == "recovery"){
+    std::cout << "Start the Recovery Benchmark" << std::endl;
+    /*Recovery Benchmark, first insert the workload, and then execute the recovery algorithms, and at last, do the positive search and sampling*/
+    for (int i = 0; i < thread_num; ++i) {
+      rarray[i].workload = not_used_insert_workload;
+    }
+    if (open_epoch == true) {
+      GeneralBench<T>(rarray, index, thread_num, operation_num, "Insert",
+                      &concurr_insert);
+    } else {
+      GeneralBench<T>(rarray, index, thread_num, operation_num, "Insert",
+                      &concurr_insert_without_epoch);
+    }
+    index->Recovery();
+    for (int i = 0; i < thread_num; ++i) {
+      rarray[i].workload = not_used_workload;
+    }
+    RecoveryBench<T>(rarray, index, thread_num, operation_num, "Pos_search");
+  }else { /*do the benchmark for all single operations*/
     std::cout << "insertion start" << std::endl;
     for (int i = 0; i < thread_num; ++i) {
       rarray[i].workload = not_used_insert_workload;
@@ -964,6 +1078,7 @@ int main(int argc, char *argv[]) {
   operation = FLAGS_op;
   std::cout << "FLAGS_e = " << FLAGS_e << std::endl;
   open_epoch = FLAGS_e;
+  msec = FLAGS_ms;
   if (open_epoch == true)
     std::cout << "EPOCH registration in application level" << std::endl;
 
