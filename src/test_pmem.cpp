@@ -19,6 +19,7 @@
 #include "lh_finger.h"
 #include "libpmemobj.h"
 #include "utils.h"
+#include "Hash.h"
 
 std::string pool_name = "/mnt/pmem0/";
 //static const char *pool_name = "pmem_hash.data";
@@ -53,6 +54,7 @@ bool finished = false;
 bool open_epoch;
 struct timeval tv1, tv2, tv3;
 key_generator_t *uniform_generator;
+uint64_t operation_record[1024];
 
 struct range {
   int index;
@@ -445,6 +447,7 @@ void concurr_delete(struct range *_range, Hash<T> *index) {
       auto epoch_guard = Allocator::AquireEpochGuard();
       uint64_t _end = begin + (i + 1) * 1000;
       for (uint64_t j = begin + i * 1000; j < _end; ++j) {
+        //auto epoch_guard = Allocator::AquireEpochGuard();
         if(!index->Delete(key_array[j], true))not_found++;
       }
       ++i;
@@ -453,6 +456,7 @@ void concurr_delete(struct range *_range, Hash<T> *index) {
     {
       auto epoch_guard = Allocator::AquireEpochGuard();
       for (i = begin + 1000 * round; i < end; ++i) {
+        //auto epoch_guard = Allocator::AquireEpochGuard();
         if(!index->Delete(key_array[i], true))not_found++;
       }
     }
@@ -636,6 +640,51 @@ void GeneralBench(range *rarray, Hash<T> *index, int thread_num,
   while (!finished) {
     cv.wait(lck);  // go to sleep and wait for the wake-up from child threads
   }
+  gettimeofday(&tv2, NULL);  // test end
+
+  for (int i = 0; i < thread_num; ++i) {
+    thread_array[i]->join();
+    delete thread_array[i];
+  }
+  duration = (double)(tv2.tv_usec - tv1.tv_usec) / 1000000 +
+             (double)(tv2.tv_sec - tv1.tv_sec);
+  printf(
+      "%d threads, Time = %f s, throughput = %f "
+      "ops/s\n",
+      thread_num,
+      (double)(tv2.tv_usec - tv1.tv_usec) / 1000000 +
+          (double)(tv2.tv_sec - tv1.tv_sec),
+      operation_num / duration);
+  //});
+  std::cout << profile_name << " End" << std::endl;
+}
+
+template <class T>
+void RecoveryBench(range *rarray, Hash<T> *index, int thread_num,
+                  uint64_t operation_num, std::string profile_name) {
+  std::thread *thread_array[1024];
+  profile_name = profile_name + std::to_string(thread_num);
+  double duration;
+  finished = false;
+  bar_a = 1;
+  bar_b = thread_num;
+  bar_c = thread_num;
+
+  std::cout << profile_name << " Begin" << std::endl;
+ //System::profile(profile_name, [&]() {
+  for (uint64_t i = 0; i < thread_num; ++i) {
+    thread_array[i] = new std::thread(concurr_search, &rarray[i], index);
+  }
+
+  while (LOAD(&bar_b) != 0)
+    ;                                     // Spin
+  gettimeofday(&tv1, NULL);
+  STORE(&bar_a, 0);  // start test
+  /* Start to do the sampling and record in the file*/
+  while(bar_c != 0){
+
+  }
+  
   gettimeofday(&tv2, NULL);  // test end
 
   for (int i = 0; i < thread_num; ++i) {
@@ -873,7 +922,7 @@ void Run() {
       GeneralBench<T>(rarray, index, thread_num, operation_num, "Neg_search",
                       &concurr_search_without_epcoh);
     }
-/*
+
     for (int i = 0; i < thread_num; ++i) {
       rarray[i].begin = i * chunk_size;
       rarray[i].end = (i + 1) * chunk_size;
@@ -888,7 +937,7 @@ void Run() {
                       &concurr_delete_without_epoch);
     }
     index->getNumber();
-*/
+
   }
   /*TODO Free the workload memory*/
 }
