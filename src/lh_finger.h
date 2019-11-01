@@ -140,6 +140,7 @@ inline uint64_t IDX(uint64_t hashKey, uint64_t level) {
   return hashKey & ((1 << level) - 1);
 }
 
+/* Give the param@bucket_idx, return the segment index and also the offset the bucket in this segment*/
 inline void SEG_IDX_OFFSET(uint32_t bucket_idx, uint32_t &seg_idx,
                            uint32_t &seg_offset) {
 #ifdef DOUBLE_EXPANSION
@@ -168,6 +169,9 @@ uint64_t SUM_BUCKET(uint32_t bucket_idx) {
   return sum;
 }
 
+/*  
+ * Return the size of the segment which the bucket param@bucket_ix belong to
+*/
 inline uint32_t SEG_SIZE(uint32_t bucket_ix) {
   int index = 31 - __builtin_clz((bucket_ix >> expandShiftBits) + 1);
   return segmentSize * pow2(index);
@@ -1007,7 +1011,6 @@ struct Directory {
   typedef Table<T> *table_p;
   uint64_t N_next;
   table_p _[directorySize];
-  // Directory() { N_next = baseShifBits << 32; }
 
   static void New(PMEMoid *dir) {
     auto callback = [](PMEMobjpool *pool, void *ptr, void *arg) {
@@ -1282,7 +1285,8 @@ struct Table {
       return (dir->_[dir_idx] + offset);
   }
   /*
-   *@param idx the index of the original bucket
+   *@param x, the index of the current bucket
+   *@param idx, the index of the original bucket
    */
   inline Table<T> *get_org_table(uint64_t x, uint64_t *idx, uint64_t *base_diff,
                                  Directory<T> *dir) {
@@ -2475,6 +2479,7 @@ void Linear<T>::Recovery() {
   uint32_t dir_idx;
   uint32_t offset;
   SEG_IDX_OFFSET(x, dir_idx, offset);
+  Allocator::EpochRecovery();
 
   std::cout << dir_idx << " segments in the linear hashing" << std::endl;
   for (int i = 0; i <= dir_idx; ++i) {
@@ -2483,6 +2488,11 @@ void Linear<T>::Recovery() {
   }
   /*Recovery from the right to left, do I need to fix something?*/
 }
+
+/*
+ *@breaf compute the segment size according the its index information, and do the help recovery if possible
+ *@param index, the first bucket index in this segment
+ */
 
 template <class T>
 void Linear<T>::recoverSegment(Table<T> **seg_ptr, size_t index) {
@@ -2493,19 +2503,37 @@ void Linear<T>::recoverSegment(Table<T> **seg_ptr, size_t index) {
 #endif
   /*Iteratively restore the data*/
   uint64_t snapshot = reinterpret_cast<uint64_t>(*seg_ptr);
+  /*
   if ((snapshot & lockBit) || (!(snapshot & recoverBit))) {
     return;
   }
-  /*Set the lock Bit*/
+  */
   uint64_t old_value =
       (reinterpret_cast<uint64_t>(*seg_ptr) & (~lockBit)) | recoverBit;
   uint64_t new_value = reinterpret_cast<uint64_t>(*seg_ptr) | recoverLockBit;
   if (!CAS(seg_ptr, &old_value, new_value)) {
+    /* Scan the directory and find whether it could help to re-build*/
+    uint64_t old_N_next = dir.N_next;
+    uint32_t N = old_N_next >> 32;
+    uint32_t next = (uint32_t)old_N_next;
+    uint32_t x = static_cast<uint32_t>(pow(2, N)) + next - 1;
+    uint32_t dir_idx;
+    uint32_t offset;
+    uint64_t bucket_idx = 0;
+    SEG_IDX_OFFSET(x, dir_idx, offset); //dir_idx is the index of segment in the directory level
+    for(uint64_t i = 0; i <= dir_idx; ++i){
+      uint64_t _snapshot = reinterpret_cast<uint64_t>(dir._[i]);
+      if ((_snapshot & recoverBit) && (!(_snapshot & lockBit))){
+        //std::cout << "do the help" << std::endl;
+        recoverSegment(&dir._[i], bucket_idx);
+        break;
+      }
+      bucket_idx += SEG_SIZE(bucket_idx);/*compute the iniital bucket index in next segment*/
+    }
     return;
   }
 
   Table<T> *target = (Table<T> *)(snapshot & (~recoverLockBit));
-
   Table<T> *curr_table;
   for (int i = 0; i < seg_size; ++i) {
     curr_table = target + i;
@@ -2515,11 +2543,11 @@ void Linear<T>::recoverSegment(Table<T> **seg_ptr, size_t index) {
     if (curr_table->state == 2) {
       uint64_t idx, base_diff;
       Table<T> *org_table =
-          curr_table->get_org_table(index, &idx, &base_diff, &dir);
+          curr_table->get_org_table(index + i, &idx, &base_diff, &dir);
       uint32_t dir_idx, offset;
       SEG_IDX_OFFSET(idx, dir_idx, offset);
       while (reinterpret_cast<uint64_t>(dir._[dir_idx]) & recoverLockBit) {
-        recoverSegment(&dir._[dir_idx], idx);
+        recoverSegment(&dir._[dir_idx], idx - offset);
       }
 
       for (int i = 0; i < kNumBucket; ++i) {
@@ -2544,7 +2572,7 @@ void Linear<T>::recoverSegment(Table<T> **seg_ptr, size_t index) {
       }
     }
   }
-
+  //rebuildSegment(target, seg_size, index);
   *seg_ptr = target;
 }
 
@@ -2564,11 +2592,6 @@ void Linear<T>::Insert(T key, Value_t value, bool is_in_epoch){
 
 template <class T>
 void Linear<T>::Insert(T key, Value_t value, int is_crash) {
-  /*
-  #ifdef EPOCH
-    auto epoch_guard = Allocator::AquireEpochGuard();
-  #endif
-  */
   uint64_t key_hash;
   if constexpr (std::is_pointer_v<T>) {
     key_hash = h(key->key, key->length);
@@ -2590,7 +2613,8 @@ RETRY:
   uint32_t offset;
   SEG_IDX_OFFSET(static_cast<uint32_t>(x), dir_idx, offset);
   if (reinterpret_cast<uint64_t>(dir._[dir_idx]) & recoverLockBit) {
-    recoverSegment(&dir._[dir_idx], x);
+    /* the index should be the first bucket index in this segment*/
+    recoverSegment(&dir._[dir_idx], x - offset);
     goto RETRY;
   }
 
@@ -2647,17 +2671,21 @@ RETRY:
   SEG_IDX_OFFSET(static_cast<uint32_t>(x), dir_idx, offset);
   /*First determine whether to do the recovery process*/
   if (reinterpret_cast<uint64_t>(dir._[dir_idx]) & recoverLockBit) {
-    recoverSegment(&dir._[dir_idx], x);
+    recoverSegment(&dir._[dir_idx], x - offset);
     goto RETRY;
   }
   Table<T> *target = dir._[dir_idx] + offset;
 
   Bucket<T> *target_bucket = target->bucket + y;
   Bucket<T> *neighbor_bucket = target->bucket + ((y + 1) & bucketMask);
+  /*
+  uint32_t old_version =
+      __atomic_load_n(&target_bucket->version_lock, __ATOMIC_ACQUIRE);
+  uint32_t old_neighbor_version =
+      __atomic_load_n(&neighbor_bucket->version_lock, __ATOMIC_ACQUIRE);
+  */
   uint32_t old_version = target_bucket->version_lock;
   uint32_t old_neighbor_version = neighbor_bucket->version_lock;
-  //uint32_t old_version = __atomic_load_n(&target_bucket->version_lock, __ATOMIC_ACQUIRE);
-  //uint32_t old_neighbor_version = __atomic_load_n(&neighbor_bucket->version_lock, __ATOMIC_ACQUIRE);
 
   if ((old_version & lockSet) || (old_neighbor_version & lockSet)) {
     goto RETRY;
@@ -2799,11 +2827,6 @@ bool Linear<T>::Delete(T key, bool is_in_epoch) {
 /*the delete operation of the */
 template <class T>
 bool Linear<T>::Delete(T key) {
-  /*
-  #ifdef EPOCH
-    auto epoch_guard = Allocator::AquireEpochGuard();
-  #endif
-  */
   uint64_t key_hash;
   if constexpr (std::is_pointer_v<T>) {
     key_hash = h(key->key, key->length);
@@ -2827,7 +2850,7 @@ RETRY:
   uint32_t offset;
   SEG_IDX_OFFSET(static_cast<uint32_t>(x), dir_idx, offset);
   if (reinterpret_cast<uint64_t>(dir._[dir_idx]) & recoverLockBit) {
-    recoverSegment(&dir._[dir_idx], x);
+    recoverSegment(&dir._[dir_idx], x - offset);
     goto RETRY;
   }
   Table<T> *target = dir._[dir_idx] + offset;

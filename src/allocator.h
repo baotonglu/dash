@@ -16,7 +16,8 @@ struct Allocator {
   static void Initialize(const char* pool_name, size_t pool_size) {
     instance_ = new Allocator(pool_name, pool_size);
     instance_->epoch_manager_.Initialize();
-    instance_->garbage_list_.Initialize(&instance_->epoch_manager_, instance_->pm_pool_, 1024);
+    instance_->garbage_list_.Initialize(&instance_->epoch_manager_,
+                                        instance_->pm_pool_, 1024);
     std::cout << "pool opened at: " << std::hex << instance_->pm_pool_
               << std::dec << std::endl;
   }
@@ -62,7 +63,7 @@ struct Allocator {
       *ptr = pmemobj_direct(pmemobj_tx_alloc(size, TOID_TYPE_NUM(char)));
       alloc_constr(instance_->pm_pool_, *ptr, arg);
     }
-    TX_ONABORT {LOG_FATAL("Allocate: TXN Allocation Error");}
+    TX_ONABORT { LOG_FATAL("Allocate: TXN Allocation Error"); }
     TX_END
   }
 
@@ -143,28 +144,32 @@ struct Allocator {
     instance_->garbage_list_.Push(ptr, callback, context);
   }
 
+  static void Free(GarbageList::Item* item, void* ptr,
+                   DestroyCallback callback = DefaultCallback,
+                   void* context = nullptr) {
+    item->SetValue(ptr, instance_->epoch_manager_.GetCurrentEpoch(), callback,
+                   context);
+  }
+
   static EpochGuard AquireEpochGuard() {
     return EpochGuard{&instance_->epoch_manager_};
   }
 
-  static void Protect(){
-    instance_->epoch_manager_.Protect();
+  static void Protect() { instance_->epoch_manager_.Protect(); }
+
+  static void Unprotect() { instance_->epoch_manager_.Unprotect(); }
+
+  static GarbageList::Item* ReserveItem() {
+    return instance_->garbage_list_.ReserveItem();
   }
 
-  static void Unprotect(){
-    instance_->epoch_manager_.Unprotect();
-  }
-
-  static void** ReserveMemory(){
-    return (void**)instance_->garbage_list_.ReserveMemory();
-  }
-
-  static void ResetItem(void *mem){
+  static void ResetItem(GarbageList::Item* mem) {
     instance_->garbage_list_.ResetItem(mem);
   }
 
-  static void EpochRecovery(){
-    instance_->garbage_list_.Recovery(&instance_->epoch_manager_, instance_->pm_pool_);
+  static void EpochRecovery() {
+    instance_->garbage_list_.Recovery(&instance_->epoch_manager_,
+                                      instance_->pm_pool_);
   }
 };
 

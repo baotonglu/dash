@@ -628,7 +628,7 @@ CCEH<T>::~CCEH(void) {}
 template <class T>
 void CCEH<T>::Recovery(void) {
   std::cout << "Start the Recovery" << std::endl;
-  // Allocator::EpochRecovery();
+  Allocator::EpochRecovery();
   for (int i = 0; i < LOG_NUM; ++i) {
     if (!OID_IS_NULL(log[i].temp)) {
       pmemobj_free(&log[i].temp);
@@ -703,13 +703,16 @@ void CCEH<T>::Directory_Doubling(int x, Segment<T> *s0, PMEMoid *s1) {
       new_seg_array,
       sizeof(Seg_array<T>) + sizeof(Segment<T> *) * 2 * dir->capacity);
 #endif
-  void **reserve_addr = Allocator::ReserveMemory();
+  //void **reserve_addr = Allocator::ReserveMemory();
+  auto reserve_item = Allocator::ReserveItem();
   TX_BEGIN(pool_addr) {
-    pmemobj_tx_add_range_direct(reserve_addr, sizeof(void **));
+    //pmemobj_tx_add_range_direct(reserve_addr, sizeof(void **));
+    pmemobj_tx_add_range_direct(reserve_item, sizeof(*reserve_item));
     pmemobj_tx_add_range_direct(&dir->sa, sizeof(dir->sa));
     pmemobj_tx_add_range_direct(&dir->new_sa, sizeof(dir->new_sa));
     pmemobj_tx_add_range_direct(&dir->capacity, sizeof(dir->capacity));
-    *reserve_addr = sa;
+    //*reserve_addr = sa;
+    Allocator::Free(reserve_item, sa);
     dir->sa = reinterpret_cast<Seg_array<T> *>(pmemobj_direct(dir->new_sa));
     dir->new_sa = OID_NULL;
     dir->capacity *= 2;
@@ -719,7 +722,7 @@ void CCEH<T>::Directory_Doubling(int x, Segment<T> *s0, PMEMoid *s1) {
   }
   TX_END
 
-  printf("Done!!Directory_Doubling towards %lld\n", global_depth);
+  printf("Done!!Directory_Doubling towards %lld\n", dir->sa->global_depth);
 }
 
 template <class T>

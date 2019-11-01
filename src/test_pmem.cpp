@@ -1,6 +1,7 @@
 #include <gflags/gflags.h>  
 #include <immintrin.h>
 #include <sys/time.h>
+#include <unistd.h>
 
 #include <atomic>
 #include <chrono>
@@ -10,7 +11,7 @@
 #include <thread>
 
 #include "../util/System.hpp"
-#include "../util/random.h"
+#include "../util/key_generator.hpp"
 #include "../util/uniform.hpp"
 #include "./CCEH/CCEH_baseline.h"
 #include "./Level/level.h"
@@ -19,14 +20,15 @@
 #include "lh_finger.h"
 #include "libpmemobj.h"
 #include "utils.h"
+#include "Hash.h"
 
 std::string pool_name = "/mnt/pmem0/";
-//std::string pool_name = "./";
-// static const char *pool_name = "pmem_hash.data";
+//static const char *pool_name = "pmem_hash.data";
 static const size_t pool_size = 1024ul * 1024ul * 1024ul * 30ul;
 DEFINE_string(index, "dash-ex",
               "which index to evaluate:dash-ex/dash-lh/cceh/level");
 DEFINE_string(k, "fixed", "the type of stored keys: fixed/variable");
+DEFINE_string(distribution, "uniform", "The distribution of the workload, by default, it is uniform");
 DEFINE_uint64(i, 64, "the initial number of segments in extendible hashing");
 DEFINE_uint64(t, 1, "the number of concurrent threads");
 DEFINE_uint64(n, 0, "the number of pre-insertion load");
@@ -37,23 +39,35 @@ DEFINE_string(op, "full",
 DEFINE_double(r, 1, "read ratio for mixed workload");
 DEFINE_double(s, 0, "insert ratio for mixed workload");
 DEFINE_double(d, 0, "delete ratio for mixed workload");
+DEFINE_double(skew, 0.8, "delete ratio for mixed workload");
 DEFINE_uint32(e, 0, "whether register epoch in application level");
 DEFINE_uint32(recover, 0, "whether to recover the data structure");
 DEFINE_uint32(crash, 0, "whether to do the crash insertion");
+DEFINE_uint32(ms, 100, "#miliseconds to sample the operations");
 
 uint64_t initCap, thread_num, load_num, operation_num;
 std::string operation;
+std::string distribution;
 std::string key_type;
 std::string index_type;
 int bar_a, bar_b, bar_c;
-double read_ratio, insert_ratio, delete_ratio;
+double read_ratio, insert_ratio, delete_ratio, skew_factor;
 std::mutex mtx;
 std::condition_variable cv;
 bool finished = false;
 bool open_epoch = false;
 bool recover = false;
 bool is_crash = false;
+uint32_t msec;
 struct timeval tv1, tv2, tv3;
+key_generator_t *uniform_generator;
+
+struct operation_record_t{
+  uint64_t number;
+  uint64_t dummy[7];/*avoid false sharing*/
+};
+
+operation_record_t operation_record[1024];
 
 struct range {
   int index;
@@ -155,11 +169,11 @@ Hash<T> *InitializeIndex(int seg_num) {
 }
 
 /*generate random 8-byte number and store it in the memory_region*/
-void generate_8B(void *memory_region, int generate_num, bool persist) {
+void generate_8B(void *memory_region, uint64_t generate_num, bool persist, key_generator_t *key_generator) {
   uint64_t *array = reinterpret_cast<uint64_t *>(memory_region);
 
   for (uint64_t i = 0; i < generate_num; ++i) {
-    array[i] = genrand64_int64();
+    array[i] = key_generator->next_uint64();
   }
 
   if (persist) {
@@ -168,10 +182,11 @@ void generate_8B(void *memory_region, int generate_num, bool persist) {
 }
 
 /*generate random 16-byte string and store it in the memory_region*/
-void generate_16B(void *memory_region, int generate_num, int length,
-                  bool persist) {
+void generate_16B(void *memory_region, uint64_t generate_num, int length,
+                  bool persist, key_generator_t *key_generator) {
   string_key *var_key;
   uint64_t *_key;
+  uint64_t random_num;
   char *workload = reinterpret_cast<char *>(memory_region);
 
   int word_num = (length / 8) + (((length % 8) != 0) ? 1 : 0);
@@ -181,8 +196,9 @@ void generate_16B(void *memory_region, int generate_num, int length,
     var_key = reinterpret_cast<string_key *>(workload +
                                              i * (length + sizeof(string_key)));
     var_key->length = length;
+    random_num = key_generator->next_uint64();
     for (int j = 0; j < word_num; ++j) {
-      _key[j] = genrand64_int64();
+      _key[j] = random_num;
     }
     memcpy(var_key->key, _key, length);
   }
@@ -226,6 +242,10 @@ inline void end_notify() {
     finished = true;
     cv.notify_one();
   }
+}
+
+inline void end_sub(){
+  SUB(&bar_c, 1);
 }
 
 template <class T>
@@ -278,7 +298,6 @@ void concurr_insert_with_crash(struct range *_range, Hash<T> *index) {
       index->Insert(var_key, DEFAULT, 1);
     }
   }
-
   end_notify();
 }
 
@@ -339,6 +358,77 @@ void concurr_insert(struct range *_range, Hash<T> *index) {
   end_notify();
 }
 
+/*In this search version, the thread also needs to do the record its */
+template <class T>
+void concurr_search_sample(struct range *_range, Hash<T> *index) {
+  uint64_t curr_index = _range->index;
+  set_affinity(curr_index);
+  operation_record[curr_index].number = 0;
+  uint64_t begin = _range->begin;
+  uint64_t end = _range->end;
+  char *workload = reinterpret_cast<char *>(_range->workload);
+  T key;
+  uint64_t not_found = 0;
+
+  if constexpr (!std::is_pointer_v<T>) {
+    T *key_array = reinterpret_cast<T *>(workload);
+    uint64_t round = (end - begin) / 1000;
+    uint64_t i = 0;
+    spin_wait();
+
+    while (i < round) {
+      auto epoch_guard = Allocator::AquireEpochGuard();
+      uint64_t _end = begin + (i + 1) * 1000;
+      for (uint64_t j = begin + i * 1000; j < _end; ++j) {
+        //if (index->Get(key_array[j], true) == NONE) not_found++;
+        index->Get(key_array[j], true);
+        operation_record[curr_index].number++;
+        //
+      }
+      ++i;
+    }
+
+    {
+      auto epoch_guard = Allocator::AquireEpochGuard();
+      for (i = begin + 1000 * round; i < end; ++i) {
+        index->Get(key_array[i], true);
+        //if (index->Get(key_array[i], true) == NONE) not_found++;
+        operation_record[curr_index].number++;
+      }
+    }
+  } else {
+    T var_key;
+    uint64_t round = (end - begin) / 1000;
+    uint64_t i = 0;
+    uint64_t string_key_size = sizeof(string_key) + _range->length;
+
+    spin_wait();
+    while (i < round) {
+      auto epoch_guard = Allocator::AquireEpochGuard();
+      uint64_t _end = begin + (i + 1) * 1000;
+      for (uint64_t j = begin + i * 1000; j < _end; ++j) {
+        var_key = reinterpret_cast<T>(workload + string_key_size * j);
+        //if (index->Get(var_key, true) == NONE) not_found++;
+        index->Get(var_key, true);
+        operation_record[curr_index].number++;
+      }
+      ++i;
+    }
+
+    {
+      auto epoch_guard = Allocator::AquireEpochGuard();
+      for (i = begin + 1000 * round; i < end; ++i) {
+        var_key = reinterpret_cast<T>(workload + string_key_size * i);
+        //if (index->Get(var_key, true) == NONE) not_found++;
+        index->Get(var_key, true);
+        operation_record[curr_index].number++;
+      }
+    }
+  }
+  //std::cout << "not_found = " << not_found << std::endl;
+  end_sub();
+}
+
 template <class T>
 void concurr_search(struct range *_range, Hash<T> *index) {
   set_affinity(_range->index);
@@ -394,7 +484,7 @@ void concurr_search(struct range *_range, Hash<T> *index) {
       }
     }
   }
-  std::cout << "not found = " << not_found << std::endl;
+   std::cout << "not_found = " << not_found << std::endl;
   end_notify();
 }
 
@@ -426,7 +516,7 @@ void concurr_search_without_epcoh(struct range *_range, Hash<T> *index) {
       }
     }
   }
-  // std::cout << "not_found = " << not_found << std::endl;
+ std::cout << "not_found = " << not_found << std::endl;
   end_notify();
 }
 
@@ -468,6 +558,7 @@ void concurr_delete(struct range *_range, Hash<T> *index) {
   int end = _range->end;
   char *workload = reinterpret_cast<char *>(_range->workload);
   T key;
+  uint64_t not_found = 0;
 
   if constexpr (!std::is_pointer_v<T>) {
     T *key_array = reinterpret_cast<T *>(workload);
@@ -479,7 +570,8 @@ void concurr_delete(struct range *_range, Hash<T> *index) {
       auto epoch_guard = Allocator::AquireEpochGuard();
       uint64_t _end = begin + (i + 1) * 1000;
       for (uint64_t j = begin + i * 1000; j < _end; ++j) {
-        index->Delete(key_array[j], true);
+        //auto epoch_guard = Allocator::AquireEpochGuard();
+        if(!index->Delete(key_array[j], true))not_found++;
       }
       ++i;
     }
@@ -487,7 +579,8 @@ void concurr_delete(struct range *_range, Hash<T> *index) {
     {
       auto epoch_guard = Allocator::AquireEpochGuard();
       for (i = begin + 1000 * round; i < end; ++i) {
-        index->Delete(key_array[i], true);
+        //auto epoch_guard = Allocator::AquireEpochGuard();
+        if(!index->Delete(key_array[i], true))not_found++;
       }
     }
   } else {
@@ -502,7 +595,7 @@ void concurr_delete(struct range *_range, Hash<T> *index) {
       uint64_t _end = begin + (i + 1) * 1000;
       for (uint64_t j = begin + i * 1000; j < _end; ++j) {
         var_key = reinterpret_cast<T>(workload + string_key_size * j);
-        index->Delete(var_key, true);
+        if(!index->Delete(var_key, true))not_found++;
       }
       ++i;
     }
@@ -511,10 +604,12 @@ void concurr_delete(struct range *_range, Hash<T> *index) {
       auto epoch_guard = Allocator::AquireEpochGuard();
       for (i = begin + 1000 * round; i < end; ++i) {
         var_key = reinterpret_cast<T>(workload + string_key_size * i);
-        index->Delete(var_key, true);
+        if(!index->Delete(var_key, true))not_found++;
       }
     }
   }
+
+  std::cout << "not_found = " << not_found << std::endl;
   end_notify();
 }
 
@@ -654,7 +749,7 @@ void GeneralBench(range *rarray, Hash<T> *index, int thread_num,
   bar_c = thread_num;
 
   std::cout << profile_name << " Begin" << std::endl;
-  // System::profile(profile_name, [&]() {
+ //System::profile(profile_name, [&]() {
   for (uint64_t i = 0; i < thread_num; ++i) {
     thread_array[i] = new std::thread(*test_func, &rarray[i], index);
   }
@@ -687,33 +782,137 @@ void GeneralBench(range *rarray, Hash<T> *index, int thread_num,
   std::cout << profile_name << " End" << std::endl;
 }
 
-void *GenerateWorkload(int generate_num, int length) {
+template <class T>
+void RecoveryBench(range *rarray, Hash<T> *index, int thread_num,
+                  uint64_t operation_num, std::string profile_name) {
+  std::thread *thread_array[1024];
+  profile_name = profile_name + std::to_string(thread_num);
+  double duration;
+  finished = false;
+  bar_a = 1;
+  bar_b = thread_num;
+  bar_c = thread_num;
+  uint64_t *last_record = new uint64_t[thread_num];
+  uint64_t *curr_record = new uint64_t[thread_num];
+  memset(last_record, 0, sizeof(uint64_t)*thread_num);
+  memset(curr_record, 0, sizeof(uint64_t)*thread_num);
+  double seconds = (double)msec / 1000;
+
+  std::cout << profile_name << " Begin" << std::endl;
+  for (uint64_t i = 0; i < thread_num; ++i) {
+    thread_array[i] = new std::thread(concurr_search_sample<T>, &rarray[i], index);
+  }
+
+  while (LOAD(&bar_b) != 0)
+    ;                                     // Spin
+  gettimeofday(&tv1, NULL);
+  STORE(&bar_a, 0);  // start test
+  /* Start to do the sampling and record in the file*/
+  while(bar_c != 0){
+    msleep(msec);
+    for(int i = 0; i < thread_num; ++i){
+      curr_record[i] = operation_record[i].number;
+    }
+    uint64_t operation_num = 0;
+    for(int i = 0; i < thread_num; ++i){
+      operation_num += (curr_record[i] - last_record[i]);
+    }
+    double throughput = (double)operation_num/(double)1000000/seconds;
+    std::cout << throughput << std::endl;/*Mops/s*/
+    memcpy(last_record, curr_record, sizeof(uint64_t) * thread_num);
+  }
+  gettimeofday(&tv2, NULL);  // test end
+
+  for (int i = 0; i < thread_num; ++i) {
+    thread_array[i]->join();
+    delete thread_array[i];
+  }
+  duration = (double)(tv2.tv_usec - tv1.tv_usec) / 1000000 +
+             (double)(tv2.tv_sec - tv1.tv_sec);
+  printf(
+      "%d threads, Time = %f s, Total throughput = %f "
+      "ops/s\n",
+      thread_num,
+      (double)(tv2.tv_usec - tv1.tv_usec) / 1000000 +
+          (double)(tv2.tv_sec - tv1.tv_sec),
+      operation_num / duration);
+  //});
+  std::cout << profile_name << " End" << std::endl;
+}
+
+void *GenerateWorkload(uint64_t generate_num, int length) {
   /*Since there are both positive search and negative search, it should generate
    * 2 * generate_num workload*/
   void *workload;
   if (key_type == "fixed") {
     workload = malloc(generate_num * sizeof(uint64_t));
-    generate_8B(workload, generate_num, false);
+    generate_8B(workload, generate_num, false, uniform_generator);
   } else { /*Generate the variable lengh workload*/
     std::cout << "Genereate workload for variable length key " << std::endl;
     workload = malloc(generate_num * (length + sizeof(string_key)));
-    generate_16B(workload, generate_num, length, false);
+    generate_16B(workload, generate_num, length, false, uniform_generator);
     std::cout << "Finish Generation" << std::endl;
   }
   return workload;
 }
 
+void *GenerateSkewWorkload(uint64_t load_num, uint64_t exist_num, uint64_t non_exist_num, int length) {
+  void *workload;
+  if (key_type == "fixed") {
+    workload = malloc((load_num + exist_num + non_exist_num) * sizeof(uint64_t));
+    uint64_t *fixed_workload = reinterpret_cast<uint64_t *>(workload);
+    generate_8B(fixed_workload, load_num, false, uniform_generator);
+    if(exist_num){
+      key_generator_t *skew_generator = new zipfian_key_generator_t(1, exist_num, skew_factor);
+      generate_8B(fixed_workload + load_num, exist_num, false, skew_generator);
+      delete skew_generator;
+    }
+
+    if(non_exist_num){
+      key_generator_t *skew_generator = new zipfian_key_generator_t(exist_num, exist_num + non_exist_num, skew_factor);
+      generate_8B(fixed_workload + load_num + exist_num, non_exist_num, false, skew_generator);
+      delete skew_generator;
+    }
+  } else { /*Generate the variable lengh workload*/
+    std::cout << "Genereate workload for variable length key " << std::endl;
+    workload = malloc((load_num + exist_num + non_exist_num) * (length + sizeof(string_key)));
+    generate_16B(workload, load_num, length, false, uniform_generator);
+    char *char_workload = reinterpret_cast<char *>(workload);
+    if(exist_num){
+      key_generator_t *skew_generator = new zipfian_key_generator_t(1, exist_num, skew_factor);
+      generate_16B(char_workload + load_num * (length + sizeof(string_key)), exist_num, length, false, skew_generator);
+      delete skew_generator;
+    }
+
+    if(non_exist_num){
+      key_generator_t *skew_generator = new zipfian_key_generator_t(exist_num, exist_num + non_exist_num, skew_factor);
+      generate_16B(char_workload + (load_num + exist_num) * (length + sizeof(string_key)), non_exist_num, length, false, skew_generator);
+      delete skew_generator;
+    }
+    std::cout << "Finish Generation" << std::endl;
+  }
+  return workload;
+}
+
+
+void GenerateRange(){
+
+}
+
 template <class T>
 void Run() {
-  unsigned long long init[4] = {0x12345ULL, 0x23456ULL, 0x34567ULL, 0x45678ULL},
-                     length = 4;
-  init_by_array64(init, length); /*initialize random number generation*/
   /* Initialize Index for Finger_EH*/
+  uniform_generator = new uniform_key_generator_t();
   Hash<T> *index = InitializeIndex<T>(initCap);
-
   uint64_t generate_num = operation_num * 2 + load_num;
   /* Generate the workload and corresponding range array*/
-  void *workload = GenerateWorkload(generate_num, 16);
+  void *workload;
+  if(distribution == "uniform"){
+    workload = GenerateWorkload(generate_num, 16);
+  }else{
+    workload = GenerateSkewWorkload(load_num, operation_num, operation_num, 16);
+  }
+
   void *insert_workload;
   if (key_type != "fixed") {
     PMEMoid ptr;
@@ -823,8 +1022,30 @@ void Run() {
                       &mixed_without_epoch);
     }
     //index->getNumber();
-  } else { /*do the benchmark for all single operations*/
+  } else if (operation == "recovery"){
+    std::cout << "Start the Recovery Benchmark" << std::endl;
+    /*Recovery Benchmark, first insert the workload, and then execute the recovery algorithms, and at last, do the positive search and sampling*/
+    /*
+    for (int i = 0; i < thread_num; ++i) {
+      rarray[i].workload = not_used_insert_workload;
+    }
+    if (open_epoch == true) {
+      GeneralBench<T>(rarray, index, thread_num, operation_num, "Insert",
+                      &concurr_insert);
+    } else {
+      GeneralBench<T>(rarray, index, thread_num, operation_num, "Insert",
+                      &concurr_insert_without_epoch);
+    }
+    index->Recovery();
+    */
+    for (int i = 0; i < thread_num; ++i) {
+      rarray[i].workload = not_used_workload;
+    }
+    RecoveryBench<T>(rarray, index, thread_num, operation_num, "Pos_search");
+  }else {
+    /* make the index crashed*/
     if(is_crash){
+      index->getNumber();
       std::cout << "crash insertion start" << std::endl;
       for (int i = 0; i < thread_num; ++i) {
         rarray[i].workload = not_used_insert_workload;
@@ -834,6 +1055,7 @@ void Run() {
       return;
     }
 
+     /*do the benchmark for all single operations*/
     std::cout << "insertion start" << std::endl;
     for (int i = 0; i < thread_num; ++i) {
       rarray[i].workload = not_used_insert_workload;
@@ -846,16 +1068,6 @@ void Run() {
                       &concurr_insert_without_epoch);
     }
     index->getNumber();
-
-    /*
-    index->getNumber();
-
-    gettimeofday(&tv1, NULL);
-    index->Recovery();
-    gettimeofday(&tv2, NULL);
-    auto duration = (double)(tv2.tv_usec - tv1.tv_usec) / 1000000 +
-                    (double)(tv2.tv_sec - tv1.tv_sec);
-    std::cout << "Recovery Time(s): " << duration << std::endl;
 
     for (int i = 0; i < thread_num; ++i) {
       rarray[i].workload = not_used_workload;
@@ -896,8 +1108,8 @@ void Run() {
                       &concurr_delete_without_epoch);
     }*/
     index->getNumber();
-  }
 
+  }
   /*TODO Free the workload memory*/
 }
 
@@ -917,18 +1129,23 @@ int main(int argc, char *argv[]) {
   operation_num = FLAGS_p;
   key_type = FLAGS_k;
   index_type = FLAGS_index;
+  distribution = FLAGS_distribution;
+  std::cout << "Distribution = " << distribution << std::endl;
   std::string fixed("fixed");
   operation = FLAGS_op;
   std::cout << "FLAGS_e = " << FLAGS_e << std::endl;
   open_epoch = FLAGS_e;
+  msec = FLAGS_ms;
   if (open_epoch == true)
     std::cout << "EPOCH registration in application level" << std::endl;
   recover = FLAGS_recover;
   is_crash = FLAGS_crash;
 
+  //std::cout << "Hello world" << std::endl;
   read_ratio = FLAGS_r;
   insert_ratio = FLAGS_s;
   delete_ratio = FLAGS_d;
+  skew_factor = FLAGS_skew;
   if (!check_ratio()) {
     std::cout << "The ratio is wrong!" << std::endl;
     return 0;

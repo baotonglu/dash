@@ -21,6 +21,7 @@
 #define NODE_TYPE 1000
 #define LEVEL_TYPE 2000
 #define LOCK_TYPE 3000
+//#define COUNTING 1
 
 //#define BATCH 1
 #define UNIQUE_CHECK 1
@@ -66,7 +67,7 @@ class LevelHashing : public Hash<T> {
   PMEMoid _interim_level_buckets;
   Node<T> *buckets[2];
   Node<T> *interim_level_buckets;
-  // uint64_t level_item_num[2];
+  uint64_t level_item_num[2];
 
   uint64_t levels;
   uint64_t addr_capacity;
@@ -116,7 +117,12 @@ class LevelHashing : public Hash<T> {
   Value_t Get(T);
   Value_t Get(T key, bool flag) { return Get(key); }
   void Recovery() { std::cout << "stay tuned" << std::endl; }
-  void getNumber() { std::cout << "stay tuned" << std::endl; }
+  void getNumber() { 
+    std::cout << "First items "<< level_item_num[0] << std::endl;
+    std::cout << "Second items " << level_item_num[1] << std::endl;
+    std::cout << "First load factor = " << (double)level_item_num[0] / (addr_capacity*ASSOC_NUM) << std::endl;
+    std::cout << "Second load factor = " << (double)level_item_num[1] / (addr_capacity*ASSOC_NUM / 2) << std::endl; 
+  }
   size_t Capacity(void) {
     return (addr_capacity + addr_capacity / 2) * ASSOC_NUM;
   }
@@ -203,17 +209,17 @@ void initialize_level(PMEMobjpool *_pop, LevelHashing<T> *level, void *arg) {
     level->nlocks = (3 * level->addr_capacity / 2) / level->locksize + 1;
 
     level->generate_seeds();
-    // level->level_item_num[0] = 0;
-    // level->level_item_num[1] = 0;
+     level->level_item_num[0] = 0;
+     level->level_item_num[1] = 0;
     level->_interim_level_buckets = OID_NULL;
     level->interim_level_buckets = NULL;
     /*allocate*/
     level->_mutex =
-        pmemobj_tx_zalloc(sizeof(PMEMrwlock) * level->nlocks, LOCK_TYPE);
+        pmemobj_tx_zalloc(sizeof(PMEMrwlock) * level->nlocks, TOID_TYPE_NUM(char));
     level->_buckets[0] = pmemobj_tx_zalloc(
-        sizeof(Node<T>) * level->addr_capacity + 1, NODE_TYPE);
+        sizeof(Node<T>) * level->addr_capacity + 1, TOID_TYPE_NUM(char));
     level->_buckets[1] = pmemobj_tx_zalloc(
-        sizeof(Node<T>) * level->addr_capacity / 2 + 1, NODE_TYPE);
+        sizeof(Node<T>) * level->addr_capacity / 2 + 1, TOID_TYPE_NUM(char));
     level->_old_mutex = OID_NULL;
     level->prev_nlocks = 0;
 
@@ -342,7 +348,9 @@ UNIQUE:
         buckets[i][f_idx].token[j] = 1;
         // clflush((char*)&buckets[i][f_idx], sizeof(Node));
         pmemobj_persist(pop, &buckets[i][f_idx].token[j], sizeof(uint8_t));
-        // level_item_num[i]++;
+#ifdef COUNTING
+       level_item_num[i]++;
+#endif
         // mutex[f_idx/locksize].unlock();
         pmemobj_rwlock_unlock(pop, &mutex[f_idx / locksize]);
         return;
@@ -368,7 +376,9 @@ UNIQUE:
         mfence();
         buckets[i][s_idx].token[j] = 1;
         pmemobj_persist(pop, &buckets[i][s_idx].token[j], sizeof(uint8_t));
-        // level_item_num[i]++;
+#ifdef COUNTING
+       level_item_num[i]++;
+#endif
         pmemobj_rwlock_unlock(pop, &mutex[s_idx / locksize]);
         return;
       }
@@ -422,7 +432,9 @@ UNIQUE:
           buckets[1][f_idx].token[empty_loc] = 1;
           pmemobj_persist(pop, &buckets[1][f_idx].token[empty_loc],
                           sizeof(uint8_t));
-          // level_item_num[1]++;
+#ifdef COUNTING
+          level_item_num[1]++;
+#endif
           resizing_lock.store(0);
           // mutex[f_idx/locksize].unlock();
           pmemobj_rwlock_unlock(pop, &mutex[f_idx / locksize]);
@@ -445,7 +457,9 @@ UNIQUE:
           // clflush((char*)&buckets[1][s_idx], sizeof(Node));
           pmemobj_persist(pop, &buckets[1][s_idx].token[empty_loc],
                           sizeof(uint8_t));
-          // level_item_num[1]++;
+#ifdef COUNTING
+           level_item_num[1]++;
+#endif
           // resizing_lock = 0;
           resizing_lock.store(0);
           // mutex[s_idx/locksize].unlock();
@@ -488,9 +502,9 @@ void LevelHashing<T>::resize(PMEMobjpool *pop) {
     _old_mutex = _mutex;
     prev_nlocks = nlocks;
     nlocks = (3 * 2 * addr_capacity / 2) / locksize + 1;
-    _mutex = pmemobj_tx_zalloc(nlocks * sizeof(PMEMrwlock), LOCK_TYPE);
+    _mutex = pmemobj_tx_zalloc(nlocks * sizeof(PMEMrwlock), TOID_TYPE_NUM(char));
     _interim_level_buckets =
-        pmemobj_tx_zalloc(new_addr_capacity * sizeof(Node<T>) + 1, NODE_TYPE);
+        pmemobj_tx_zalloc(new_addr_capacity * sizeof(Node<T>) + 1, TOID_TYPE_NUM(char));
     interim_level_buckets =
         (Node<T> *)cache_align(pmemobj_direct(_interim_level_buckets));
   }
@@ -499,7 +513,7 @@ void LevelHashing<T>::resize(PMEMobjpool *pop) {
 
   PMEMrwlock *old_mutex = mutex;
   mutex = (PMEMrwlock *)pmemobj_direct(_mutex);
-
+  uint64_t new_level_item_num = 0;
   uint64_t old_idx;
   for (old_idx = 0; old_idx < pow(2, levels - 1); old_idx++) {
     uint64_t i, j;
@@ -528,7 +542,9 @@ void LevelHashing<T>::resize(PMEMobjpool *pop) {
                             sizeof(uint8_t));
 #endif
             insertSuccess = 1;
-            // new_level_item_num++;
+#ifdef COUNTING
+            new_level_item_num++;
+#endif
             break;
           } else if (interim_level_buckets[s_idx].token[j] == 0) {
             interim_level_buckets[s_idx].slot[j].value = value;
@@ -545,7 +561,9 @@ void LevelHashing<T>::resize(PMEMobjpool *pop) {
                             sizeof(uint8_t));
 #endif
             insertSuccess = 1;
-            // new_level_item_num++;
+#ifdef COUNTING
+             new_level_item_num++;
+#endif
             break;
           }
         }
@@ -580,9 +598,10 @@ void LevelHashing<T>::resize(PMEMobjpool *pop) {
 
     _interim_level_buckets = OID_NULL;
     interim_level_buckets = NULL;
-    // level_item_num[1] = level_item_num[0];
-    // level_item_num[0] = new_level_item_num;
-
+#ifdef COUNTING
+     level_item_num[1] = level_item_num[0];
+     level_item_num[0] = new_level_item_num;
+#endif
     addr_capacity = new_addr_capacity;
     total_capacity = pow(2, levels) + pow(2, levels - 1);
     pmemobj_tx_free(_old_mutex);
@@ -646,8 +665,9 @@ uint8_t LevelHashing<T>::try_movement(PMEMobjpool *pop, uint64_t idx,
           buckets[level_num][idx].token[i] = 1;
           pmemobj_persist(pop, &buckets[level_num][idx].token[i],
                           sizeof(uint8_t));
-          // level_item_num[level_num]++;
-
+ #ifdef COUNTING                         
+           level_item_num[level_num]++;
+#endif
           if ((jdx / locksize) != (idx / locksize)) {
             // delete lock[1];
             // mutex[jdx/locksize].unlock();
@@ -702,9 +722,10 @@ int LevelHashing<T>::b2t_movement(PMEMobjpool *pop, uint64_t idx) {
         buckets[1][idx].token[i] = 0;
         // clflush((char*)&buckets[1][idx].token[i], sizeof(uint8_t));
         pmemobj_persist(pop, &buckets[1][idx].token[i], sizeof(uint8_t));
-        // level_item_num[0]++;
-        // level_item_num[1]--;
-
+#ifdef COUNTING
+        level_item_num[0]++;
+        level_item_num[1]--;
+#endif
         if ((idx / locksize) != (f_idx / locksize))
           pmemobj_rwlock_unlock(pop, &mutex[f_idx / locksize]);
         return i;
@@ -727,10 +748,10 @@ int LevelHashing<T>::b2t_movement(PMEMobjpool *pop, uint64_t idx) {
         buckets[1][idx].token[i] = 0;
         // clflush((char*)&buckets[0][s_idx].token[j], sizeof(uint8_t));
         pmemobj_persist(pop, &buckets[0][s_idx].token[j], sizeof(uint8_t));
-
-        // level_item_num[0]++;
-        // level_item_num[1]--;
-
+#ifdef COUNTING
+         level_item_num[0]++;
+         level_item_num[1]--;
+#endif
         if ((idx / locksize) != (s_idx / locksize))
           pmemobj_rwlock_unlock(pop, &mutex[s_idx / locksize]);
         return i;

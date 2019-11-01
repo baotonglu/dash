@@ -34,6 +34,7 @@
 build
 debug
 release
+pcm
 
 src/test_cuckoo
 src/test_cukoo.o

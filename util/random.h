@@ -53,7 +53,7 @@
    email: m-mat @ math.sci.hiroshima-u.ac.jp (remove spaces)
 */
 
-
+#pragma once
 #include <stdio.h>
 
 #define NN 312

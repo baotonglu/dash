@@ -4,6 +4,7 @@
 #include <sys/stat.h>
 #include <cstdint>
 #include <iostream>
+#include <time.h>
 
 #ifdef PMEM
 #include "libpmem.h"
@@ -37,3 +38,23 @@ POBJ_LAYOUT_END(allocator)
 #define SUB(_p, _v) (__atomic_sub_fetch(_p, _v, __ATOMIC_SEQ_CST))
 #define LOAD(_p) (__atomic_load_n(_p, __ATOMIC_SEQ_CST))
 #define STORE(_p, _v) (__atomic_store_n(_p, _v, __ATOMIC_SEQ_CST))
+
+int msleep(uint64_t msec){
+  struct timespec ts;
+  int res;
+
+  if (msec < 0)
+  {
+      errno = EINVAL;
+      return -1;
+  }
+
+  ts.tv_sec = msec / 1000;
+  ts.tv_nsec = (msec % 1000) * 1000000;
+
+  do {
+      res = nanosleep(&ts, &ts);
+  } while (res && errno == EINTR);
+
+  return res;
+}
