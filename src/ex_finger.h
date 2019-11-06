@@ -397,9 +397,7 @@ struct Bucket {
   inline void set_hash(int index, uint8_t meta_hash,
                        bool probe)
   {
-#ifdef Finger_Print
     finger_array[index] = meta_hash;
-#endif
     auto new_bitmap = bitmap | (1 << (index + 4));
     assert(GET_COUNT(bitmap) < kNumPairPerBucket);
     new_bitmap += 1;
@@ -1414,7 +1412,7 @@ void Table<T>::Insert4split(T key, Value_t value, size_t key_hash,
 #endif
       return;
     }
-
+    std::cout << "I need to insert to the stash" <<std::endl;
     Stash_insert(target, neighbor, key, value, meta_hash, y & stashMask);
   }
 }
