@@ -32,6 +32,7 @@ namespace extendible {
 #define EPOCH 1
 //#define SPINLOCK 1 
 #define READ_OPT 1
+//#define Finger_Print 1
 //#define PREALLOC 1
 
 #define SIMD 1
@@ -271,12 +272,20 @@ struct Bucket {
 
   Value_t check_and_get(uint8_t meta_hash, T key, bool probe) {
     int mask = 0;
+#ifdef Finger_Print
     SSE_CMP8(finger_array, meta_hash);
     if (!probe) {
       mask = mask & GET_BITMAP(bitmap) & ((~(*(int *)membership)) & allocMask);
     } else {
       mask = mask & GET_BITMAP(bitmap) & ((*(int *)membership) & allocMask);
     }
+#else
+    if (!probe) {
+      mask = GET_BITMAP(bitmap) & ((~(*(int *)membership)) & allocMask);
+    } else {
+      mask = GET_BITMAP(bitmap) & ((*(int *)membership) & allocMask);
+    }
+#endif
 
     if (mask == 0) {
       return NONE;
@@ -386,18 +395,15 @@ struct Bucket {
   }
 
   inline void set_hash(int index, uint8_t meta_hash,
-                       bool probe) /* Do I needs the atomic instruction????*/
+                       bool probe)
   {
+#ifdef Finger_Print
     finger_array[index] = meta_hash;
+#endif
     auto new_bitmap = bitmap | (1 << (index + 4));
     assert(GET_COUNT(bitmap) < kNumPairPerBucket);
     new_bitmap += 1;
     bitmap = new_bitmap;
-    // #ifdef PMEM
-    // Allocator::NTWrite32(reinterpret_cast<uint32_t *>(&bitmap), new_bitmap);
-    // #else
-    // bitmap = new_bitmap;
-    // #endif
     if (probe) {
       *((int *)membership) = (1 << index) | *((int *)membership);
     }
@@ -419,7 +425,6 @@ struct Bucket {
 #else
     bitmap = new_bitmap;
 #endif
-
     *((int *)membership) =
         (~(1 << index)) &
         (*((int *)membership)); /*since they are in the same cacheline,
@@ -584,12 +589,20 @@ struct Bucket {
   int Delete(T key, uint8_t meta_hash, bool probe) {
     /*do the simd and check the key, then do the delete operation*/
     int mask = 0;
+#ifdef Finger_Print
     SSE_CMP8(finger_array, meta_hash);
     if (!probe) {
       mask = mask & GET_BITMAP(bitmap) & ((~(*(int *)membership)) & allocMask);
     } else {
       mask = mask & GET_BITMAP(bitmap) & ((*(int *)membership) & allocMask);
     }
+#else
+  if (!probe) {
+    mask = GET_BITMAP(bitmap) & ((~(*(int *)membership)) & allocMask);
+  } else {
+    mask = GET_BITMAP(bitmap) & ((*(int *)membership) & allocMask);
+  }
+#endif
     /*loop unrolling*/
     if constexpr (std::is_pointer_v<T>) {
       string_key *_key = reinterpret_cast<string_key *>(key);

@@ -836,7 +836,6 @@ void Run() {
                       &mixed_without_epoch);
     }
   } else { /*do the benchmark for all single operations*/
-  /*
    std::cout << "insertion start" << std::endl;
     for (int i = 0; i < thread_num; ++i) {
       rarray[i].workload = not_used_insert_workload;
@@ -881,7 +880,7 @@ void Run() {
       GeneralBench<T>(rarray, index, thread_num, operation_num, "Neg_search",
                       &concurr_search_without_epcoh);
     }
-/*
+
     for (int i = 0; i < thread_num; ++i) {
       rarray[i].begin = i * chunk_size;
       rarray[i].end = (i + 1) * chunk_size;
@@ -895,7 +894,6 @@ void Run() {
       GeneralBench<T>(rarray, index, thread_num, operation_num, "Delete",
                       &concurr_delete_without_epoch);
     }
-*/
 //    index->getNumber();
 
   }

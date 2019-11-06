@@ -13,7 +13,7 @@ set(CMAKE_ENABLE_COMPILE_COMMANDS "ON")
 
 if (${CMAKE_BUILD_TYPE} STREQUAL "Release")
   message("-- Release mode, all optimizations enabled")
-  set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} -O3 -g -Ofast -march=native")
+  set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} -O3 -Ofast -march=native")
 endif ()
 
 ##################### PMDK ####################
