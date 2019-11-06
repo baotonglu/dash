@@ -17,7 +17,7 @@ struct Allocator {
     instance_ = new Allocator(pool_name, pool_size);
     instance_->epoch_manager_.Initialize();
     instance_->garbage_list_.Initialize(&instance_->epoch_manager_,
-                                        instance_->pm_pool_, 1024);
+                                        instance_->pm_pool_, 1024*8);
     std::cout << "pool opened at: " << std::hex << instance_->pm_pool_
               << std::dec << std::endl;
   }

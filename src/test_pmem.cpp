@@ -522,14 +522,14 @@ void concurr_delete(struct range *_range, Hash<T> *index) {
 
   if constexpr (!std::is_pointer_v<T>) {
     T *key_array = reinterpret_cast<T *>(workload);
-    uint64_t round = (end - begin) / 1000;
+    uint64_t round = (end - begin) / 500;
     uint64_t i = 0;
     spin_wait();
 
     while (i < round) {
       auto epoch_guard = Allocator::AquireEpochGuard();
-      uint64_t _end = begin + (i + 1) * 1000;
-      for (uint64_t j = begin + i * 1000; j < _end; ++j) {
+      uint64_t _end = begin + (i + 1) * 500;
+      for (uint64_t j = begin + i * 500; j < _end; ++j) {
         //auto epoch_guard = Allocator::AquireEpochGuard();
         if(!index->Delete(key_array[j], true))not_found++;
       }
@@ -538,22 +538,24 @@ void concurr_delete(struct range *_range, Hash<T> *index) {
 
     {
       auto epoch_guard = Allocator::AquireEpochGuard();
-      for (i = begin + 1000 * round; i < end; ++i) {
+      //Allocator::Protect();
+      for (i = begin + 500 * round; i < end; ++i) {
         //auto epoch_guard = Allocator::AquireEpochGuard();
         if(!index->Delete(key_array[i], true))not_found++;
       }
+      //Allocator::Unprotect();
     }
   } else {
     T var_key;
-    uint64_t round = (end - begin) / 1000;
+    uint64_t round = (end - begin) / 500;
     uint64_t i = 0;
     uint64_t string_key_size = sizeof(string_key) + _range->length;
 
     spin_wait();
     while (i < round) {
       auto epoch_guard = Allocator::AquireEpochGuard();
-      uint64_t _end = begin + (i + 1) * 1000;
-      for (uint64_t j = begin + i * 1000; j < _end; ++j) {
+      uint64_t _end = begin + (i + 1) * 500;
+      for (uint64_t j = begin + i * 500; j < _end; ++j) {
         var_key = reinterpret_cast<T>(workload + string_key_size * j);
         if(!index->Delete(var_key, true))not_found++;
       }
@@ -562,7 +564,7 @@ void concurr_delete(struct range *_range, Hash<T> *index) {
 
     {
       auto epoch_guard = Allocator::AquireEpochGuard();
-      for (i = begin + 1000 * round; i < end; ++i) {
+      for (i = begin + 500 * round; i < end; ++i) {
         var_key = reinterpret_cast<T>(workload + string_key_size * i);
         if(!index->Delete(var_key, true))not_found++;
       }
@@ -1013,6 +1015,7 @@ void Run() {
     }
     index->getNumber();
 
+    /*
     for (int i = 0; i < thread_num; ++i) {
       rarray[i].workload = not_used_workload;
     }
@@ -1036,6 +1039,7 @@ void Run() {
       GeneralBench<T>(rarray, index, thread_num, operation_num, "Neg_search",
                       &concurr_search_without_epcoh);
     }
+    */
 
     for (int i = 0; i < thread_num; ++i) {
       rarray[i].begin = i * chunk_size;

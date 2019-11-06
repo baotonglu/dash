@@ -875,6 +875,7 @@ RETRY:
                           buckets[i][f_idx].slot[j].key->length, key->length)) {
             buckets[i][f_idx].token[j] = 0;
             pmemobj_persist(pop, &buckets[i][f_idx].token[j], sizeof(uint8_t));
+            //pmemobj_persist(pop, &buckets[i][f_idx].token[j], 8);
             pmemobj_rwlock_unlock(pop, &mutex[f_idx / locksize]);
             return true;
           }
@@ -883,6 +884,7 @@ RETRY:
               buckets[i][f_idx].slot[j].key == key) {
             buckets[i][f_idx].token[j] = 0;
             pmemobj_persist(pop, &buckets[i][f_idx].token[j], sizeof(uint8_t));
+            //pmemobj_persist(pop, &buckets[i][f_idx].token[j], 8);
             pmemobj_rwlock_unlock(pop, &mutex[f_idx / locksize]);
             return true;
           }
@@ -911,6 +913,7 @@ RETRY:
                           buckets[i][s_idx].slot[j].key->length, key->length)) {
             buckets[i][s_idx].token[j] = 0;
             pmemobj_persist(pop, &buckets[i][s_idx].token[j], sizeof(uint8_t));
+            //pmemobj_persist(pop, &buckets[i][s_idx].token[j], 8);
             pmemobj_rwlock_unlock(pop, &mutex[s_idx / locksize]);
             return true;
           }
@@ -919,6 +922,7 @@ RETRY:
               buckets[i][s_idx].slot[j].key == key) {
             buckets[i][s_idx].token[j] = 0;
             pmemobj_persist(pop, &buckets[i][s_idx].token[j], sizeof(uint8_t));
+            //pmemobj_persist(pop, &buckets[i][s_idx].token[j], 8);
             pmemobj_rwlock_unlock(pop, &mutex[s_idx / locksize]);
             return true;
           }
