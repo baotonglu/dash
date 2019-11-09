@@ -25,6 +25,7 @@
 #define INPLACE 1
 #define EPOCH 1
 #define LOG_NUM 1024
+//#define LOCK_STRIP 1
 
 namespace cceh {
 
@@ -377,7 +378,9 @@ class CCEH : public Hash<T> {
   log_entry log[LOG_NUM];
   int seg_num;
   int restart;
+  int lock_num;
 #ifdef PMEM
+  PMEMrwlock *lock_manager;
   PMEMobjpool *pool_addr;
 #endif
 };
@@ -390,10 +393,14 @@ int Segment<T>::Insert(PMEMobjpool *pool_addr, T key, Value_t value, size_t loc,
   if (sema == -1) {
     return 2;
   };
+//#ifndef LOCK_STRIP
   get_lock(pool_addr);
+//#endif  
   if ((key_hash >> (8 * sizeof(key_hash) - local_depth)) != pattern ||
       sema == -1) {
+//#ifndef LOCK_STRIP
     release_lock(pool_addr);
+//#endif
     return 2;
   }
   int ret = 1;
@@ -468,7 +475,9 @@ int Segment<T>::Insert(PMEMobjpool *pool_addr, T key, Value_t value, size_t loc,
       }
     }
   }
+//#ifndef LOCK_STRIP
   release_lock(pool_addr);
+//#endif
   return ret;
 #else
   if (sema == -1) return 2;
@@ -517,15 +526,12 @@ template <class T>
 PMEMoid *Segment<T>::Split(PMEMobjpool *pool_addr, size_t key_hash,
                            log_entry *log) {
   using namespace std;
-#ifndef INPLACE
-  int64_t lock = 0;
-  if (!CAS(&sema, &lock, -1)) return nullptr;
-#else
+//#ifndef LOCK_STRIP
   if (!try_get_lock(pool_addr)) {
     return nullptr;
   }
+//#endif
   sema = -1;
-#endif
 
 #ifdef INPLACE
   size_t new_pattern = (pattern << 1) + 1;
@@ -596,8 +602,11 @@ PMEMoid *Segment<T>::Split(PMEMobjpool *pool_addr, size_t key_hash,
 
 template <class T>
 CCEH<T>::CCEH(int initCap, PMEMobjpool *_pool) {
+  lock_num = 8*1024;
   Directory<T>::New(&dir, initCap);
   Seg_array<T>::New(&dir->new_sa, initCap);
+  Allocator::ZAllocate((void**)&lock_manager, 64, lock_num*sizeof(PMEMrwlock));
+  std::cout << "The lock size is " << lock_num*sizeof(PMEMrwlock)/1024 << " KB" << std::endl;
   dir->sa = reinterpret_cast<Seg_array<T> *>(pmemobj_direct(dir->new_sa));
   dir->new_sa = OID_NULL;
   auto dir_entry = dir->sa->_;
@@ -775,11 +784,6 @@ void CCEH<T>::Insert(T key, Value_t value, bool is_in_epoch) {
 
 template <class T>
 void CCEH<T>::Insert(T key, Value_t value) {
-/*
-#ifdef EPOCH
-  auto epoch_guard = Allocator::AquireEpochGuard();
-#endif
-*/
 STARTOVER:
   uint64_t key_hash;
   if constexpr (std::is_pointer_v<T>) {
@@ -799,7 +803,6 @@ RETRY:
   }
 
   auto ret = target->Insert(pool_addr, key, value, y, key_hash);
-
   if (ret == 1) {
     auto s = target->Split(pool_addr, key_hash, log);
     if (s == nullptr) {
@@ -855,11 +858,6 @@ bool CCEH<T>::Delete(T key, bool is_in_epoch) {
 // TODO
 template <class T>
 bool CCEH<T>::Delete(T key) {
-  /*
-  #ifdef EPOCH
-    auto epoch_guard = Allocator::AquireEpochGuard();
-  #endif
-  */
   uint64_t key_hash;
   if constexpr (std::is_pointer_v<T>) {
     key_hash = h(key->key, key->length);
@@ -874,20 +872,29 @@ RETRY:
   auto dir_entry = old_sa->_;
   Segment<T> *dir_ = dir_entry[x];
 
-#ifdef INPLACE
   auto sema = dir_->sema;
   if (sema == -1) {
     goto RETRY;
   }
-  dir_->get_lock(pool_addr);
+  
+#ifdef LOCK_STRIP
+  pmemobj_rwlock_wrlock(pool_addr, &lock_manager[x%lock_num]);
+#else
+  if (!dir_->try_get_lock(pool_addr)) {
+    goto RETRY;
+  }
+#endif
 
   if ((key_hash >> (8 * sizeof(key_hash) - dir_->local_depth)) !=
           dir_->pattern ||
       dir_->sema == -1) {
+#ifdef LOCK_STRIP
+    pmemobj_rwlock_unlock(pool_addr, &lock_manager[x%lock_num]);
+#else
     dir_->release_lock(pool_addr);
+#endif
     goto RETRY;
   }
-#endif
 
   for (unsigned i = 0; i < kNumPairPerCacheLine * kNumCacheLine; ++i) {
     auto slot = (y + i) % Segment<T>::kNumSlot;
@@ -896,24 +903,32 @@ RETRY:
           (var_compare(key->key, dir_->_[slot].key->key, key->length,
                        dir_->_[slot].key->length))) {
         dir_->_[slot].key = (T)INVALID;
-        Allocator::Persist(&dir_->_[slot], sizeof(_Pair<T>));
-#ifdef INPLACE
-        dir_->release_lock(pool_addr);
+        Allocator::Persist(&dir_->_[slot], sizeof(key));
+#ifdef LOCK_STRIP
+    pmemobj_rwlock_unlock(pool_addr, &lock_manager[x%lock_num]);
+#else
+    dir_->release_lock(pool_addr);
 #endif
         return true;
       }
     } else {
       if (dir_->_[slot].key == key) {
         dir_->_[slot].key = (T)INVALID;
-        Allocator::Persist(&dir_->_[slot], sizeof(_Pair<T>));
-#ifdef INPLACE
-        dir_->release_lock(pool_addr);
+        Allocator::Persist(&dir_->_[slot], sizeof(key));
+#ifdef LOCK_STRIP
+    pmemobj_rwlock_unlock(pool_addr, &lock_manager[x%lock_num]);
+#else
+    dir_->release_lock(pool_addr);
 #endif
         return true;
       }
     }
   }
-  dir_->release_lock(pool_addr);
+#ifdef LOCK_STRIP
+    pmemobj_rwlock_unlock(pool_addr, &lock_manager[x%lock_num]);
+#else
+    dir_->release_lock(pool_addr);
+#endif
   return false;
 }
 
@@ -930,11 +945,9 @@ Value_t CCEH<T>::Get(T key, bool is_in_epoch) {
 
 template <class T>
 Value_t CCEH<T>::Get(T key) {
-  // std::cout<<"Begin: Get key "<<key<<std::endl;
   uint64_t key_hash;
   if constexpr (std::is_pointer_v<T>) {
     key_hash = h(key->key, key->length);
-    // key_hash = h(key, (reinterpret_cast<string_key *>(key))->length);
   } else {
     key_hash = h(&key, sizeof(key));
   }
@@ -946,21 +959,24 @@ RETRY:
   auto dir_entry = old_sa->_;
   Segment<T> *dir_ = dir_entry[x];
 
-#ifdef INPLACE
-  // dir_->mutex.lock_shared();
+#ifdef LOCK_STRIP
+  pmemobj_rwlock_rdlock(pool_addr, &lock_manager[x%lock_num]);
+#else
   if (!dir_->try_get_rd_lock(pool_addr)) {
     goto RETRY;
   }
-  // dir_->get_rd_lock(pool_addr);
+#endif
 
   if ((key_hash >> (8 * sizeof(key_hash) - dir_->local_depth)) !=
           dir_->pattern ||
       dir_->sema == -1) {
-    // dir_->mutex.unlock_shared();
+#ifdef LOCK_STRIP
+    pmemobj_rwlock_unlock(pool_addr, &lock_manager[x%lock_num]);
+#else
     dir_->release_rd_lock(pool_addr);
+#endif
     goto RETRY;
   }
-#endif
 
   for (unsigned i = 0; i < kNumPairPerCacheLine * kNumCacheLine; ++i) {
     auto slot = (y + i) % Segment<T>::kNumSlot;
@@ -969,18 +985,22 @@ RETRY:
           (var_compare(key->key, dir_->_[slot].key->key, key->length,
                        dir_->_[slot].key->length))) {
         auto value = dir_->_[slot].value;
-#ifdef INPLACE
-        // dir_->mutex.unlock_shared();
-        dir_->release_rd_lock(pool_addr);
+        //dir_->release_rd_lock(pool_addr);
+#ifdef LOCK_STRIP
+    pmemobj_rwlock_unlock(pool_addr, &lock_manager[x%lock_num]);
+#else
+    dir_->release_rd_lock(pool_addr);
 #endif
         return value;
       }
     } else {
       if (dir_->_[slot].key == key) {
         auto value = dir_->_[slot].value;
-#ifdef INPLACE
-        // dir_->mutex.unlock_shared();
-        dir_->release_rd_lock(pool_addr);
+        //dir_->release_rd_lock(pool_addr);
+#ifdef LOCK_STRIP
+  pmemobj_rwlock_unlock(pool_addr, &lock_manager[x%lock_num]);
+#else
+    dir_->release_rd_lock(pool_addr);
 #endif
         // std::cout<<"End: Get key "<<key<<std::endl;
         return value;
@@ -988,11 +1008,12 @@ RETRY:
     }
   }
 
-#ifdef INPLACE
-  // dir_->mutex.unlock_shared();
-  dir_->release_rd_lock(pool_addr);
+//  dir_->release_rd_lock(pool_addr);
+#ifdef LOCK_STRIP
+  pmemobj_rwlock_unlock(pool_addr, &lock_manager[x%lock_num]);
+#else
+    dir_->release_rd_lock(pool_addr);
 #endif
-  // std::cout<<"End: Get key "<<key<<std::endl;
   return NONE;
 }
 /*
