@@ -22,6 +22,8 @@
 #include "utils.h"
 #include "Hash.h"
 
+#define EPOCH_DURATION 1000
+
 std::string pool_name = "/mnt/pmem0/";
 //static const char *pool_name = "pmem_hash.data";
 static const size_t pool_size = 1024ul * 1024ul * 1024ul * 30ul;
@@ -272,14 +274,14 @@ void concurr_insert(struct range *_range, Hash<T> *index) {
 
   if constexpr (!std::is_pointer_v<T>) {
     T *key_array = reinterpret_cast<T *>(workload);
-    uint64_t round = (end - begin) / 1000;
+    uint64_t round = (end - begin) / EPOCH_DURATION;
     uint64_t i = 0;
     spin_wait();
 
     while (i < round) {
       auto epoch_guard = Allocator::AquireEpochGuard();
-      uint64_t _end = begin + (i + 1) * 1000;
-      for (uint64_t j = begin + i * 1000; j < _end; ++j) {
+      uint64_t _end = begin + (i + 1) * EPOCH_DURATION;
+      for (uint64_t j = begin + i * EPOCH_DURATION; j < _end; ++j) {
         index->Insert(key_array[j], DEFAULT, true);
       }
       ++i;
@@ -287,21 +289,21 @@ void concurr_insert(struct range *_range, Hash<T> *index) {
 
     {
       auto epoch_guard = Allocator::AquireEpochGuard();
-      for (i = begin + 1000 * round; i < end; ++i) {
+      for (i = begin + EPOCH_DURATION * round; i < end; ++i) {
         index->Insert(key_array[i], DEFAULT, true);
       }
     }
   } else {
     T var_key;
-    uint64_t round = (end - begin) / 1000;
+    uint64_t round = (end - begin) / EPOCH_DURATION;
     uint64_t i = 0;
     uint64_t string_key_size = sizeof(string_key) + _range->length;
 
     spin_wait();
     while (i < round) {
       auto epoch_guard = Allocator::AquireEpochGuard();
-      uint64_t _end = begin + (i + 1) * 1000;
-      for (uint64_t j = begin + i * 1000; j < _end; ++j) {
+      uint64_t _end = begin + (i + 1) * EPOCH_DURATION;
+      for (uint64_t j = begin + i * EPOCH_DURATION; j < _end; ++j) {
         var_key = reinterpret_cast<T>(workload + string_key_size * j);
         index->Insert(var_key, DEFAULT, true);
       }
@@ -310,7 +312,7 @@ void concurr_insert(struct range *_range, Hash<T> *index) {
 
     {
       auto epoch_guard = Allocator::AquireEpochGuard();
-      for (i = begin + 1000 * round; i < end; ++i) {
+      for (i = begin + EPOCH_DURATION * round; i < end; ++i) {
         var_key = reinterpret_cast<T>(workload + string_key_size * i);
         index->Insert(var_key, DEFAULT, true);
       }
@@ -333,14 +335,14 @@ void concurr_search_sample(struct range *_range, Hash<T> *index) {
 
   if constexpr (!std::is_pointer_v<T>) {
     T *key_array = reinterpret_cast<T *>(workload);
-    uint64_t round = (end - begin) / 1000;
+    uint64_t round = (end - begin) / EPOCH_DURATION;
     uint64_t i = 0;
     spin_wait();
 
     while (i < round) {
       auto epoch_guard = Allocator::AquireEpochGuard();
-      uint64_t _end = begin + (i + 1) * 1000;
-      for (uint64_t j = begin + i * 1000; j < _end; ++j) {
+      uint64_t _end = begin + (i + 1) * EPOCH_DURATION;
+      for (uint64_t j = begin + i * EPOCH_DURATION; j < _end; ++j) {
         index->Get(key_array[j], true);
         operation_record[curr_index].number++;
         //if (index->Get(key_array[j], true) == NONE) not_found++;
@@ -350,7 +352,7 @@ void concurr_search_sample(struct range *_range, Hash<T> *index) {
 
     {
       auto epoch_guard = Allocator::AquireEpochGuard();
-      for (i = begin + 1000 * round; i < end; ++i) {
+      for (i = begin + EPOCH_DURATION * round; i < end; ++i) {
         index->Get(key_array[i], true);
         //if (index->Get(key_array[i], true) == NONE) not_found++;
         operation_record[curr_index].number++;
@@ -358,15 +360,15 @@ void concurr_search_sample(struct range *_range, Hash<T> *index) {
     }
   } else {
     T var_key;
-    uint64_t round = (end - begin) / 1000;
+    uint64_t round = (end - begin) / EPOCH_DURATION;
     uint64_t i = 0;
     uint64_t string_key_size = sizeof(string_key) + _range->length;
 
     spin_wait();
     while (i < round) {
       auto epoch_guard = Allocator::AquireEpochGuard();
-      uint64_t _end = begin + (i + 1) * 1000;
-      for (uint64_t j = begin + i * 1000; j < _end; ++j) {
+      uint64_t _end = begin + (i + 1) * EPOCH_DURATION;
+      for (uint64_t j = begin + i * EPOCH_DURATION; j < _end; ++j) {
         var_key = reinterpret_cast<T>(workload + string_key_size * j);
         index->Get(var_key, true);
         operation_record[curr_index].number++;
@@ -377,7 +379,7 @@ void concurr_search_sample(struct range *_range, Hash<T> *index) {
 
     {
       auto epoch_guard = Allocator::AquireEpochGuard();
-      for (i = begin + 1000 * round; i < end; ++i) {
+      for (i = begin + EPOCH_DURATION * round; i < end; ++i) {
         var_key = reinterpret_cast<T>(workload + string_key_size * i);
         //if (index->Get(var_key, true) == NONE) not_found++;
         index->Get(var_key, true);
@@ -400,14 +402,14 @@ void concurr_search(struct range *_range, Hash<T> *index) {
 
   if constexpr (!std::is_pointer_v<T>) {
     T *key_array = reinterpret_cast<T *>(workload);
-    uint64_t round = (end - begin) / 500;
+    uint64_t round = (end - begin) / EPOCH_DURATION;
     uint64_t i = 0;
     spin_wait();
 
     while (i < round) {
       auto epoch_guard = Allocator::AquireEpochGuard();
-      uint64_t _end = begin + (i + 1) * 500;
-      for (uint64_t j = begin + i * 500; j < _end; ++j) {
+      uint64_t _end = begin + (i + 1) * EPOCH_DURATION;
+      for (uint64_t j = begin + i * EPOCH_DURATION; j < _end; ++j) {
         if (index->Get(key_array[j], true) == NONE) not_found++;
       }
       ++i;
@@ -415,21 +417,21 @@ void concurr_search(struct range *_range, Hash<T> *index) {
 
     {
       auto epoch_guard = Allocator::AquireEpochGuard();
-      for (i = begin + 500 * round; i < end; ++i) {
+      for (i = begin + EPOCH_DURATION * round; i < end; ++i) {
         if (index->Get(key_array[i], true) == NONE) not_found++;
       }
     }
   } else {
     T var_key;
-    uint64_t round = (end - begin) / 1000;
+    uint64_t round = (end - begin) / EPOCH_DURATION;
     uint64_t i = 0;
     uint64_t string_key_size = sizeof(string_key) + _range->length;
 
     spin_wait();
     while (i < round) {
       auto epoch_guard = Allocator::AquireEpochGuard();
-      uint64_t _end = begin + (i + 1) * 1000;
-      for (uint64_t j = begin + i * 1000; j < _end; ++j) {
+      uint64_t _end = begin + (i + 1) * EPOCH_DURATION;
+      for (uint64_t j = begin + i * EPOCH_DURATION; j < _end; ++j) {
         var_key = reinterpret_cast<T>(workload + string_key_size * j);
         if (index->Get(var_key, true) == NONE) not_found++;
       }
@@ -438,7 +440,7 @@ void concurr_search(struct range *_range, Hash<T> *index) {
 
     {
       auto epoch_guard = Allocator::AquireEpochGuard();
-      for (i = begin + 1000 * round; i < end; ++i) {
+      for (i = begin + EPOCH_DURATION * round; i < end; ++i) {
         var_key = reinterpret_cast<T>(workload + string_key_size * i);
         if (index->Get(var_key, true) == NONE) not_found++;
       }
@@ -477,7 +479,7 @@ void concurr_search_without_epcoh(struct range *_range, Hash<T> *index) {
     }
   }
  std::cout << "not_found = " << not_found << std::endl;
-  end_notify();
+end_notify();
 }
 
 template <class T>
@@ -522,14 +524,14 @@ void concurr_delete(struct range *_range, Hash<T> *index) {
 
   if constexpr (!std::is_pointer_v<T>) {
     T *key_array = reinterpret_cast<T *>(workload);
-    uint64_t round = (end - begin) / 500;
+    uint64_t round = (end - begin) / EPOCH_DURATION;
     uint64_t i = 0;
     spin_wait();
 
     while (i < round) {
       auto epoch_guard = Allocator::AquireEpochGuard();
-      uint64_t _end = begin + (i + 1) * 500;
-      for (uint64_t j = begin + i * 500; j < _end; ++j) {
+      uint64_t _end = begin + (i + 1) * EPOCH_DURATION;
+      for (uint64_t j = begin + i * EPOCH_DURATION; j < _end; ++j) {
         //auto epoch_guard = Allocator::AquireEpochGuard();
         if(!index->Delete(key_array[j], true))not_found++;
       }
@@ -539,7 +541,7 @@ void concurr_delete(struct range *_range, Hash<T> *index) {
     {
       auto epoch_guard = Allocator::AquireEpochGuard();
       //Allocator::Protect();
-      for (i = begin + 500 * round; i < end; ++i) {
+      for (i = begin + EPOCH_DURATION * round; i < end; ++i) {
         //auto epoch_guard = Allocator::AquireEpochGuard();
         if(!index->Delete(key_array[i], true))not_found++;
       }
@@ -547,15 +549,15 @@ void concurr_delete(struct range *_range, Hash<T> *index) {
     }
   } else {
     T var_key;
-    uint64_t round = (end - begin) / 500;
+    uint64_t round = (end - begin) / EPOCH_DURATION;
     uint64_t i = 0;
     uint64_t string_key_size = sizeof(string_key) + _range->length;
 
     spin_wait();
     while (i < round) {
       auto epoch_guard = Allocator::AquireEpochGuard();
-      uint64_t _end = begin + (i + 1) * 500;
-      for (uint64_t j = begin + i * 500; j < _end; ++j) {
+      uint64_t _end = begin + (i + 1) * EPOCH_DURATION;
+      for (uint64_t j = begin + i * EPOCH_DURATION; j < _end; ++j) {
         var_key = reinterpret_cast<T>(workload + string_key_size * j);
         if(!index->Delete(var_key, true))not_found++;
       }
@@ -564,7 +566,7 @@ void concurr_delete(struct range *_range, Hash<T> *index) {
 
     {
       auto epoch_guard = Allocator::AquireEpochGuard();
-      for (i = begin + 500 * round; i < end; ++i) {
+      for (i = begin + EPOCH_DURATION * round; i < end; ++i) {
         var_key = reinterpret_cast<T>(workload + string_key_size * i);
         if(!index->Delete(var_key, true))not_found++;
       }
@@ -643,14 +645,14 @@ void mixed(struct range *_range, Hash<T> *index) {
   std::cout << "insert sign = " << insert_sign << std::endl;
   std::cout << "read sign = " << read_sign << std::endl;
 
-  uint64_t round = (end - begin) / 1000;
+  uint64_t round = (end - begin) / EPOCH_DURATION;
   uint64_t i = 0;
   spin_wait();
 
   while (i < round) {
     auto epoch_guard = Allocator::AquireEpochGuard();
-    uint64_t _end = begin + (i + 1) * 1000;
-    for (uint64_t j = begin + i * 1000; j < _end; ++j) {
+    uint64_t _end = begin + (i + 1) * EPOCH_DURATION;
+    for (uint64_t j = begin + i * EPOCH_DURATION; j < _end; ++j) {
       if constexpr (std::is_pointer_v<T>) { /* variable length*/
         key = reinterpret_cast<T>(workload + string_key_size * j);
       } else {
@@ -673,7 +675,7 @@ void mixed(struct range *_range, Hash<T> *index) {
 
   {
     auto epoch_guard = Allocator::AquireEpochGuard();
-    for (i = begin + 1000 * round; i < end; ++i) {
+    for (i = begin + EPOCH_DURATION * round; i < end; ++i) {
       if constexpr (std::is_pointer_v<T>) { /* variable length*/
         key = reinterpret_cast<T>(workload + string_key_size * i);
       } else {
