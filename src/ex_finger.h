@@ -17,6 +17,7 @@
 #include "../util/persist.h"
 #include "Hash.h"
 #include "allocator.h"
+#include "utils.h"
 
 #ifdef PMEM
 #include <libpmemobj.h>
@@ -728,6 +729,7 @@ struct Directory {
   uint32_t global_depth;
   uint32_t version;
   uint32_t depth_count;
+  uint32_t counter;
   table_p _[0];
 
   Directory(size_t capacity, size_t _version) {
@@ -741,6 +743,7 @@ struct Directory {
     auto callback = [](PMEMobjpool *pool, void *ptr, void *arg) {
       auto value_ptr = reinterpret_cast<std::tuple<size_t, size_t> *>(arg);
       auto dir_ptr = reinterpret_cast<Directory *>(ptr);
+      dir_ptr->counter = 0;
       dir_ptr->version = std::get<1>(*value_ptr);
       dir_ptr->global_depth =
           static_cast<size_t>(log2(std::get<0>(*value_ptr)));
@@ -1709,10 +1712,10 @@ class Finger_EH : public Hash<T> {
   inline Value_t Get(T);
   Value_t Get(T key, bool is_in_epoch);
   void TryMerge(uint64_t);
-  void Directory_Doubling(int x, Table<T> *new_b);
+  void Directory_Doubling(int x, Table<T> *new_b, Table<T> *old_b);
   void Directory_Merge_Update(Directory<T> *_sa, uint64_t key_hash,
                               Table<T> *left_seg);
-  void Directory_Update(Directory<T> *_sa, int x, Table<T> *new_b);
+  void Directory_Update(Directory<T> *_sa, int x, Table<T> *new_b, Table<T> *old_b);
   void Halve_Directory();
   void Lock_Directory();
   void Unlock_Directory();
@@ -1890,7 +1893,7 @@ void Finger_EH<T>::Halve_Directory() {
 }
 
 template <class T>
-void Finger_EH<T>::Directory_Doubling(int x, Table<T> *new_b) {
+void Finger_EH<T>::Directory_Doubling(int x, Table<T> *new_b, Table<T> *old_b) {
   Table<T> **d = dir->_;
   auto global_depth = dir->global_depth;
   printf("Directory_Doubling towards %lld\n", global_depth + 1);
@@ -1920,6 +1923,8 @@ void Finger_EH<T>::Directory_Doubling(int x, Table<T> *new_b) {
     pmemobj_tx_add_range_direct(reserve_item, sizeof(*reserve_item));
     pmemobj_tx_add_range_direct(&dir, sizeof(dir));
     pmemobj_tx_add_range_direct(&back_dir, sizeof(back_dir));
+    pmemobj_tx_add_range_direct(&old_b->local_depth, sizeof(old_b->local_depth));
+    old_b->local_depth += 1;
     Allocator::Free(reserve_item, dir);
     //*reserve_addr = (void *)dir;
     /*Swap the memory addr between new directory and old directory*/
@@ -1942,28 +1947,59 @@ void Finger_EH<T>::Directory_Doubling(int x, Table<T> *new_b) {
 }
 
 template <class T>
-void Finger_EH<T>::Directory_Update(Directory<T> *_sa, int x, Table<T> *new_b) {
+void Finger_EH<T>::Directory_Update(Directory<T> *_sa, int x, Table<T> *new_b, Table<T> *old_b) {
   // printf("directory update for %d\n", x);
   Table<T> **dir_entry = _sa->_;
   auto global_depth = _sa->global_depth;
   unsigned depth_diff = global_depth - new_b->local_depth;
   if (depth_diff == 0) {
     if (x % 2 == 0) {
-      dir_entry[x + 1] = new_b;
-      Allocator::Persist(&dir_entry[x + 1], sizeof(uint64_t));
+      //dir_entry[x + 1] = new_b;
+      //Allocator::Persist(&dir_entry[x + 1], sizeof(uint64_t));
+      //old_b->local_depth += 1;
+      TX_BEGIN(pool_addr) {
+        pmemobj_tx_add_range_direct(&dir_entry[x+1], sizeof(Table<T>*));
+        pmemobj_tx_add_range_direct(&old_b->local_depth, sizeof(old_b->local_depth));
+        dir_entry[x + 1] = new_b;
+        old_b->local_depth += 1;
+      }
+      TX_ONABORT { std::cout << "Error for update txn" << std::endl; }
+      TX_END
     } else {
-      dir_entry[x] = new_b;
-      Allocator::Persist(&dir_entry[x], sizeof(uint64_t));
+      //dir_entry[x] = new_b;
+      //old_b->local_depth += 1;
+      //Allocator::Persist(&dir_entry[x], sizeof(uint64_t));
+      TX_BEGIN(pool_addr) {
+        pmemobj_tx_add_range_direct(&dir_entry[x], sizeof(Table<T>*));
+        pmemobj_tx_add_range_direct(&old_b->local_depth, sizeof(old_b->local_depth));
+        dir_entry[x] = new_b;
+        old_b->local_depth += 1;
+      }
+      TX_ONABORT { std::cout << "Error for update txn" << std::endl; }
+      TX_END
     }
     __sync_fetch_and_add(&_sa->depth_count, 2);
   } else {
     int chunk_size = pow(2, global_depth - (new_b->local_depth - 1));
     x = x - (x % chunk_size);
     int base = chunk_size / 2;
+    /*
     for (int i = base - 1; i >= 0; --i) {
       dir_entry[x + base + i] = new_b;
       Allocator::Persist(&dir_entry[x + base + i], sizeof(uint64_t));
     }
+    old_b->local_depth += 1;
+    */
+    TX_BEGIN(pool_addr) {
+      pmemobj_tx_add_range_direct(&dir_entry[x + base], sizeof(Table<T>*)*base);
+      pmemobj_tx_add_range_direct(&old_b->local_depth, sizeof(old_b->local_depth));
+      for (int i = base - 1; i >= 0; --i) {
+        dir_entry[x + base + i] = new_b;
+      }
+      old_b->local_depth += 1;
+    }
+    TX_ONABORT { std::cout << "Error for update txn" << std::endl; }
+    TX_END
   }
   // printf("Done!directory update for %d\n", x);
 }
@@ -2023,12 +2059,12 @@ void Finger_EH<T>::recoverTable(Table<T> **target_table, size_t key_hash) {
         Lock_Directory();
         auto x = (key_hash >> (8 * sizeof(key_hash) - dir->global_depth));
         if (target->local_depth < dir->global_depth) {
-          Directory_Update(dir, x, next_table);
+          Directory_Update(dir, x, next_table, target);
         } else {
-          Directory_Doubling(x, next_table);
+          Directory_Doubling(x, next_table, target);
         }
         Unlock_Directory();
-        Allocator::NTWrite64(&target->local_depth, target->local_depth + 1);
+        //Allocator::NTWrite64(&target->local_depth, target->local_depth + 1);
         /*release the lock for the target bucket and the new bucket*/
         next_table->state = 0;
         Allocator::Persist(&next_table->state, sizeof(int));
@@ -2159,7 +2195,11 @@ RETRY:
       if (Test_Directory_Lock_Set()) {
         goto REINSERT;
       }
-      Directory_Update(old_sa, x, new_b);
+      //Lock_Directory();
+      ADD(&old_sa->counter, 1);
+      Directory_Update(old_sa, x, new_b, target);
+      SUB(&old_sa->counter, 1);
+      //Unlock_Directory();
       /*after the update, I need to recheck*/
       if (Test_Directory_Lock_Set() || old_sa->version != dir->version) {
         goto REINSERT;
@@ -2170,14 +2210,17 @@ RETRY:
         Unlock_Directory();
         goto REINSERT;
       }
-      Directory_Doubling(x, new_b);
+      while (old_sa->counter != 0);
+      Directory_Doubling(x, new_b, target);
       Unlock_Directory();
     }
+    /*
 #ifdef PMEM
     Allocator::NTWrite64(&target->local_depth, target->local_depth + 1);
 #else
     target->local_depth += 1;
 #endif
+*/
     /*release the lock for the target bucket and the new bucket*/
     target->state = 0;
     new_b->state = 0;

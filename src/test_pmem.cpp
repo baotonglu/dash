@@ -75,6 +75,7 @@ struct range {
                  indicate the length of the key*/
   void *workload;
   uint64_t random_num;
+  struct timeval tv;
 };
 
 void set_affinity(uint32_t idx) {
@@ -225,7 +226,8 @@ inline void spin_wait() {
     ; /*spinning*/
 }
 
-inline void end_notify() {
+inline void end_notify(struct range *rg) {
+  gettimeofday(&rg->tv, NULL);
   if (SUB(&bar_c, 1) == 0) {
     std::unique_lock<std::mutex> lck(mtx);
     finished = true;
@@ -261,7 +263,7 @@ void concurr_insert_without_epoch(struct range *_range, Hash<T> *index) {
     }
   }
 
-  end_notify();
+  end_notify(_range);
 }
 
 template <class T>
@@ -318,7 +320,7 @@ void concurr_insert(struct range *_range, Hash<T> *index) {
       }
     }
   }
-  end_notify();
+  end_notify(_range);
 }
 
 /*In this search version, the thread also needs to do the record its */
@@ -447,7 +449,7 @@ void concurr_search(struct range *_range, Hash<T> *index) {
     }
   }
    std::cout << "not_found = " << not_found << std::endl;
-  end_notify();
+  end_notify(_range);
 }
 
 template <class T>
@@ -479,7 +481,7 @@ void concurr_search_without_epcoh(struct range *_range, Hash<T> *index) {
     }
   }
  std::cout << "not_found = " << not_found << std::endl;
-end_notify();
+ end_notify(_range);
 }
 
 template <class T>
@@ -510,7 +512,7 @@ void concurr_delete_without_epoch(struct range *_range, Hash<T> *index) {
     }
   }
   std::cout << "not_found = " << not_found << std::endl;
-  end_notify();
+  end_notify(_range);
 }
 
 template <class T>
@@ -574,7 +576,7 @@ void concurr_delete(struct range *_range, Hash<T> *index) {
   }
 
   std::cout << "not_found = " << not_found << std::endl;
-  end_notify();
+  end_notify(_range);
 }
 
 template <class T>
@@ -621,7 +623,7 @@ void mixed_without_epoch(struct range *_range, Hash<T> *index) {
   }
   std::cout << "not_found = " << not_found << std::endl;
   /*the last thread notify the main thread to wake up*/
-  end_notify();
+  end_notify(_range);
 }
 
 template <class T>
@@ -697,7 +699,7 @@ void mixed(struct range *_range, Hash<T> *index) {
 
   std::cout << "not_found = " << not_found << std::endl;
   /*the last thread notify the main thread to wake up*/
-  end_notify();
+  end_notify(_range);
 }
 
 template <class T>
@@ -733,6 +735,30 @@ void GeneralBench(range *rarray, Hash<T> *index, int thread_num,
     thread_array[i]->join();
     delete thread_array[i];
   }
+
+  double longest = (double)(rarray[0].tv.tv_usec - tv1.tv_usec) / 1000000 +
+             (double)(rarray[0].tv.tv_sec - tv1.tv_sec);
+  double shortest = longest;
+  duration = longest;
+
+  for(int i = 1; i < thread_num; ++i){
+    double interval = (double)(rarray[i].tv.tv_usec - tv1.tv_usec) / 1000000 +
+             (double)(rarray[i].tv.tv_sec - tv1.tv_sec);
+    duration += interval;
+    if(shortest > interval) shortest = interval;
+    if(longest < interval) longest = interval;
+  }
+  std::cout << "The time difference is "<<longest-shortest<< std::endl;
+  duration = duration/thread_num;
+  //duration = (double)(tv2.tv_usec - tv1.tv_usec) / 1000000 +
+  //           (double)(tv2.tv_sec - tv1.tv_sec);
+  printf(
+      "%d threads, Time = %f s, throughput = %f "
+      "ops/s, fastest = %f, slowest = %f\n",
+      thread_num,
+      duration,
+      operation_num / duration, operation_num / shortest, operation_num / longest);
+/*
   duration = (double)(tv2.tv_usec - tv1.tv_usec) / 1000000 +
              (double)(tv2.tv_sec - tv1.tv_sec);
   printf(
@@ -742,6 +768,7 @@ void GeneralBench(range *rarray, Hash<T> *index, int thread_num,
       (double)(tv2.tv_usec - tv1.tv_usec) / 1000000 +
           (double)(tv2.tv_sec - tv1.tv_sec),
       operation_num / duration);
+*/
   //});
   std::cout << profile_name << " End" << std::endl;
 }
