@@ -25,6 +25,7 @@
 #endif
 
 uint64_t merge_time;
+PMEMmutex cmp;
 
 namespace extendible {
 
@@ -841,6 +842,7 @@ struct Table {
       auto table_ptr = reinterpret_cast<Table<T> *>(ptr);
       table_ptr->local_depth = value_ptr->first;
       table_ptr->next = value_ptr->second;
+      memset(&table_ptr->lock_bit, 0, sizeof(PMEMmutex)*2);
 
       int sumBucket = kNumBucket + stashBucket;
       for (int i = 0; i < sumBucket; ++i) {
@@ -1054,8 +1056,10 @@ struct Table {
   int state; /*-1 means this bucket is merging, -2 means this bucket is
                 splitting, so we cannot count the depth_count on it during
                 scanning operation*/
-  int dirty_bit;
-  int lock_bit;
+  PMEMmutex lock_bit; /* for the synchronization of the lazy recovery in one segment*/
+  PMEMmutex dirty_bit; /* to indicate whether segment is clean*/
+  //int dirty_bit;
+  //int lock_bit;
 };
 
 /* it needs to verify whether this bucket has been deleted...*/
@@ -1797,6 +1801,7 @@ Finger_EH<T>::Finger_EH(size_t initCap, PMEMobjpool *_pool) {
   PMEMoid ptr;
   Table<T>::New(&ptr, dir->global_depth, OID_NULL);
   dir->_[initCap - 1] = (Table<T> *)pmemobj_direct(ptr);
+//  std::cout << "The size of the pmdk lock is " << sizeof(PMEMmutex) << std::endl;
 
   dir->_[initCap - 1]->pattern = initCap - 1;
   /* Initilize the Directory*/
@@ -2032,18 +2037,14 @@ void Finger_EH<T>::recoverTable(Table<T> **target_table, size_t key_hash) {
   uint64_t snapshot = (uint64_t)*target_table;
   Table<T> *target = (Table<T> *)(snapshot & (~recoverBit));
 
-  if (!target->dirty_bit) {
-    /*reset the recovery bit of the pointer*/
+  if(memcmp((void*)&target->dirty_bit, (void*)&cmp, sizeof(PMEMmutex)) != 0){
     *target_table = target;
     return;
   }
 
-  auto old_lock = target->lock_bit;
-  if (old_lock) return;
-  int new_lock = 1;
-
-  if (!CAS(&target->lock_bit, &old_lock, new_lock)) {
-    return; /*fail to set the lock*/
+  /*try to get the exclusive recovery lock*/
+  if(pmemobj_mutex_trylock(pool_addr, &target->lock_bit) != 0){
+    return;
   }
 
   target->recoverMetadata();
@@ -2083,7 +2084,8 @@ void Finger_EH<T>::recoverTable(Table<T> **target_table, size_t key_hash) {
     target->state = 0;
     Allocator::Persist(&target->state, sizeof(int));
   }
-  target->dirty_bit = 0;
+
+  pmemobj_mutex_lock(pool_addr, &target->dirty_bit);
   *target_table = target;
   /*No need to reset the lock since the data has been recovered*/
 }
