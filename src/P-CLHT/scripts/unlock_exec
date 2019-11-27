@@ -1,1 +1,0 @@
-rm "/dev/shm/lock_exec_$(whoami)" 2> /dev/null;
