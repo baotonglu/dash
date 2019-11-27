@@ -11,6 +11,7 @@
 #include <tuple>
 #include <unordered_map>
 #include <vector>
+#include <omp.h>
 
 #include "../util/hash.h"
 #include "../util/pair.h"
@@ -2091,15 +2092,23 @@ template <class T>
 void Finger_EH<T>::Recovery() {
   /*scan the directory, set the clear bit, and also set the dirty bit in the
    * segment to indicate that this segment is clean*/
-  // Allocator::EpochRecovery();
+  Allocator::EpochRecovery();
   lock = 0;
   /*first check the back_dir log*/
   if (!OID_IS_NULL(back_dir)) {
     pmemobj_free(&back_dir);
   }
 
+  dir->counter = 0;
   auto dir_entry = dir->_;
   int length = pow(2, dir->global_depth);
+  /* Update the directory entries using for loop and omp parallel*/
+
+  #pragma omp parallel for num_threads(24)
+  for(int i = 0; i < length; ++i){
+    dir_entry[i] = (Table<T> *)((uint64_t)dir_entry[i] | recoverBit);
+  }
+/*
   Table<T> *target;
   size_t i = 0, global_depth = dir->global_depth, depth_cur, stride, buddy;
   auto old_depth_count = dir->depth_count;
@@ -2122,13 +2131,11 @@ void Finger_EH<T>::Recovery() {
       if (dir_entry[j] != dir_entry[i]) {
         dir_entry[j] = dir_entry[i];
         target->pattern = i >> (global_depth - depth_cur);
-        // target->state =
-        //    -3; /*means that this bucket needs to fix its right link*/
       }
     }
     i = i + stride;
   }
-
+*/
 #ifdef PMEM
   Allocator::Persist(dir_entry, sizeof(uint64_t) * length);
 #endif
