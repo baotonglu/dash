@@ -15,7 +15,7 @@ for k in 2
 do
 	for i in 1
 	do 
-		for j in 6
+		for j in 1
 		do
 			echo "Begin: ${base[1]} ${workload[${i}]} ${thread_num[${j}]}"
 			numaarg=""

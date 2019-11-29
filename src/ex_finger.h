@@ -732,6 +732,7 @@ struct Directory {
   uint32_t version;
   uint32_t depth_count;
   uint32_t counter;
+  uint64_t crash_version; /*when the crash version equals to 0Xff => set the crash version as 0, set the version of all entries as 1*/
   table_p _[0];
 
   Directory(size_t capacity, size_t _version) {
@@ -745,8 +746,10 @@ struct Directory {
     auto callback = [](PMEMobjpool *pool, void *ptr, void *arg) {
       auto value_ptr = reinterpret_cast<std::tuple<size_t, size_t> *>(arg);
       auto dir_ptr = reinterpret_cast<Directory *>(ptr);
+      dir_ptr->crash_version = 0;
       dir_ptr->counter = 0;
       dir_ptr->version = std::get<1>(*value_ptr);
+      dir_ptr->crash_version = 0; /* */
       dir_ptr->global_depth =
           static_cast<size_t>(log2(std::get<0>(*value_ptr)));
       size_t cap = std::get<0>(*value_ptr);
