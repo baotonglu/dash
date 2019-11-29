@@ -1,5 +1,6 @@
 #pragma once
 #include <immintrin.h>
+#include <omp.h>
 
 #include <bitset>
 #include <cassert>
@@ -11,7 +12,6 @@
 #include <tuple>
 #include <unordered_map>
 #include <vector>
-#include <omp.h>
 
 #include "../util/hash.h"
 #include "../util/pair.h"
@@ -82,6 +82,10 @@ constexpr uint8_t preNeighborSet = 1 << 7;
 constexpr uint8_t nextNeighborSet = 1 << 6;
 const uint64_t recoverBit = 1UL << 63;
 const uint64_t lockBit = 1UL << 62;
+const uint64_t tailMask =
+    (1UL << 56) - 1; /*hide the highest 8 bits of the uint64_4*/
+const uint64_t headerMask = ((1UL << 8) - 1)
+                            << 56; /*hide the highest 8 bits of the uint64_4*/
 #define BUCKET_INDEX(hash) ((hash >> kFingerBits) & bucketMask)
 #define GET_COUNT(var) ((var)&countMask)
 #define GET_BITMAP(var) (((var) >> 4) & allocMask)
@@ -732,7 +736,6 @@ struct Directory {
   uint32_t version;
   uint32_t depth_count;
   uint32_t counter;
-  uint64_t crash_version; /*when the crash version equals to 0Xff => set the crash version as 0, set the version of all entries as 1*/
   table_p _[0];
 
   Directory(size_t capacity, size_t _version) {
@@ -746,10 +749,8 @@ struct Directory {
     auto callback = [](PMEMobjpool *pool, void *ptr, void *arg) {
       auto value_ptr = reinterpret_cast<std::tuple<size_t, size_t> *>(arg);
       auto dir_ptr = reinterpret_cast<Directory *>(ptr);
-      dir_ptr->crash_version = 0;
       dir_ptr->counter = 0;
       dir_ptr->version = std::get<1>(*value_ptr);
-      dir_ptr->crash_version = 0; /* */
       dir_ptr->global_depth =
           static_cast<size_t>(log2(std::get<0>(*value_ptr)));
       size_t cap = std::get<0>(*value_ptr);
@@ -845,7 +846,7 @@ struct Table {
       auto table_ptr = reinterpret_cast<Table<T> *>(ptr);
       table_ptr->local_depth = value_ptr->first;
       table_ptr->next = value_ptr->second;
-      memset(&table_ptr->lock_bit, 0, sizeof(PMEMmutex)*2);
+      memset(&table_ptr->lock_bit, 0, sizeof(PMEMmutex) * 2);
 
       int sumBucket = kNumBucket + stashBucket;
       for (int i = 0; i < sumBucket; ++i) {
@@ -1059,10 +1060,11 @@ struct Table {
   int state; /*-1 means this bucket is merging, -2 means this bucket is
                 splitting, so we cannot count the depth_count on it during
                 scanning operation*/
-  PMEMmutex lock_bit; /* for the synchronization of the lazy recovery in one segment*/
+  PMEMmutex
+      lock_bit; /* for the synchronization of the lazy recovery in one segment*/
   PMEMmutex dirty_bit; /* to indicate whether segment is clean*/
-  //int dirty_bit;
-  //int lock_bit;
+  // int dirty_bit;
+  // int lock_bit;
 };
 
 /* it needs to verify whether this bucket has been deleted...*/
@@ -1083,8 +1085,9 @@ RETRY:
 
   auto old_sa = *_dir;
   auto x = (key_hash >> (8 * sizeof(key_hash) - old_sa->global_depth));
-  if (old_sa->_[x] != this) /* verify process*/
-  {
+  // if (old_sa->_[x] != this) /* verify process*/
+  if (reinterpret_cast<Table<T> *>(reinterpret_cast<uint64_t>(old_sa->_[x]) &
+                                   tailMask) != this) {
     neighbor->release_lock();
     target->release_lock();
     return -2;
@@ -1723,7 +1726,8 @@ class Finger_EH : public Hash<T> {
   void Directory_Doubling(int x, Table<T> *new_b, Table<T> *old_b);
   void Directory_Merge_Update(Directory<T> *_sa, uint64_t key_hash,
                               Table<T> *left_seg);
-  void Directory_Update(Directory<T> *_sa, int x, Table<T> *new_b, Table<T> *old_b);
+  void Directory_Update(Directory<T> *_sa, int x, Table<T> *new_b,
+                        Table<T> *old_b);
   void Halve_Directory();
   void Lock_Directory();
   void Unlock_Directory();
@@ -1742,14 +1746,16 @@ class Finger_EH : public Hash<T> {
     size_t depth_diff;
     int capacity = pow(2, global_depth);
     for (int i = 0; i < capacity;) {
-      ss = dir_entry[i];
+      ss = reinterpret_cast<Table<T> *>(
+          reinterpret_cast<uint64_t>(dir_entry[i]) & tailMask);
       depth_diff = global_depth - ss->local_depth;
       _count += ss->number;
       seg_count++;
       i += pow(2, depth_diff);
     }
 
-    ss = dir_entry[0];
+    ss = reinterpret_cast<Table<T> *>(reinterpret_cast<uint64_t>(dir_entry[0]) &
+                                      tailMask);
     uint64_t verify_seg_count = 1;
     while (!OID_IS_NULL(ss->next)) {
       verify_seg_count++;
@@ -1785,6 +1791,9 @@ class Finger_EH : public Hash<T> {
 
   Directory<T> *dir;
   int lock;
+  uint64_t
+      crash_version; /*when the crash version equals to 0Xff => set the crash
+                        version as 0, set the version of all entries as 1*/
 #ifdef PMEM
   PMEMobjpool *pool_addr;
   /* directory allocation will write to here first,
@@ -1801,10 +1810,12 @@ Finger_EH<T>::Finger_EH(size_t initCap, PMEMobjpool *_pool) {
   dir = reinterpret_cast<Directory<T> *>(pmemobj_direct(back_dir));
   back_dir = OID_NULL;
   lock = 0;
+  crash_version = 0;
   PMEMoid ptr;
   Table<T>::New(&ptr, dir->global_depth, OID_NULL);
   dir->_[initCap - 1] = (Table<T> *)pmemobj_direct(ptr);
-//  std::cout << "The size of the pmdk lock is " << sizeof(PMEMmutex) << std::endl;
+  //  std::cout << "The size of the pmdk lock is " << sizeof(PMEMmutex) <<
+  //  std::endl;
 
   dir->_[initCap - 1]->pattern = initCap - 1;
   /* Initilize the Directory*/
@@ -1879,10 +1890,10 @@ void Finger_EH<T>::Halve_Directory() {
                      sizeof(Directory<T>) + sizeof(uint64_t) * capacity);
 
   // auto old_dir = dir;
-  //void **reserve_addr = Allocator::ReserveMemory();
+  // void **reserve_addr = Allocator::ReserveMemory();
   auto reserve_item = Allocator::ReserveItem();
   TX_BEGIN(pool_addr) {
-    //pmemobj_tx_add_range_direct(reserve_addr, sizeof(void *));
+    // pmemobj_tx_add_range_direct(reserve_addr, sizeof(void *));
     pmemobj_tx_add_range_direct(reserve_item, sizeof(*reserve_item));
     pmemobj_tx_add_range_direct(&dir, sizeof(dir));
     pmemobj_tx_add_range_direct(&back_dir, sizeof(back_dir));
@@ -1917,22 +1928,25 @@ void Finger_EH<T>::Directory_Doubling(int x, Table<T> *new_b, Table<T> *old_b) {
     dd[2 * i] = d[i];
     dd[2 * i + 1] = d[i];
   }
-  dd[2 * x + 1] = new_b;
+  // dd[2 * x + 1] = new_b;
+  dd[2 * x + 1] = reinterpret_cast<Table<T> *>(
+      reinterpret_cast<uint64_t>(new_b) | crash_version);
   new_sa->depth_count = 2;
 
 #ifdef PMEM
   Allocator::Persist(new_sa,
                      sizeof(Directory<T>) + sizeof(uint64_t) * 2 * capacity);
-  //void **reserve_addr = Allocator::ReserveMemory();
+  // void **reserve_addr = Allocator::ReserveMemory();
   auto reserve_item = Allocator::ReserveItem();
   ++merge_time;
   auto old_dir = dir;
   TX_BEGIN(pool_addr) {
-    //pmemobj_tx_add_range_direct(reserve_addr, sizeof(void *));
+    // pmemobj_tx_add_range_direct(reserve_addr, sizeof(void *));
     pmemobj_tx_add_range_direct(reserve_item, sizeof(*reserve_item));
     pmemobj_tx_add_range_direct(&dir, sizeof(dir));
     pmemobj_tx_add_range_direct(&back_dir, sizeof(back_dir));
-    pmemobj_tx_add_range_direct(&old_b->local_depth, sizeof(old_b->local_depth));
+    pmemobj_tx_add_range_direct(&old_b->local_depth,
+                                sizeof(old_b->local_depth));
     old_b->local_depth += 1;
     Allocator::Free(reserve_item, dir);
     //*reserve_addr = (void *)dir;
@@ -1956,32 +1970,38 @@ void Finger_EH<T>::Directory_Doubling(int x, Table<T> *new_b, Table<T> *old_b) {
 }
 
 template <class T>
-void Finger_EH<T>::Directory_Update(Directory<T> *_sa, int x, Table<T> *new_b, Table<T> *old_b) {
+void Finger_EH<T>::Directory_Update(Directory<T> *_sa, int x, Table<T> *new_b,
+                                    Table<T> *old_b) {
   // printf("directory update for %d\n", x);
   Table<T> **dir_entry = _sa->_;
   auto global_depth = _sa->global_depth;
   unsigned depth_diff = global_depth - new_b->local_depth;
   if (depth_diff == 0) {
     if (x % 2 == 0) {
-      //dir_entry[x + 1] = new_b;
-      //Allocator::Persist(&dir_entry[x + 1], sizeof(uint64_t));
-      //old_b->local_depth += 1;
+      // dir_entry[x + 1] = new_b;
+      // Allocator::Persist(&dir_entry[x + 1], sizeof(uint64_t));
+      // old_b->local_depth += 1;
       TX_BEGIN(pool_addr) {
-        pmemobj_tx_add_range_direct(&dir_entry[x+1], sizeof(Table<T>*));
-        pmemobj_tx_add_range_direct(&old_b->local_depth, sizeof(old_b->local_depth));
-        dir_entry[x + 1] = new_b;
+        pmemobj_tx_add_range_direct(&dir_entry[x + 1], sizeof(Table<T> *));
+        pmemobj_tx_add_range_direct(&old_b->local_depth,
+                                    sizeof(old_b->local_depth));
+        dir_entry[x + 1] = reinterpret_cast<Table<T> *>(
+            reinterpret_cast<uint64_t>(new_b) | crash_version);
         old_b->local_depth += 1;
       }
       TX_ONABORT { std::cout << "Error for update txn" << std::endl; }
       TX_END
     } else {
-      //dir_entry[x] = new_b;
-      //old_b->local_depth += 1;
-      //Allocator::Persist(&dir_entry[x], sizeof(uint64_t));
+      // dir_entry[x] = new_b;
+      // old_b->local_depth += 1;
+      // Allocator::Persist(&dir_entry[x], sizeof(uint64_t));
       TX_BEGIN(pool_addr) {
-        pmemobj_tx_add_range_direct(&dir_entry[x], sizeof(Table<T>*));
-        pmemobj_tx_add_range_direct(&old_b->local_depth, sizeof(old_b->local_depth));
-        dir_entry[x] = new_b;
+        pmemobj_tx_add_range_direct(&dir_entry[x], sizeof(Table<T> *));
+        pmemobj_tx_add_range_direct(&old_b->local_depth,
+                                    sizeof(old_b->local_depth));
+        // dir_entry[x] = new_b;
+        dir_entry[x] = reinterpret_cast<Table<T> *>(
+            reinterpret_cast<uint64_t>(new_b) | crash_version);
         old_b->local_depth += 1;
       }
       TX_ONABORT { std::cout << "Error for update txn" << std::endl; }
@@ -2000,10 +2020,14 @@ void Finger_EH<T>::Directory_Update(Directory<T> *_sa, int x, Table<T> *new_b, T
     old_b->local_depth += 1;
     */
     TX_BEGIN(pool_addr) {
-      pmemobj_tx_add_range_direct(&dir_entry[x + base], sizeof(Table<T>*)*base);
-      pmemobj_tx_add_range_direct(&old_b->local_depth, sizeof(old_b->local_depth));
+      pmemobj_tx_add_range_direct(&dir_entry[x + base],
+                                  sizeof(Table<T> *) * base);
+      pmemobj_tx_add_range_direct(&old_b->local_depth,
+                                  sizeof(old_b->local_depth));
       for (int i = base - 1; i >= 0; --i) {
-        dir_entry[x + base + i] = new_b;
+        // dir_entry[x + base + i] = new_b;
+        dir_entry[x + base + i] = reinterpret_cast<Table<T> *>(
+            reinterpret_cast<uint64_t>(new_b) | crash_version);
       }
       old_b->local_depth += 1;
     }
@@ -2038,15 +2062,17 @@ template <class T>
 void Finger_EH<T>::recoverTable(Table<T> **target_table, size_t key_hash) {
   /*Set the lockBit to ahieve the mutal exclusion of the recover process*/
   uint64_t snapshot = (uint64_t)*target_table;
-  Table<T> *target = (Table<T> *)(snapshot & (~recoverBit));
+  Table<T> *target = (Table<T> *)(snapshot & tailMask);
 
-  if(memcmp((void*)&target->dirty_bit, (void*)&cmp, sizeof(PMEMmutex)) != 0){
-    *target_table = target;
+  if (memcmp((void *)&target->dirty_bit, (void *)&cmp, sizeof(PMEMmutex)) !=
+      0) {
+    *target_table = reinterpret_cast<Table<T> *>(
+        reinterpret_cast<uint64_t>(target) | crash_version);
     return;
   }
 
   /*try to get the exclusive recovery lock*/
-  if(pmemobj_mutex_trylock(pool_addr, &target->lock_bit) != 0){
+  if (pmemobj_mutex_trylock(pool_addr, &target->lock_bit) != 0) {
     return;
   }
 
@@ -2069,7 +2095,7 @@ void Finger_EH<T>::recoverTable(Table<T> **target_table, size_t key_hash) {
           Directory_Doubling(x, next_table, target);
         }
         Unlock_Directory();
-        //Allocator::NTWrite64(&target->local_depth, target->local_depth + 1);
+        // Allocator::NTWrite64(&target->local_depth, target->local_depth + 1);
         /*release the lock for the target bucket and the new bucket*/
         next_table->state = 0;
         Allocator::Persist(&next_table->state, sizeof(int));
@@ -2089,7 +2115,9 @@ void Finger_EH<T>::recoverTable(Table<T> **target_table, size_t key_hash) {
   }
 
   pmemobj_mutex_lock(pool_addr, &target->dirty_bit);
-  *target_table = target;
+  *target_table = reinterpret_cast<Table<T> *>(
+      reinterpret_cast<uint64_t>(target) | crash_version);
+  //*target_table = reinterpret_cast<uint64_t>(target) | crash_version ;
   /*No need to reset the lock since the data has been recovered*/
 }
 
@@ -2107,40 +2135,18 @@ void Finger_EH<T>::Recovery() {
   dir->counter = 0;
   auto dir_entry = dir->_;
   int length = pow(2, dir->global_depth);
-  /* Update the directory entries using for loop and omp parallel*/
-
-  #pragma omp parallel for num_threads(1)
-  for(int i = 0; i < length; ++i){
-    dir_entry[i] = (Table<T> *)((uint64_t)dir_entry[i] | recoverBit);
-  }
-/*
-  Table<T> *target;
-  size_t i = 0, global_depth = dir->global_depth, depth_cur, stride, buddy;
-  auto old_depth_count = dir->depth_count;
-  dir->depth_count = 0;
-
-  while (i < length) {
-    dir_entry[i] = (Table<T> *)((uint64_t)dir_entry[i] | recoverBit);
-    target = (Table<T> *)((uint64_t)dir_entry[i] & (~recoverBit));
-    target->dirty_bit = 1;
-    target->lock_bit = 0;
-    depth_cur = target->local_depth;
-    stride = pow(2, global_depth - depth_cur);
-    if (depth_cur == global_depth) dir->depth_count++;
-    buddy = i + stride;
-    for (int j = buddy - 1; j > i; j--) {
-      dir_entry[j] = (Table<T> *)((uint64_t)dir_entry[j] | recoverBit);
-      target = (Table<T> *)((uint64_t)dir_entry[j] & (~recoverBit));
-      target->dirty_bit = 1;
-      target->lock_bit = 0;
-      if (dir_entry[j] != dir_entry[i]) {
-        dir_entry[j] = dir_entry[i];
-        target->pattern = i >> (global_depth - depth_cur);
-      }
+  crash_version = ((crash_version >> 56) + 1) << 56;
+  if (crash_version == 0) {
+    uint64_t set_one = 1UL << 56;
+#pragma omp parallel for num_threads(24)
+    for (int i = 0; i < length; ++i) {
+      // dir_entry[i] = (Table<T> *)((uint64_t)dir_entry[i] | recoverBit);
+      uint64_t snapshot = (uint64_t)dir_entry[i];
+      dir_entry[i] =
+          reinterpret_cast<Table<T> *>((snapshot & tailMask) | set_one);
     }
-    i = i + stride;
   }
-*/
+
 #ifdef PMEM
   Allocator::Persist(dir_entry, sizeof(uint64_t) * length);
 #endif
@@ -2170,8 +2176,11 @@ RETRY:
   auto old_sa = dir;
   auto x = (key_hash >> (8 * sizeof(key_hash) - old_sa->global_depth));
   auto dir_entry = old_sa->_;
-  Table<T> *target = dir_entry[x];
-  if (((uint64_t)target & recoverBit)) {
+  Table<T> *target = reinterpret_cast<Table<T> *>(
+      reinterpret_cast<uint64_t>(dir_entry[x]) & tailMask);
+
+  if ((reinterpret_cast<uint64_t>(dir_entry[x]) & headerMask) !=
+      crash_version) {
     recoverTable(&dir_entry[x], key_hash);
     goto RETRY;
   }
@@ -2187,7 +2196,8 @@ RETRY:
     /*verify procedure*/
     auto old_sa = dir;
     auto x = (key_hash >> (8 * sizeof(key_hash) - old_sa->global_depth));
-    if (old_sa->_[x] != target) /* verify process*/
+    if (reinterpret_cast<Table<T> *>(reinterpret_cast<uint64_t>(old_sa->_[x]) &
+                                     tailMask) != target) /* verify process*/
     {
       target->bucket->release_lock();
       goto RETRY;
@@ -2207,11 +2217,11 @@ RETRY:
       if (Test_Directory_Lock_Set()) {
         goto REINSERT;
       }
-      //Lock_Directory();
+      // Lock_Directory();
       ADD(&old_sa->counter, 1);
       Directory_Update(old_sa, x, new_b, target);
       SUB(&old_sa->counter, 1);
-      //Unlock_Directory();
+      // Unlock_Directory();
       /*after the update, I need to recheck*/
       if (Test_Directory_Lock_Set() || old_sa->version != dir->version) {
         goto REINSERT;
@@ -2222,7 +2232,8 @@ RETRY:
         Unlock_Directory();
         goto REINSERT;
       }
-      while (old_sa->counter != 0);
+      while (old_sa->counter != 0)
+        ;
       Directory_Doubling(x, new_b, target);
       Unlock_Directory();
     }
@@ -2276,17 +2287,17 @@ RETRY:
   auto x = (key_hash >> (8 * sizeof(key_hash) - old_sa->global_depth));
   auto y = BUCKET_INDEX(key_hash);
   auto dir_entry = old_sa->_;
-  Table<T> *target = dir_entry[x];
+  auto old_entry = dir_entry[x];
+  Table<T> *target = reinterpret_cast<Table<T> *>(
+      reinterpret_cast<uint64_t>(old_entry) & tailMask);
 
-  if (unlikely((uint64_t)target & recoverBit)) {
+  if ((reinterpret_cast<uint64_t>(old_entry) & headerMask) != crash_version) {
     recoverTable(&dir_entry[x], key_hash);
     goto RETRY;
   }
 
   Bucket<T> *target_bucket = target->bucket + y;
   Bucket<T> *neighbor_bucket = target->bucket + ((y + 1) & bucketMask);
-  // printf("Get key %lld, x = %d, y = %d, meta_hash = %d\n", key, x,
-  // BUCKET_INDEX(key_hash), meta_hash);
 
   uint32_t old_version =
       __atomic_load_n(&target_bucket->version_lock, __ATOMIC_ACQUIRE);
@@ -2300,7 +2311,7 @@ RETRY:
   /*verification procedure*/
   old_sa = dir;
   x = (key_hash >> (8 * sizeof(key_hash) - old_sa->global_depth));
-  if (old_sa->_[x] != target) {
+  if (old_sa->_[x] != old_entry) {
     goto RETRY;
   }
 
@@ -2468,12 +2479,12 @@ void Finger_EH<T>::TryMerge(size_t key_hash) {
         if (right_seg->number != 0) {
           left_seg->Merge(right_seg);
         }
-        //std::cout << "reserve a memory addr "<<++merge_time<< std::endl;
-        //void **reserve_addr = Allocator::ReserveMemory();
+        // std::cout << "reserve a memory addr "<<++merge_time<< std::endl;
+        // void **reserve_addr = Allocator::ReserveMemory();
         auto reserve_item = Allocator::ReserveItem();
-        //std::cout << "successfully get a memory addr" << std::endl;
+        // std::cout << "successfully get a memory addr" << std::endl;
         TX_BEGIN(pool_addr) {
-          //pmemobj_tx_add_range_direct(reserve_addr, sizeof(void *));
+          // pmemobj_tx_add_range_direct(reserve_addr, sizeof(void *));
           pmemobj_tx_add_range_direct(reserve_item, sizeof(*reserve_item));
           pmemobj_tx_add_range_direct(&left_seg->next, sizeof(left_seg->next));
           Allocator::Free(reserve_item, right_seg);
@@ -2531,11 +2542,6 @@ bool Finger_EH<T>::Delete(T key, bool is_in_epoch) {
 /*the delete operation of the */
 template <class T>
 bool Finger_EH<T>::Delete(T key) {
-  /*
-  #ifdef EPOCH
-    auto epoch_guard = Allocator::AquireEpochGuard();
-  #endif
-  */
   /*Basic delete operation and merge operation*/
   uint64_t key_hash;
   if constexpr (std::is_pointer_v<T>) {
@@ -2548,9 +2554,11 @@ RETRY:
   auto old_sa = dir;
   auto x = (key_hash >> (8 * sizeof(key_hash) - old_sa->global_depth));
   auto dir_entry = old_sa->_;
-  Table<T> *target_table = dir_entry[x];
+  Table<T> *target_table = reinterpret_cast<Table<T> *>(
+      reinterpret_cast<uint64_t>(dir_entry[x]) & tailMask);
 
-  if (((uint64_t)target_table & recoverBit)) {
+  if ((reinterpret_cast<uint64_t>(dir_entry[x]) & headerMask) !=
+      crash_version) {
     recoverTable(&dir_entry[x], key_hash);
     goto RETRY;
   }
@@ -2567,7 +2575,9 @@ RETRY:
 
   old_sa = dir;
   x = (key_hash >> (8 * sizeof(key_hash) - old_sa->global_depth));
-  if (old_sa->_[x] != target_table) {
+  // if (old_sa->_[x] != target_table) {
+  if (reinterpret_cast<Table<T> *>(reinterpret_cast<uint64_t>(old_sa->_[x]) &
+                                   tailMask) != target_table) {
     target->release_lock();
     neighbor->release_lock();
     goto RETRY;

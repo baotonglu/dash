@@ -171,13 +171,14 @@ uint64_t SUM_BUCKET(uint32_t bucket_idx) {
   return sum;
 }
 
-/* return the size of the segment array (#segments) that the corresponding bucket resides in*/
+/* return the size of the segment array (#segments) that the corresponding
+ * bucket resides in*/
 inline uint32_t SEG_SIZE(uint32_t bucket_ix) {
   int index = 31 - __builtin_clz((bucket_ix >> expandShiftBits) + 1);
   return segmentSize * pow2(index);
 }
 
-inline uint32_t SEG_SIZE_BY_SEGARR_ID(uint32_t segarr_idx){
+inline uint32_t SEG_SIZE_BY_SEGARR_ID(uint32_t segarr_idx) {
   return segmentSize * pow2(segarr_idx / fixedExpandNum);
 }
 
@@ -253,35 +254,35 @@ struct overflowBucket {
             return _[i].value;
           }
         }
-      }  
-/*
-        for (int i = 0; i < 12; i += 4) {
-          if (CHECK_BIT(mask, i) && (_[i].key == key)) {
-            return _[i].value;
-          }
-
-          if (CHECK_BIT(mask, i + 1) && (_[i + 1].key == key)) {
-            return _[i + 1].value;
-          }
-
-          if (CHECK_BIT(mask, i + 2) && (_[i + 2].key == key)) {
-            return _[i + 2].value;
-          }
-
-          if (CHECK_BIT(mask, i + 3) && (_[i + 3].key == key)) {
-            return _[i + 3].value;
-          }
-        }
-
-        if (CHECK_BIT(mask, 12) && (_[12].key == key)) {
-          return _[12].value;
-        }
-
-        if (CHECK_BIT(mask, 13) && (_[13].key == key)) {
-          return _[13].value;
-        }
       }
-*/
+      /*
+              for (int i = 0; i < 12; i += 4) {
+                if (CHECK_BIT(mask, i) && (_[i].key == key)) {
+                  return _[i].value;
+                }
+
+                if (CHECK_BIT(mask, i + 1) && (_[i + 1].key == key)) {
+                  return _[i + 1].value;
+                }
+
+                if (CHECK_BIT(mask, i + 2) && (_[i + 2].key == key)) {
+                  return _[i + 2].value;
+                }
+
+                if (CHECK_BIT(mask, i + 3) && (_[i + 3].key == key)) {
+                  return _[i + 3].value;
+                }
+              }
+
+              if (CHECK_BIT(mask, 12) && (_[12].key == key)) {
+                return _[12].value;
+              }
+
+              if (CHECK_BIT(mask, 13) && (_[13].key == key)) {
+                return _[13].value;
+              }
+            }
+      */
     }
     return NONE;
   }
@@ -693,36 +694,36 @@ struct Bucket {
             return _[i].value;
           }
         }
-      } 
-/*
-      if (mask != 0) {
-        for (int i = 0; i < 12; i += 4) {
-          if (CHECK_BIT(mask, i) && (_[i].key == key)) {
-            return _[i].value;
-          }
-
-          if (CHECK_BIT(mask, i + 1) && (_[i + 1].key == key)) {
-            return _[i + 1].value;
-          }
-
-          if (CHECK_BIT(mask, i + 2) && (_[i + 2].key == key)) {
-            return _[i + 2].value;
-          }
-
-          if (CHECK_BIT(mask, i + 3) && (_[i + 3].key == key)) {
-            return _[i + 3].value;
-          }
-        }
-
-        if (CHECK_BIT(mask, 12) && (_[12].key == key)) {
-          return _[12].value;
-        }
-
-        if (CHECK_BIT(mask, 13) && (_[13].key == key)) {
-          return _[13].value;
-        }
       }
-*/
+      /*
+            if (mask != 0) {
+              for (int i = 0; i < 12; i += 4) {
+                if (CHECK_BIT(mask, i) && (_[i].key == key)) {
+                  return _[i].value;
+                }
+
+                if (CHECK_BIT(mask, i + 1) && (_[i + 1].key == key)) {
+                  return _[i + 1].value;
+                }
+
+                if (CHECK_BIT(mask, i + 2) && (_[i + 2].key == key)) {
+                  return _[i + 2].value;
+                }
+
+                if (CHECK_BIT(mask, i + 3) && (_[i + 3].key == key)) {
+                  return _[i + 3].value;
+                }
+              }
+
+              if (CHECK_BIT(mask, 12) && (_[12].key == key)) {
+                return _[12].value;
+              }
+
+              if (CHECK_BIT(mask, 13) && (_[13].key == key)) {
+                return _[13].value;
+              }
+            }
+      */
     }
     return NONE;
   }
@@ -1031,7 +1032,8 @@ template <class T>
 struct Directory {
   typedef Table<T> *table_p;
   uint64_t N_next;
-  uint64_t recovered_index; /* Used to indicate the last segment that needs to be recovered*/ 
+  uint64_t recovered_index; /* Used to indicate the last segment that needs to
+                               be recovered*/
   table_p _[directorySize];
   uint64_t recover_counter[directorySize];
   // Directory() { N_next = baseShifBits << 32; }
@@ -1417,8 +1419,8 @@ struct Table {
   int state; /*0: normal state; 1: split bucket; 2: expand bucket(in the right);
                 3 merge bucket; 4 shrunk bucket(in the right)*/
   char dummy[56];
-  //PMEMmutex lock_bit;
-  //PMEMmutex dirty_bit;
+  // PMEMmutex lock_bit;
+  // PMEMmutex dirty_bit;
 };
 
 template <class T>
@@ -2502,7 +2504,8 @@ void Linear<T>::Recovery() {
   uint32_t N = old_N_next >> 32;
   uint32_t next = (uint32_t)old_N_next;
   uint32_t x = static_cast<uint32_t>(pow(2, N)) + next - 1;
-  dir.recovered_index = x; /* for segments <= recovered_index, it needs to be recoverd*/
+  dir.recovered_index =
+      x; /* for segments <= recovered_index, it needs to be recoverd*/
   uint32_t dir_idx;
   uint32_t offset;
   SEG_IDX_OFFSET(x, dir_idx, offset);
@@ -2514,33 +2517,34 @@ void Linear<T>::Recovery() {
   }
 
   dir.recover_counter[dir_idx] = offset + 1;
-  dir._[dir_idx] = reinterpret_cast<Table<T> *>((uint64_t)dir._[dir_idx] | recoverBit);
+  dir._[dir_idx] =
+      reinterpret_cast<Table<T> *>((uint64_t)dir._[dir_idx] | recoverBit);
 }
 
 template <class T>
-int Linear<T>::recoverSegment(Table<T> **seg_ptr, size_t index, size_t dir_idx,size_t offset) {
-  //std::cout << "Start to recover the segment" << std::endl;
+int Linear<T>::recoverSegment(Table<T> **seg_ptr, size_t index, size_t dir_idx,
+                              size_t offset) {
+  // std::cout << "Start to recover the segment" << std::endl;
   uint64_t snapshot = reinterpret_cast<uint64_t>(*seg_ptr);
   Table<T> *target = (Table<T> *)(snapshot & (~recoverLockBit)) + offset;
 
   /*No need for the recovery of this segment*/
   /*
-  if((memcmp((void*)&target->dirty_bit, (void*)&cmp, sizeof(PMEMmutex)) != 0) || (index > dir.recovered_index)){
-    return 0; 
+  if((memcmp((void*)&target->dirty_bit, (void*)&cmp, sizeof(PMEMmutex)) != 0) ||
+  (index > dir.recovered_index)){ return 0;
   }*/
 
   /*try to get the exclusive recovery lock*/
   /*
   if(pmemobj_mutex_trylock(pool_addr, &target->lock_bit) != 0){
-    return -1; 
+    return -1;
   }*/
 
   target->recoverMetadata();
 
   if (target->state == 2) {
     uint64_t idx, base_diff;
-    Table<T> *org_table =
-        target->get_org_table(index, &idx, &base_diff, &dir);
+    Table<T> *org_table = target->get_org_table(index, &idx, &base_diff, &dir);
     uint32_t buddy_dir_idx, buddy_offset;
     SEG_IDX_OFFSET(idx, buddy_dir_idx, buddy_offset);
     while (reinterpret_cast<uint64_t>(dir._[buddy_dir_idx]) & recoverLockBit) {
@@ -2567,12 +2571,12 @@ int Linear<T>::recoverSegment(Table<T> **seg_ptr, size_t index, size_t dir_idx,s
       auto curr_bucket = org_table->bucket + i;
       curr_bucket->release_lock();
     }
-  } 
+  }
 
-  //std::cout << "Finish of recoverring the segment" << std::endl;
-  //pmemobj_mutex_lock(pool_addr, &target->dirty_bit);
+  // std::cout << "Finish of recoverring the segment" << std::endl;
+  // pmemobj_mutex_lock(pool_addr, &target->dirty_bit);
   SUB(&dir.recover_counter[dir_idx], 1);
-  if(dir.recover_counter[dir_idx] <= 0){
+  if (dir.recover_counter[dir_idx] <= 0) {
     std::cout << "reset the dirty bit" << std::endl;
     *seg_ptr = (Table<T> *)(snapshot & (~recoverLockBit));
   }
@@ -2613,10 +2617,11 @@ RETRY:
   Table<T> *target = dir._[dir_idx] + offset;
   if (reinterpret_cast<uint64_t>(dir._[dir_idx]) & recoverLockBit) {
     int flag = recoverSegment(&dir._[dir_idx], x, dir_idx, offset);
-    if(flag == -1){
+    if (flag == -1) {
       goto RETRY;
     }
-    target = (Table<T> *)((uint64_t)(dir._[dir_idx]) & (~recoverLockBit)) + offset;
+    target =
+        (Table<T> *)((uint64_t)(dir._[dir_idx]) & (~recoverLockBit)) + offset;
   }
 
   // printf("insert for key %lld, the bucket_idx is %d, the dir_idx is %d, the
@@ -2636,7 +2641,7 @@ Value_t Linear<T>::Get(T key, bool is_in_epoch) {
     auto epoch_guard = Allocator::AquireEpochGuard();
     return Get(key);
   }
-  
+
   uint64_t key_hash;
   if constexpr (std::is_pointer_v<T>) {
     key_hash = h(key->key, key->length);
@@ -2662,10 +2667,11 @@ RETRY:
 
   if (reinterpret_cast<uint64_t>(dir._[dir_idx]) & recoverLockBit) {
     int flag = recoverSegment(&dir._[dir_idx], x, dir_idx, offset);
-    if(flag == -1){
+    if (flag == -1) {
       goto RETRY;
     }
-    target = (Table<T> *)((uint64_t)(dir._[dir_idx]) & (~recoverLockBit)) + offset;
+    target =
+        (Table<T> *)((uint64_t)(dir._[dir_idx]) & (~recoverLockBit)) + offset;
   }
 
   Bucket<T> *target_bucket = target->bucket + y;
@@ -2828,10 +2834,11 @@ RETRY:
 
   if (reinterpret_cast<uint64_t>(dir._[dir_idx]) & recoverLockBit) {
     int flag = recoverSegment(&dir._[dir_idx], x, dir_idx, offset);
-    if(flag == -1){
+    if (flag == -1) {
       goto RETRY;
     }
-    target = (Table<T> *)((uint64_t)(dir._[dir_idx]) & (~recoverLockBit)) + offset;
+    target =
+        (Table<T> *)((uint64_t)(dir._[dir_idx]) & (~recoverLockBit)) + offset;
   }
 
   Bucket<T> *target_bucket = target->bucket + y;
@@ -3009,10 +3016,11 @@ RETRY:
   Table<T> *target = dir._[dir_idx] + offset;
   if (reinterpret_cast<uint64_t>(dir._[dir_idx]) & recoverLockBit) {
     int flag = recoverSegment(&dir._[dir_idx], x, dir_idx, offset);
-    if(flag == -1){
+    if (flag == -1) {
       goto RETRY;
     }
-    target = (Table<T> *)((uint64_t)(dir._[dir_idx]) & (~recoverLockBit)) + offset;
+    target =
+        (Table<T> *)((uint64_t)(dir._[dir_idx]) & (~recoverLockBit)) + offset;
   }
 
   uint32_t old_version;
