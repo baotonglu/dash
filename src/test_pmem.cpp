@@ -1043,7 +1043,7 @@ void Run() {
                       &concurr_insert_without_epoch);
     }
     index->getNumber();
-
+/*
     gettimeofday(&tv1, NULL);
     index->Recovery();
     gettimeofday(&tv2, NULL);
@@ -1051,7 +1051,7 @@ void Run() {
     double recovery_time = (double)(tv2.tv_usec - tv1.tv_usec) / 1000000 +
              (double)(tv2.tv_sec - tv1.tv_sec);
     std::cout << "The recovery time is " << recovery_time << std::endl;
-
+*/
     for (int i = 0; i < thread_num; ++i) {
       rarray[i].workload = not_used_workload;
     }
