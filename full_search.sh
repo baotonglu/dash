@@ -2,16 +2,16 @@
 # For 100% read operation based 100 millions records inserted into the dataset
 
 thread_num=(0 1 2 4 8 16 24 48)
-workload=(0 190000000)
+workload=(0 10000000)
 base=(0 10000000)
-key_type=(0 fixed variable)
+key_type=(0 fixed variab1e)
 index_type=(0 dash-ex dash-lh cceh level)
 epoch=(0 1 1 1 0)
 
 #delete the corresponding file
 
 #{1..6}
-for k in 1
+for k in 2
 do
 	for i in 1
 	do 
