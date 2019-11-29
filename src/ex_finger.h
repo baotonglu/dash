@@ -2106,7 +2106,7 @@ void Finger_EH<T>::Recovery() {
   int length = pow(2, dir->global_depth);
   /* Update the directory entries using for loop and omp parallel*/
 
-  #pragma omp parallel for num_threads(24)
+  #pragma omp parallel for num_threads(1)
   for(int i = 0; i < length; ++i){
     dir_entry[i] = (Table<T> *)((uint64_t)dir_entry[i] | recoverBit);
   }
