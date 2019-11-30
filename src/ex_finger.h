@@ -1062,9 +1062,7 @@ struct Table {
                 scanning operation*/
   PMEMmutex
       lock_bit; /* for the synchronization of the lazy recovery in one segment*/
-  PMEMmutex dirty_bit; /* to indicate whether segment is clean*/
-  // int dirty_bit;
-  // int lock_bit;
+  //PMEMmutex dirty_bit; /* to indicate whether segment is clean*/
 };
 
 /* it needs to verify whether this bucket has been deleted...*/
@@ -1772,7 +1770,7 @@ class Finger_EH : public Hash<T> {
            (double)(_count * 16) / (seg_count * sizeof(Table<T>)));
   }
 
-  void recoverTable(Table<T> **target_table, size_t);
+  void recoverTable(Table<T> **target_table, size_t, size_t, Directory<T>*);
   void Recovery();
 
   inline bool Acquire(void) {
@@ -1794,6 +1792,7 @@ class Finger_EH : public Hash<T> {
   uint64_t
       crash_version; /*when the crash version equals to 0Xff => set the crash
                         version as 0, set the version of all entries as 1*/
+  bool clean;
 #ifdef PMEM
   PMEMobjpool *pool_addr;
   /* directory allocation will write to here first,
@@ -1811,6 +1810,7 @@ Finger_EH<T>::Finger_EH(size_t initCap, PMEMobjpool *_pool) {
   back_dir = OID_NULL;
   lock = 0;
   crash_version = 0;
+  clean = 0;
   PMEMoid ptr;
   Table<T>::New(&ptr, dir->global_depth, OID_NULL);
   dir->_[initCap - 1] = (Table<T> *)pmemobj_direct(ptr);
@@ -2059,19 +2059,13 @@ void Finger_EH<T>::Directory_Merge_Update(Directory<T> *_sa, uint64_t key_hash,
 }
 
 template <class T>
-void Finger_EH<T>::recoverTable(Table<T> **target_table, size_t key_hash) {
+void Finger_EH<T>::recoverTable(Table<T> **target_table, size_t key_hash, size_t x, Directory<T> *old_sa) {
   /*Set the lockBit to ahieve the mutal exclusion of the recover process*/
+  auto dir_entry = old_sa->_;
   uint64_t snapshot = (uint64_t)*target_table;
   Table<T> *target = (Table<T> *)(snapshot & tailMask);
-
-  if (memcmp((void *)&target->dirty_bit, (void *)&cmp, sizeof(PMEMmutex)) !=
-      0) {
-    *target_table = reinterpret_cast<Table<T> *>(
-        reinterpret_cast<uint64_t>(target) | crash_version);
-    return;
-  }
-
   /*try to get the exclusive recovery lock*/
+  //std::cout << "begin " << x <<std::endl;
   if (pmemobj_mutex_trylock(pool_addr, &target->lock_bit) != 0) {
     return;
   }
@@ -2114,11 +2108,16 @@ void Finger_EH<T>::recoverTable(Table<T> **target_table, size_t key_hash) {
     Allocator::Persist(&target->state, sizeof(int));
   }
 
-  pmemobj_mutex_lock(pool_addr, &target->dirty_bit);
+  /*Compute for all entries and clear the dirty bit*/
+  //std::cout << "end " << x <<std::endl;
+  int chunk_size = pow(2, old_sa->global_depth - target->local_depth);
+  x = x - (x % chunk_size);
+  for(int i = x; i < (x + chunk_size); ++i){
+    //std::cout << "udpate " << i << std::endl;
+    dir_entry[i] = reinterpret_cast<Table<T>*>((reinterpret_cast<uint64_t>(dir_entry[i]) & tailMask) | crash_version);
+  }
   *target_table = reinterpret_cast<Table<T> *>(
       reinterpret_cast<uint64_t>(target) | crash_version);
-  //*target_table = reinterpret_cast<uint64_t>(target) | crash_version ;
-  /*No need to reset the lock since the data has been recovered*/
 }
 
 template <class T>
@@ -2145,11 +2144,10 @@ void Finger_EH<T>::Recovery() {
       dir_entry[i] =
           reinterpret_cast<Table<T> *>((snapshot & tailMask) | set_one);
     }
-  }
-
 #ifdef PMEM
   Allocator::Persist(dir_entry, sizeof(uint64_t) * length);
 #endif
+  }
 }
 
 template <class T>
@@ -2181,7 +2179,7 @@ RETRY:
 
   if ((reinterpret_cast<uint64_t>(dir_entry[x]) & headerMask) !=
       crash_version) {
-    recoverTable(&dir_entry[x], key_hash);
+    recoverTable(&dir_entry[x], key_hash, x, old_sa);
     goto RETRY;
   }
 
@@ -2270,7 +2268,139 @@ Value_t Finger_EH<T>::Get(T key, bool is_in_epoch) {
 #endif
     return Get(key);
   }
-  return Get(key);
+  //return Get(key);
+  uint64_t key_hash;
+  if constexpr (std::is_pointer_v<T>) {
+    key_hash = h(key->key, key->length);
+  } else {
+    key_hash = h(&key, sizeof(key));
+  }
+  auto meta_hash = ((uint8_t)(key_hash & kMask));  // the last 8 bits
+RETRY:
+  auto old_sa = dir;
+  auto x = (key_hash >> (8 * sizeof(key_hash) - old_sa->global_depth));
+  auto y = BUCKET_INDEX(key_hash);
+  auto dir_entry = old_sa->_;
+  auto old_entry = dir_entry[x];
+  Table<T> *target = reinterpret_cast<Table<T> *>(
+      reinterpret_cast<uint64_t>(old_entry) & tailMask);
+
+  if ((reinterpret_cast<uint64_t>(old_entry) & headerMask) != crash_version) {
+    recoverTable(&dir_entry[x], key_hash, x, old_sa);
+    goto RETRY;
+  }
+
+  Bucket<T> *target_bucket = target->bucket + y;
+  Bucket<T> *neighbor_bucket = target->bucket + ((y + 1) & bucketMask);
+
+  uint32_t old_version =
+      __atomic_load_n(&target_bucket->version_lock, __ATOMIC_ACQUIRE);
+  uint32_t old_neighbor_version =
+      __atomic_load_n(&neighbor_bucket->version_lock, __ATOMIC_ACQUIRE);
+
+  if ((old_version & lockSet) || (old_neighbor_version & lockSet)) {
+    goto RETRY;
+  }
+
+  /*verification procedure*/
+  old_sa = dir;
+  x = (key_hash >> (8 * sizeof(key_hash) - old_sa->global_depth));
+  if (old_sa->_[x] != old_entry) {
+    goto RETRY;
+  }
+
+  auto ret = target_bucket->check_and_get(meta_hash, key, false);
+  if (target_bucket->test_lock_version_change(old_version)) {
+    goto RETRY;
+  }
+  if (ret != NONE) {
+    return ret;
+  }
+
+  /*no need for verification procedure, we use the version number of
+   * target_bucket to test whether the bucket has ben spliteted*/
+  ret = neighbor_bucket->check_and_get(meta_hash, key, true);
+  if (neighbor_bucket->test_lock_version_change(old_neighbor_version)) {
+    goto RETRY;
+  }
+  if (ret != NONE) {
+    return ret;
+  }
+
+  if (target_bucket->test_stash_check()) {
+    auto test_stash = false;
+    if (target_bucket->test_overflow()) {
+      /*this only occur when the bucket has more key-values than 10 that are
+       * overfloed int he shared bucket area, therefore it needs to search in
+       * the extra bucket*/
+      test_stash = true;
+    } else {
+      /*search in the original bucket*/
+      int mask = target_bucket->finger_array[14];
+      if (mask != 0) {
+        for (int i = 0; i < 4; ++i) {
+          if (CHECK_BIT(mask, i) &&
+              (target_bucket->finger_array[15 + i] == meta_hash) &&
+              (((1 << i) & target_bucket->overflowMember) == 0)) {
+            // test_stash = true;
+            // goto TEST_STASH;
+            /*directly check stash*/
+            Bucket<T> *stash =
+                target->bucket + kNumBucket +
+                ((target_bucket->finger_array[19] >> (i * 2)) & stashMask);
+            auto ret = stash->check_and_get(meta_hash, key, false);
+            if (ret != NONE) {
+              if (target_bucket->test_lock_version_change(old_version)) {
+                goto RETRY;
+              }
+              return ret;
+            }
+          }
+        }
+      }
+
+      mask = neighbor_bucket->finger_array[14];
+      if (mask != 0) {
+        for (int i = 0; i < 4; ++i) {
+          if (CHECK_BIT(mask, i) &&
+              (neighbor_bucket->finger_array[15 + i] == meta_hash) &&
+              (((1 << i) & neighbor_bucket->overflowMember) != 0)) {
+            // test_stash = true;
+            // break;
+            Bucket<T> *stash =
+                target->bucket + kNumBucket +
+                ((neighbor_bucket->finger_array[19] >> (i * 2)) & stashMask);
+            auto ret = stash->check_and_get(meta_hash, key, false);
+            if (ret != NONE) {
+              if (target_bucket->test_lock_version_change(old_version)) {
+                goto RETRY;
+              }
+              return ret;
+            }
+          }
+        }
+      }
+      goto FINAL;
+    }
+  TEST_STASH:
+    if (test_stash == true) {
+      for (int i = 0; i < stashBucket; ++i) {
+        Bucket<T> *stash =
+            target->bucket + kNumBucket + ((i + (y & stashMask)) & stashMask);
+        auto ret = stash->check_and_get(meta_hash, key, false);
+        if (ret != NONE) {
+          if (target_bucket->test_lock_version_change(old_version)) {
+            goto RETRY;
+          }
+          return ret;
+        }
+      }
+    }
+  }
+FINAL:
+  // printf("the x = %lld, the y = %lld, the meta_hash is %d\n", x, y,
+  // meta_hash);
+  return NONE;
 }
 
 template <class T>
@@ -2292,7 +2422,7 @@ RETRY:
       reinterpret_cast<uint64_t>(old_entry) & tailMask);
 
   if ((reinterpret_cast<uint64_t>(old_entry) & headerMask) != crash_version) {
-    recoverTable(&dir_entry[x], key_hash);
+    recoverTable(&dir_entry[x], key_hash, x, old_sa);
     goto RETRY;
   }
 
@@ -2424,12 +2554,14 @@ void Finger_EH<T>::TryMerge(size_t key_hash) {
     auto right_seg = old_dir->_[right];
 
     if (((uint64_t)left_seg & recoverBit)) {
-      recoverTable(&old_dir->_[left], key_hash);
+      //recoverTable(&old_dir->_[left], key_hash);
+      recoverTable(&old_dir->_[left], key_hash, left, old_dir);
       continue;
     }
 
     if (((uint64_t)right_seg & recoverBit)) {
-      recoverTable(&old_dir->_[right], key_hash);
+      //recoverTable(&old_dir->_[right], key_hash);
+      recoverTable(&old_dir->_[right], key_hash, right, old_dir);
       continue;
     }
 
@@ -2559,7 +2691,8 @@ RETRY:
 
   if ((reinterpret_cast<uint64_t>(dir_entry[x]) & headerMask) !=
       crash_version) {
-    recoverTable(&dir_entry[x], key_hash);
+    //recoverTable(&dir_entry[x], key_hash);
+    recoverTable(&dir_entry[x], key_hash, x, old_sa);
     goto RETRY;
   }
 

@@ -248,14 +248,15 @@ struct overflowBucket {
       }
     } else {
       /*loop unrolling*/
-      if (mask != 0) {
+      /*
+      
         for (int i = 0; i < 14; ++i) {
           if (CHECK_BIT(mask, i) && (_[i].key == key)) {
             return _[i].value;
           }
         }
-      }
-      /*
+      }*/
+      if (mask != 0) {
               for (int i = 0; i < 12; i += 4) {
                 if (CHECK_BIT(mask, i) && (_[i].key == key)) {
                   return _[i].value;
@@ -281,8 +282,8 @@ struct overflowBucket {
               if (CHECK_BIT(mask, 13) && (_[13].key == key)) {
                 return _[13].value;
               }
-            }
-      */
+      }
+      
     }
     return NONE;
   }
@@ -688,14 +689,14 @@ struct Bucket {
       }
     } else {
       /*loop unrolling*/
+      /*
       if (mask != 0) {
         for (int i = 0; i < 14; ++i) {
           if (CHECK_BIT(mask, i) && (_[i].key == key)) {
             return _[i].value;
           }
         }
-      }
-      /*
+      }*/
             if (mask != 0) {
               for (int i = 0; i < 12; i += 4) {
                 if (CHECK_BIT(mask, i) && (_[i].key == key)) {
@@ -723,7 +724,7 @@ struct Bucket {
                 return _[13].value;
               }
             }
-      */
+    
     }
     return NONE;
   }
@@ -1036,6 +1037,7 @@ struct Directory {
                                be recovered*/
   table_p _[directorySize];
   uint64_t recover_counter[directorySize];
+  uint64_t crash_version; /* it does not influence the correctness*/
   // Directory() { N_next = baseShifBits << 32; }
 
   static void New(PMEMoid *dir) {
@@ -1043,6 +1045,7 @@ struct Directory {
       auto dir_ptr = reinterpret_cast<Directory<T> *>(ptr);
       dir_ptr->N_next = baseShifBits << 32;
       dir_ptr->recovered_index = 0;
+      dir_ptr->crash_version = 0;
       memset(&dir_ptr->_, 0, sizeof(table_p) * directorySize);
       memset(&dir_ptr->recover_counter, 0, sizeof(uint64_t) * directorySize);
       return 0;
@@ -1418,9 +1421,9 @@ struct Table {
   int number;
   int state; /*0: normal state; 1: split bucket; 2: expand bucket(in the right);
                 3 merge bucket; 4 shrunk bucket(in the right)*/
-  char dummy[56];
-  // PMEMmutex lock_bit;
-  // PMEMmutex dirty_bit;
+  uint64_t seg_version;
+  char dummy[48];
+  PMEMmutex lock_bit;
 };
 
 template <class T>
@@ -1561,6 +1564,8 @@ void Table<T>::Split(Table<T> *org_table, uint64_t base_level, int org_idx,
     }
     invalid_array[kNumBucket + i] = invalid_mask;
   }
+
+  seg_version = org_table->seg_version;
 
   /*clear the uintialized bit in expand_table*/
   for (int i = 0; i < kNumBucket; ++i) {
@@ -2135,7 +2140,7 @@ class Linear : public Hash<T> {
   void FindAnyway(T key);
   void Recovery();
   bool TryMerge(uint64_t, Table<T> *);
-  int recoverSegment(Table<T> **seg_ptr, size_t, size_t, size_t);
+  void recoverSegment(Table<T> **seg_ptr, size_t, size_t, size_t);
   void getNumber() {
     uint64_t count = 0;
     uint64_t prev_length = 0;
@@ -2500,6 +2505,7 @@ bool Linear<T>::TryMerge(uint64_t x, Table<T> *shrunk_table) {
 
 template <class T>
 void Linear<T>::Recovery() {
+  Allocator::EpochRecovery();
   uint64_t old_N_next = dir.N_next;
   uint32_t N = old_N_next >> 32;
   uint32_t next = (uint32_t)old_N_next;
@@ -2510,20 +2516,36 @@ void Linear<T>::Recovery() {
   uint32_t offset;
   SEG_IDX_OFFSET(x, dir_idx, offset);
 
-  std::cout << dir_idx << " segments in the linear hashing" << std::endl;
+  std::cout << dir_idx << " segments array in the linear hashing" << std::endl;
   for (int i = 0; i < dir_idx; ++i) {
     dir.recover_counter[i] = SEG_SIZE_BY_SEGARR_ID(i);
     dir._[i] = reinterpret_cast<Table<T> *>((uint64_t)dir._[i] | recoverBit);
   }
+  std::cout << dir_idx << " segments array in the linear hashing" << std::endl;
 
   dir.recover_counter[dir_idx] = offset + 1;
   dir._[dir_idx] =
       reinterpret_cast<Table<T> *>((uint64_t)dir._[dir_idx] | recoverBit);
+
+  dir.crash_version += 1;
+  if(dir.crash_version == 0){
+    /* Scan all the segments to make it invalid*/
+    uint32_t occupied_bucket = pow2(N) + next;
+    uint64_t recount_num = 0;
+    for (int i = 0; i < occupied_bucket; ++i) {
+      uint32_t dir_idx;
+      uint32_t offset;
+      SEG_IDX_OFFSET(i, dir_idx, offset);
+      Table<T> *curr_table = dir._[dir_idx] + offset;
+      curr_table->seg_version = 1;
+    }
+  }
 }
 
 template <class T>
-int Linear<T>::recoverSegment(Table<T> **seg_ptr, size_t index, size_t dir_idx,
+void Linear<T>::recoverSegment(Table<T> **seg_ptr, size_t index, size_t dir_idx,
                               size_t offset) {
+RETRY:
   // std::cout << "Start to recover the segment" << std::endl;
   uint64_t snapshot = reinterpret_cast<uint64_t>(*seg_ptr);
   Table<T> *target = (Table<T> *)(snapshot & (~recoverLockBit)) + offset;
@@ -2531,15 +2553,18 @@ int Linear<T>::recoverSegment(Table<T> **seg_ptr, size_t index, size_t dir_idx,
   /*No need for the recovery of this segment*/
   /*
   if((memcmp((void*)&target->dirty_bit, (void*)&cmp, sizeof(PMEMmutex)) != 0) ||
-  (index > dir.recovered_index)){ return 0;
-  }*/
+  (index > dir.recovered_index)){ return;
+  }
+  */
+  if((dir.crash_version == target->seg_version) || (index > dir.recovered_index)){
+    return;
+  }
 
   /*try to get the exclusive recovery lock*/
-  /*
   if(pmemobj_mutex_trylock(pool_addr, &target->lock_bit) != 0){
-    return -1;
-  }*/
-
+    //return -1;
+    goto RETRY;
+  }
   target->recoverMetadata();
 
   if (target->state == 2) {
@@ -2574,13 +2599,14 @@ int Linear<T>::recoverSegment(Table<T> **seg_ptr, size_t index, size_t dir_idx,
   }
 
   // std::cout << "Finish of recoverring the segment" << std::endl;
-  // pmemobj_mutex_lock(pool_addr, &target->dirty_bit);
+  //pmemobj_mutex_lock(pool_addr, &target->dirty_bit);
+  target->seg_version = dir.crash_version;
   SUB(&dir.recover_counter[dir_idx], 1);
   if (dir.recover_counter[dir_idx] <= 0) {
-    std::cout << "reset the dirty bit" << std::endl;
+    //std::cout << "reset the dirty bit" << std::endl;
     *seg_ptr = (Table<T> *)(snapshot & (~recoverLockBit));
   }
-  return 0;
+  //return 0;
 }
 
 template <class T>
@@ -2616,10 +2642,12 @@ RETRY:
   SEG_IDX_OFFSET(static_cast<uint32_t>(x), dir_idx, offset);
   Table<T> *target = dir._[dir_idx] + offset;
   if (reinterpret_cast<uint64_t>(dir._[dir_idx]) & recoverLockBit) {
+    /*
     int flag = recoverSegment(&dir._[dir_idx], x, dir_idx, offset);
     if (flag == -1) {
       goto RETRY;
-    }
+    }*/
+    recoverSegment(&dir._[dir_idx], x, dir_idx, offset);
     target =
         (Table<T> *)((uint64_t)(dir._[dir_idx]) & (~recoverLockBit)) + offset;
   }
@@ -2666,10 +2694,12 @@ RETRY:
   Table<T> *target = dir._[dir_idx] + offset;
 
   if (reinterpret_cast<uint64_t>(dir._[dir_idx]) & recoverLockBit) {
+    /*
     int flag = recoverSegment(&dir._[dir_idx], x, dir_idx, offset);
     if (flag == -1) {
       goto RETRY;
-    }
+    }*/
+    recoverSegment(&dir._[dir_idx], x, dir_idx, offset);
     target =
         (Table<T> *)((uint64_t)(dir._[dir_idx]) & (~recoverLockBit)) + offset;
   }
@@ -2833,10 +2863,12 @@ RETRY:
   Table<T> *target = dir._[dir_idx] + offset;
 
   if (reinterpret_cast<uint64_t>(dir._[dir_idx]) & recoverLockBit) {
+    /*
     int flag = recoverSegment(&dir._[dir_idx], x, dir_idx, offset);
     if (flag == -1) {
       goto RETRY;
-    }
+    }*/
+    recoverSegment(&dir._[dir_idx], x, dir_idx, offset);
     target =
         (Table<T> *)((uint64_t)(dir._[dir_idx]) & (~recoverLockBit)) + offset;
   }
@@ -3015,10 +3047,12 @@ RETRY:
   SEG_IDX_OFFSET(static_cast<uint32_t>(x), dir_idx, offset);
   Table<T> *target = dir._[dir_idx] + offset;
   if (reinterpret_cast<uint64_t>(dir._[dir_idx]) & recoverLockBit) {
+    /*
     int flag = recoverSegment(&dir._[dir_idx], x, dir_idx, offset);
     if (flag == -1) {
       goto RETRY;
-    }
+    }*/
+    recoverSegment(&dir._[dir_idx], x, dir_idx, offset);
     target =
         (Table<T> *)((uint64_t)(dir._[dir_idx]) & (~recoverLockBit)) + offset;
   }
