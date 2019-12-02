@@ -22,7 +22,7 @@ We tested our build with Linux Kernel 5.2.11 and gcc 9.2.0.
 
 ```bash
 mkdir build && cd build
-cmake -DCMAKE_BUILD_TYPE=Debug -DUSE_PMEM=ON .. 
+cmake -DCMAKE_BUILD_TYPE=Release -DUSE_PMEM=ON .. 
 make test_pmem
 ```
 
