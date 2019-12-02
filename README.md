@@ -1,4 +1,4 @@
-# Dash: Dynamic and Scalable Hashing on Persistent Memory 
+# Dash: Scalable Hashing on Persistent Memory
 
 [![Build Status](https://dev.azure.com/haoxiangpeng/VeryPM/_apis/build/status/XiangpengHao.VeryPM?branchName=master)](https://dev.azure.com/haoxiangpeng/VeryPM/_build/latest?definitionId=2&branchName=master)
 
