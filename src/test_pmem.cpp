@@ -25,7 +25,6 @@
 #define EPOCH_DURATION 1000
 
 std::string pool_name = "/mnt/pmem0/";
-// static const char *pool_name = "pmem_hash.data";
 static const size_t pool_size = 1024ul * 1024ul * 1024ul * 30ul;
 DEFINE_string(index, "dash-ex",
               "which index to evaluate:dash-ex/dash-lh/cceh/level");
@@ -42,7 +41,7 @@ DEFINE_string(op, "full",
 DEFINE_double(r, 1, "read ratio for mixed workload");
 DEFINE_double(s, 0, "insert ratio for mixed workload");
 DEFINE_double(d, 0, "delete ratio for mixed workload");
-DEFINE_double(skew, 0.8, "delete ratio for mixed workload");
+DEFINE_double(skew, 0.8, "skew ratio of the workload");
 DEFINE_uint32(e, 0, "whether register epoch in application level");
 DEFINE_uint32(ms, 100, "#miliseconds to sample the operations");
 
@@ -1207,7 +1206,6 @@ void Run() {
     }
     */    
   } else { /*do the benchmark for all single operations*/
-
     std::cout << "insertion start" << std::endl;
     for (int i = 0; i < thread_num; ++i) {
       rarray[i].workload = not_used_insert_workload;
@@ -1220,31 +1218,6 @@ void Run() {
                       &concurr_insert_without_epoch);
     }
     index->getNumber();
-
-/*
-    gettimeofday(&tv1, NULL);
-    index->Recovery();
-    gettimeofday(&tv2, NULL);
-
-    double recovery_time = (double)(tv2.tv_usec - tv1.tv_usec) / 1000000 +
-              (double)(tv2.tv_sec - tv1.tv_sec);
-    std::cout << "The recovery time is " << recovery_time << std::endl;
-
-    RecoveryBench<T>(rarray, index, thread_num, operation_num, "Pos_search");
-    /*
-        for (int i = 0; i < thread_num; ++i) {
-          rarray[i].begin = operation_num + i * chunk_size;
-          rarray[i].end = operation_num + (i + 1) * chunk_size;
-        }
-        rarray[thread_num - 1].end = 2 * operation_num;
-        if (open_epoch == true) {
-          GeneralBench<T>(rarray, index, thread_num, operation_num, "Insert",
-                          &concurr_insert);
-        } else {
-          GeneralBench<T>(rarray, index, thread_num, operation_num, "Insert",
-                          &concurr_insert_without_epoch);
-        }
-    */
 
     for (int i = 0; i < thread_num; ++i) {
       rarray[i].workload = not_used_workload;
@@ -1269,7 +1242,7 @@ void Run() {
       GeneralBench<T>(rarray, index, thread_num, operation_num, "Neg_search",
                       &concurr_search_without_epoch);
     }
-/*
+
     for (int i = 0; i < thread_num; ++i) {
       rarray[i].begin = i * chunk_size;
       rarray[i].end = (i + 1) * chunk_size;
@@ -1284,7 +1257,6 @@ void Run() {
                       &concurr_delete_without_epoch);
     }
     index->getNumber();
-*/
   }
   /*TODO Free the workload memory*/
 }

@@ -2154,12 +2154,14 @@ class Linear : public Hash<T> {
     std::cout << "next = " << next << std::endl;
     uint32_t occupied_bucket = pow2(N) + next;
     uint64_t recount_num = 0;
+    uint32_t max_dir = 0;
 
     for (int i = 0; i < occupied_bucket; ++i) {
       uint32_t dir_idx;
       uint32_t offset;
       SEG_IDX_OFFSET(i, dir_idx, offset);
       Table<T> *curr_table = dir._[dir_idx] + offset;
+      if (max_dir < dir_idx) max_dir = dir_idx;
 #ifdef COUNTING
       recount_num += curr_table->number;
 #endif
@@ -2223,6 +2225,8 @@ class Linear : public Hash<T> {
         Bucket_num++;
       }
     }
+
+    std::cout << "The # directory entries is "<< max_dir << std::endl;
 
     std::cout << "occupied table is " << occupied_bucket << std::endl;
     Bucket_num += SUM_BUCKET(occupied_bucket - 1) * (kNumBucket + stashBucket);
@@ -2551,11 +2555,6 @@ RETRY:
   Table<T> *target = (Table<T> *)(snapshot & (~recoverLockBit)) + offset;
 
   /*No need for the recovery of this segment*/
-  /*
-  if((memcmp((void*)&target->dirty_bit, (void*)&cmp, sizeof(PMEMmutex)) != 0) ||
-  (index > dir.recovered_index)){ return;
-  }
-  */
   if((dir.crash_version == target->seg_version) || (index > dir.recovered_index)){
     return;
   }
