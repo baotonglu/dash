@@ -124,8 +124,6 @@ struct Allocator {
     if (ret) {
       LOG_FATAL("allocation error");
     }
-    /* FIXME: this should happen in a transaction
-     */
   }
 
   static void DefaultCallback(void* callback_context, void* ptr) {

@@ -18,13 +18,13 @@
 #include "Hash.h"
 #include "allocator.h"
 #include "ex_finger.h"
-#include "lh_finger.h"
+#include "lh_finger_org.h"
 #include "libpmemobj.h"
 #include "utils.h"
 
 #define EPOCH_DURATION 1000
 
-std::string pool_name = "/mnt/pmem0/";
+std::string pool_name = "/mnt/pmem1/";
 // static const char *pool_name = "pmem_hash.data";
 static const size_t pool_size = 1024ul * 1024ul * 1024ul * 30ul;
 DEFINE_string(index, "dash-ex",
@@ -82,11 +82,13 @@ struct range {
 void set_affinity(uint32_t idx) {
   cpu_set_t my_set;
   CPU_ZERO(&my_set);
+  /*
   if (idx < 24) {
     CPU_SET(idx, &my_set);
   } else {
     CPU_SET(idx + 24, &my_set);
-  }
+  }*/
+  CPU_SET(idx + 24, &my_set);
   sched_setaffinity(0, sizeof(cpu_set_t), &my_set);
 }
 
@@ -957,6 +959,7 @@ void Run() {
 
   /* Benchmark Phase */
   if (operation == "insert") {
+    std::cout << "Insert-only Benchmark" << std::endl;
     for (int i = 0; i < thread_num; ++i) {
       rarray[i].workload = not_used_insert_workload;
     }
@@ -1040,6 +1043,7 @@ void Run() {
     }
     RecoveryBench<T>(rarray, index, thread_num, operation_num, "Pos_search");
   } else { /*do the benchmark for all single operations*/
+    std::cout << "Comprehensive Benchmark" << std::endl;
     std::cout << "insertion start" << std::endl;
     for (int i = 0; i < thread_num; ++i) {
       rarray[i].workload = not_used_insert_workload;
@@ -1051,29 +1055,20 @@ void Run() {
       GeneralBench<T>(rarray, index, thread_num, operation_num, "Insert",
                       &concurr_insert_without_epoch);
     }
+/*
+    for (int i = 0; i < thread_num; ++i) {
+      rarray[i].workload = not_used_insert_workload;
+    }
+    if (open_epoch == true) {
+      GeneralBench<T>(rarray, index, thread_num, operation_num, "Insert",
+                      &concurr_insert);
+    } else {
+      GeneralBench<T>(rarray, index, thread_num, operation_num, "Insert",
+                      &concurr_insert_without_epoch);
+    }
     index->getNumber();
-    /*
-        gettimeofday(&tv1, NULL);
-        index->Recovery();
-        gettimeofday(&tv2, NULL);
+*/
 
-        double recovery_time = (double)(tv2.tv_usec - tv1.tv_usec) / 1000000 +
-                 (double)(tv2.tv_sec - tv1.tv_sec);
-        std::cout << "The recovery time is " << recovery_time << std::endl;
-    /*
-        for (int i = 0; i < thread_num; ++i) {
-          rarray[i].begin = operation_num + i * chunk_size;
-          rarray[i].end = operation_num + (i + 1) * chunk_size;
-        }
-        rarray[thread_num - 1].end = 2 * operation_num;
-        if (open_epoch == true) {
-          GeneralBench<T>(rarray, index, thread_num, operation_num, "Insert",
-                          &concurr_insert);
-        } else {
-          GeneralBench<T>(rarray, index, thread_num, operation_num, "Insert",
-                          &concurr_insert_without_epoch);
-        }
-    */
     for (int i = 0; i < thread_num; ++i) {
       rarray[i].workload = not_used_workload;
     }
