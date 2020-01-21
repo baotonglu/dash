@@ -24,7 +24,7 @@
 
 #define EPOCH_DURATION 1000
 
-std::string pool_name = "/mnt/pmem0/";
+std::string pool_name = "/mnt/pmem1/";
 static const size_t pool_size = 1024ul * 1024ul * 1024ul * 30ul;
 DEFINE_string(index, "dash-ex",
               "which index to evaluate:dash-ex/dash-lh/cceh/level");
@@ -81,11 +81,13 @@ struct range {
 void set_affinity(uint32_t idx) {
   cpu_set_t my_set;
   CPU_ZERO(&my_set);
+  CPU_SET(idx + 24, &my_set);
+  /*
   if (idx < 24) {
     CPU_SET(idx, &my_set);
   } else {
     CPU_SET(idx + 24, &my_set);
-  }
+  }*/
   sched_setaffinity(0, sizeof(cpu_set_t), &my_set);
 }
 

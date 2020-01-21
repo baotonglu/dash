@@ -2377,11 +2377,13 @@ Allocator::ZAllocate((void **)&dir._[dir_idx], kCacheLineSize,
 sizeof(Table<T>) * seg_size);*/
 #ifdef PREALLOC
         dir._[dir_idx] = TlsTablePool<T>::Get(seg_size);
+        //std::cout << "Preallocation" << std::endl;
 #else
         Allocator::ZAllocate(&back_seg, kCacheLineSize,
                              sizeof(Table<T>) * seg_size);
         dir._[dir_idx] = reinterpret_cast<Table<T> *>(pmemobj_direct(back_seg));
         back_seg = OID_NULL;
+        //std::cout << "Normal allocation" << std::endl;
 #endif
 #else
         Allocator::ZAllocate((void **)&dir._[dir_idx], kCacheLineSize,
