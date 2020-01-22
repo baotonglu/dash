@@ -205,6 +205,7 @@ void generate_16B(void *memory_region, uint64_t generate_num, int length,
 
 template <class T>
 void Load(int kv_num, Hash<T> *index, int length, void *workload) {
+  std::cout << "Start load warm-up workload" << std::endl;
   if (kv_num == 0) return;
   std::string fixed("fixed");
   T *_worklod = reinterpret_cast<T *>(workload);
@@ -287,6 +288,7 @@ void concurr_insert(struct range *_range, Hash<T> *index) {
       uint64_t _end = begin + (i + 1) * EPOCH_DURATION;
       for (uint64_t j = begin + i * EPOCH_DURATION; j < _end; ++j) {
         index->Insert(key_array[j], DEFAULT, true);
+        //index->Insert(j, DEFAULT, true);
       }
       ++i;
     }
@@ -295,6 +297,7 @@ void concurr_insert(struct range *_range, Hash<T> *index) {
       auto epoch_guard = Allocator::AquireEpochGuard();
       for (i = begin + EPOCH_DURATION * round; i < end; ++i) {
         index->Insert(key_array[i], DEFAULT, true);
+        //index->Insert(i, DEFAULT, true);
       }
     }
   } else {
@@ -1123,6 +1126,7 @@ bool check_ratio() {
 }
 
 int main(int argc, char *argv[]) {
+  set_affinity(0);
   gflags::ParseCommandLineFlags(&argc, &argv, true);
   initCap = FLAGS_i;
   thread_num = FLAGS_t;

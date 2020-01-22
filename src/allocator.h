@@ -34,8 +34,10 @@ struct Allocator {
   Allocator(const char* pool_name, size_t pool_size) {
     if (!FileExists(pool_name)) {
       LOG("creating a new pool");
-      pm_pool_ = pmemobj_create_addr(pool_name, layout_name, pool_size,
-                                     CREATE_MODE_RW, (void*)pool_addr);
+      //pm_pool_ = pmemobj_create_addr(pool_name, layout_name, pool_size,
+      //                               CREATE_MODE_RW, (void*)pool_addr);
+
+      pm_pool_ = pmemobj_create(pool_name, layout_name, pool_size, CREATE_MODE_RW);
       if (pm_pool_ == nullptr) {
         LOG_FATAL("failed to create a pool;");
       }
@@ -43,7 +45,8 @@ struct Allocator {
     }
     LOG("opening an existing pool, and trying to map to same address");
     /* Need to open an existing persistent pool */
-    pm_pool_ = pmemobj_open_addr(pool_name, layout_name, (void*)pool_addr);
+    //pm_pool_ = pmemobj_open_addr(pool_name, layout_name, (void*)pool_addr);
+    pm_pool_ = pmemobj_open(pool_name, layout_name);
     if (pm_pool_ == nullptr) {
       LOG_FATAL("failed to open the pool");
     }
