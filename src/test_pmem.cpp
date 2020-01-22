@@ -24,7 +24,8 @@
 
 #define EPOCH_DURATION 1000
 
-std::string pool_name = "/mnt/pmem1/";
+std::string pool_name = "/mnt/pmem0/";
+//std::string pool_name = "";
 // static const char *pool_name = "pmem_hash.data";
 static const size_t pool_size = 1024ul * 1024ul * 1024ul * 30ul;
 DEFINE_string(index, "dash-ex",
@@ -82,13 +83,12 @@ struct range {
 void set_affinity(uint32_t idx) {
   cpu_set_t my_set;
   CPU_ZERO(&my_set);
-  /*
   if (idx < 24) {
     CPU_SET(idx, &my_set);
   } else {
     CPU_SET(idx + 24, &my_set);
-  }*/
-  CPU_SET(idx + 24, &my_set);
+  }
+  //CPU_SET(idx + 24, &my_set);
   sched_setaffinity(0, sizeof(cpu_set_t), &my_set);
 }
 
@@ -717,7 +717,7 @@ void GeneralBench(range *rarray, Hash<T> *index, int thread_num,
   bar_c = thread_num;
 
   std::cout << profile_name << " Begin" << std::endl;
-  // System::profile(profile_name, [&]() {
+ //System::profile(profile_name, [&]() {
   for (uint64_t i = 0; i < thread_num; ++i) {
     thread_array[i] = new std::thread(*test_func, &rarray[i], index);
   }
@@ -963,6 +963,7 @@ void Run() {
     for (int i = 0; i < thread_num; ++i) {
       rarray[i].workload = not_used_insert_workload;
     }
+    Allocator::clear_zero();
     if (open_epoch == true) {
       GeneralBench<T>(rarray, index, thread_num, operation_num, "Insert",
                       &concurr_insert);
@@ -970,6 +971,8 @@ void Run() {
       GeneralBench<T>(rarray, index, thread_num, operation_num, "Insert",
                       &concurr_insert_without_epoch);
     }
+    Allocator::report_num();
+    index->getNumber();
   } else if (operation == "pos") {
     if (!load_num) {
       std::cout << "Please first specify the # pre_load keys!" << std::endl;

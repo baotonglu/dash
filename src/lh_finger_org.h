@@ -1281,6 +1281,7 @@ struct Table {
 #ifdef COUNTING
     __sync_fetch_and_add(&number, 1);
 #endif
+
     return -1;
   }
 
@@ -2242,6 +2243,7 @@ class Linear : public Hash<T> {
            (double)count / (Bucket_num * 16));
     printf("the prev_length = %lld\n", prev_length);
     printf("the after_length = %lld\n", after_length);
+    printf("the allocation time = %lld\n", total_time);
     //		printf("the prev_average length = %lf\n",
     //(double)prev_length/next); 		printf("the after_average length
     //= %lf\n", (double)after_length/N); 		printf("the average
@@ -2334,14 +2336,6 @@ class Linear : public Hash<T> {
    * @return void
    */
   inline void Expand(uint32_t numBuckets) {
-    /*
-    #ifdef COUNTING
-        int unlock_state = 0;
-        while (!CAS(&lock, &unlock_state, 1)) {
-          unlock_state = 0;
-        }
-    #endif
-    */
   RE_EXPAND:
     uint64_t old_N_next = dir.N_next;
     uint32_t old_N = old_N_next >> 32;
@@ -2351,16 +2345,15 @@ class Linear : public Hash<T> {
         static_cast<uint32_t>(pow(2, old_N)) + old_next + numBuckets - 1,
         dir_idx, offset);
     /*first need the reservation of the key-value*/
-    Table<T> *RESERVED = reinterpret_cast<Table<T> *>(-1);
-    if (dir._[dir_idx] == RESERVED) {
+    Table<T> *RESERVED = reinterpret_cast<Table<T> *>(1);
+    if (LOAD(&dir._[dir_idx]) == RESERVED) {
       goto RE_EXPAND;
     }
 
     Table<T> *old_value = NULL;
-    if (dir._[dir_idx] == NULL) {
+    if (LOAD(&dir._[dir_idx]) == NULL) {
       /* Need to allocate the memory for new segment*/
       if (CAS(&(dir._[dir_idx]), &old_value, RESERVED)) {
-#ifdef DOUBLE_EXPANSION
         uint32_t seg_size = SEG_SIZE(static_cast<uint32_t>(pow(2, old_N)) +
                                      old_next + numBuckets - 1);
         /*
@@ -2371,15 +2364,16 @@ sizeof(Table<T>) * seg_size);*/
         dir._[dir_idx] = TlsTablePool<T>::Get(seg_size);
 #else
         std::cout << "normal allocation" << std::endl;
+        gettimeofday(&lv1, NULL);
         Allocator::ZAllocate(&back_seg, kCacheLineSize,
                              sizeof(Table<T>) * seg_size);
-        dir._[dir_idx] = reinterpret_cast<Table<T> *>(pmemobj_direct(back_seg));
+        gettimeofday(&lv2, NULL);
+        total_time += (lv2.tv_usec - lv1.tv_usec) + (lv2.tv_sec - lv1.tv_sec) * 1000000;
+        //dir._[dir_idx] = reinterpret_cast<Table<T> *>(pmemobj_direct(back_seg));
+        STORE(&dir._[dir_idx], reinterpret_cast<Table<T> *>(pmemobj_direct(back_seg)));
         back_seg = OID_NULL;
 #endif
-#else
-        Allocator::ZAllocate((void **)&dir._[dir_idx], kCacheLineSize,
-                             sizeof(Table<T>) * segmentSize);
-#endif
+
 #ifdef PMEM
         Allocator::Persist(&dir._[dir_idx], sizeof(Table<T> *));
 #endif
@@ -2418,6 +2412,8 @@ sizeof(Table<T>) * seg_size);*/
 #endif
   Directory<T> dir;
   int lock;
+  struct timeval lv1, lv2;
+  uint64_t total_time;
 };
 
 template <class T>
@@ -2425,6 +2421,7 @@ Linear<T>::Linear(PMEMobjpool *_pool) {
   std::cout << "Start to initialize from scratch" << std::endl;
   pool_addr = _pool;
   lock = 0;
+  total_time = 0;
   dir.N_next = baseShifBits << 32;
   std::cout << "Table size is " << sizeof(Table<T>) << std::endl;
   memset(dir._, 0, directorySize * sizeof(uint64_t));
@@ -2526,7 +2523,7 @@ void Linear<T>::Recovery() {
 template <class T>
 int Linear<T>::recoverSegment(Table<T> **seg_ptr, size_t index, size_t dir_idx,
                               size_t offset) {
-  // std::cout << "Start to recover the segment" << std::endl;
+   std::cout << "Start to recover the segment" << std::endl;
   uint64_t snapshot = reinterpret_cast<uint64_t>(*seg_ptr);
   Table<T> *target = (Table<T> *)(snapshot & (~recoverLockBit)) + offset;
 
@@ -2617,6 +2614,7 @@ RETRY:
   uint32_t offset;
   SEG_IDX_OFFSET(static_cast<uint32_t>(x), dir_idx, offset);
   Table<T> *target = dir._[dir_idx] + offset;
+
   if (reinterpret_cast<uint64_t>(dir._[dir_idx]) & recoverLockBit) {
     int flag = recoverSegment(&dir._[dir_idx], x, dir_idx, offset);
     if (flag == -1) {

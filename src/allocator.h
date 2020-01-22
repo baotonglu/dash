@@ -10,11 +10,14 @@ static const constexpr uint64_t pool_addr = 0x7ff600000000;
 
 typedef void (*DestroyCallback)(void* callback_context, void* object);
 
+
 struct Allocator {
  public:
 #ifdef PMEM
   static void Initialize(const char* pool_name, size_t pool_size) {
     instance_ = new Allocator(pool_name, pool_size);
+    instance_->light_zalloc = 0;
+    instance_->heavy_zalloc = 0;
     instance_->epoch_manager_.Initialize();
     instance_->garbage_list_.Initialize(&instance_->epoch_manager_,
                                         instance_->pm_pool_, 1024*8);
@@ -46,9 +49,21 @@ struct Allocator {
     }
   }
 
+  uint64_t light_zalloc;
+  uint64_t heavy_zalloc;
   PMEMobjpool* pm_pool_{nullptr};
   EpochManager epoch_manager_{};
   GarbageList garbage_list_{};
+
+  static void clear_zero(){
+    instance_->light_zalloc = 0;
+    instance_->heavy_zalloc = 0;
+  }
+
+  static void report_num(){
+    std::cout << "Light zalloc = " << instance_->light_zalloc << std::endl;
+    std::cout << "Heavy zalloc = " << instance_->heavy_zalloc << std::endl;
+  }
 
   static Allocator* instance_;
   static Allocator* Get() { return instance_; }
@@ -104,6 +119,7 @@ struct Allocator {
 
   /*Must ensure that this pointer is in persistent memory*/
   static void ZAllocate(void** ptr, uint32_t alignment, size_t size) {
+    ADD(&instance_->heavy_zalloc, 1);
 #ifdef PMEM
     TX_BEGIN(instance_->pm_pool_) {
       pmemobj_tx_add_range_direct(ptr, sizeof(*ptr));
@@ -118,6 +134,7 @@ struct Allocator {
   }
 
   static void ZAllocate(PMEMoid* pm_ptr, uint32_t alignment, size_t size) {
+    ADD(&instance_->light_zalloc, 1);
     auto ret =
         pmemobj_zalloc(instance_->pm_pool_, pm_ptr, size, TOID_TYPE_NUM(char));
 
