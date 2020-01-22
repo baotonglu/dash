@@ -122,7 +122,7 @@ struct Allocator {
 
   /*Must ensure that this pointer is in persistent memory*/
   static void ZAllocate(void** ptr, uint32_t alignment, size_t size) {
-    ADD(&instance_->heavy_zalloc, 1);
+    //ADD(&instance_->heavy_zalloc, 1);
 #ifdef PMEM
     TX_BEGIN(instance_->pm_pool_) {
       pmemobj_tx_add_range_direct(ptr, sizeof(*ptr));
@@ -137,7 +137,7 @@ struct Allocator {
   }
 
   static void ZAllocate(PMEMoid* pm_ptr, uint32_t alignment, size_t size) {
-    ADD(&instance_->light_zalloc, 1);
+    //ADD(&instance_->light_zalloc, 1);
     auto ret =
         pmemobj_zalloc(instance_->pm_pool_, pm_ptr, size, TOID_TYPE_NUM(char));
 
