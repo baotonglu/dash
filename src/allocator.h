@@ -6,7 +6,7 @@
 #include "x86intrin.h"
 
 static const char* layout_name = "hashtable";
-static const constexpr uint64_t pool_addr = 0x7ff600000000;
+static const constexpr uint64_t pool_addr = 0x5f0000000000;
 
 typedef void (*DestroyCallback)(void* callback_context, void* object);
 
