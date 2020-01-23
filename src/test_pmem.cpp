@@ -27,7 +27,7 @@
 std::string pool_name = "/mnt/pmem0/";
 //std::string pool_name = "";
 // static const char *pool_name = "pmem_hash.data";
-static const size_t pool_size = 1024ul * 1024ul * 1024ul * 200ul;
+static const size_t pool_size = 1024ul * 1024ul * 1024ul * 20ul;
 DEFINE_string(index, "dash-ex",
               "which index to evaluate:dash-ex/dash-lh/cceh/level");
 DEFINE_string(k, "fixed", "the type of stored keys: fixed/variable");
