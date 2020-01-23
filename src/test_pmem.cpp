@@ -18,7 +18,7 @@
 #include "Hash.h"
 #include "allocator.h"
 #include "ex_finger.h"
-#include "lh_finger_org.h"
+#include "lh_finger.h"
 #include "libpmemobj.h"
 #include "utils.h"
 
@@ -27,7 +27,7 @@
 std::string pool_name = "/mnt/pmem0/";
 //std::string pool_name = "";
 // static const char *pool_name = "pmem_hash.data";
-static const size_t pool_size = 1024ul * 1024ul * 1024ul * 30ul;
+static const size_t pool_size = 1024ul * 1024ul * 1024ul * 200ul;
 DEFINE_string(index, "dash-ex",
               "which index to evaluate:dash-ex/dash-lh/cceh/level");
 DEFINE_string(k, "fixed", "the type of stored keys: fixed/variable");
@@ -46,6 +46,7 @@ DEFINE_double(d, 0, "delete ratio for mixed workload");
 DEFINE_double(skew, 0.8, "skew ratio of the workload");
 DEFINE_uint32(e, 0, "whether register epoch in application level");
 DEFINE_uint32(ms, 100, "#miliseconds to sample the operations");
+DEFINE_uint32(vl, 16, "the length of the variable length key");
 
 uint64_t initCap, thread_num, load_num, operation_num;
 std::string operation;
@@ -58,7 +59,7 @@ std::mutex mtx;
 std::condition_variable cv;
 bool finished = false;
 bool open_epoch;
-uint32_t msec;
+uint32_t msec, var_length;
 struct timeval tv1, tv2, tv3;
 key_generator_t *uniform_generator;
 
@@ -150,7 +151,7 @@ Hash<T> *InitializeIndex(int seg_num) {
         Allocator::GetRoot(sizeof(level::LevelHashing<T>)));
     if (!file_exist) {
       new (eh) level::LevelHashing<T>();
-      int level_size = 13;
+      int level_size = 14;
       level::initialize_level(Allocator::Get()->pm_pool_,
                               reinterpret_cast<level::LevelHashing<T> *>(eh),
                               &level_size);
@@ -1058,24 +1059,27 @@ void Run() {
   /* Generate the workload and corresponding range array*/
   void *workload;
   if (distribution == "uniform") {
-    workload = GenerateWorkload(generate_num, 16);
+    workload = GenerateWorkload(generate_num, var_length);
   } else {
-    workload = GenerateSkewWorkload(load_num, operation_num, operation_num, 16);
+    workload = GenerateSkewWorkload(load_num, operation_num, operation_num, var_length);
   }
 
+  index->getNumber();
   void *insert_workload;
   if (key_type != "fixed") {
     PMEMoid ptr;
-    Allocator::ZAllocate(&ptr, kCacheLineSize,
-                         (sizeof(string_key) + 16) * generate_num);
+    //Allocator::ZAllocate(&ptr, kCacheLineSize,
+    //                     (sizeof(string_key) + var_length) * generate_num);
+    Allocator::Allocate(&ptr, kCacheLineSize, (sizeof(string_key) + var_length) * generate_num,
+                       NULL, NULL);
     insert_workload = pmemobj_direct(ptr);
     std::cout << "allocate finish for pm" << std::endl;
-    memcpy(insert_workload, workload, (sizeof(string_key) + 16) * generate_num);
+    memcpy(insert_workload, workload, (sizeof(string_key) + var_length) * generate_num);
   } else {
     insert_workload = workload;
   }
 
-  Load<T>(load_num, index, 16, insert_workload);
+  Load<T>(load_num, index, var_length, insert_workload);
   void *not_used_workload;
   void *not_used_insert_workload;
 
@@ -1086,9 +1090,9 @@ void Run() {
   } else {
     char *key_array = reinterpret_cast<char *>(workload);
     char *persist_key_array = reinterpret_cast<char *>(insert_workload);
-    not_used_workload = key_array + (sizeof(string_key) + 16) * load_num;
+    not_used_workload = key_array + (sizeof(string_key) + var_length) * load_num;
     not_used_insert_workload =
-        persist_key_array + (sizeof(string_key) + 16) * load_num;
+        persist_key_array + (sizeof(string_key) + var_length) * load_num;
   }
 
   /* Description of the workload*/
@@ -1101,7 +1105,7 @@ void Run() {
     rarray[i].random_num = rand();
     rarray[i].begin = i * chunk_size;
     rarray[i].end = (i + 1) * chunk_size;
-    rarray[i].length = 16;
+    rarray[i].length = var_length;
     rarray[i].workload = not_used_workload;
   }
   rarray[thread_num - 1].end = operation_num;
@@ -1308,6 +1312,7 @@ int main(int argc, char *argv[]) {
   std::cout << "FLAGS_e = " << FLAGS_e << std::endl;
   open_epoch = FLAGS_e;
   msec = FLAGS_ms;
+  var_length = FLAGS_vl;
   if (open_epoch == true)
     std::cout << "EPOCH registration in application level" << std::endl;
 
@@ -1324,6 +1329,7 @@ int main(int argc, char *argv[]) {
   if (key_type.compare(fixed) == 0) {
     Run<uint64_t>();
   } else {
+    std::cout << "Variable-length key = " << var_length << std::endl;
     Run<string_key *>();
   }
 }

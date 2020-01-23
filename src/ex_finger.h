@@ -287,10 +287,16 @@ struct Bucket {
 
     if constexpr (std::is_pointer_v<T>) {
       string_key *_key = reinterpret_cast<string_key *>(key);
-      for (int i = 0; i < 12; i += 4) {
-        // if (CHECK_BIT(mask, i) && (strcmp(_[i].key, key) == 0)) {
-        //  return _[i].value;
-        //}
+      for (int i = 0; i < 14; i += 1) {
+        if (CHECK_BIT(mask, i) &&
+            (var_compare((reinterpret_cast<string_key *>(_[i].key))->key,
+                         _key->key,
+                         (reinterpret_cast<string_key *>(_[i].key))->length,
+                         _key->length))) {
+          return _[i].value;
+        }
+      }
+        /*
         if (CHECK_BIT(mask, i) &&
             (var_compare((reinterpret_cast<string_key *>(_[i].key))->key,
                          _key->key,
@@ -338,7 +344,7 @@ struct Bucket {
                        (reinterpret_cast<string_key *>(_[13].key))->length,
                        _key->length))) {
         return _[13].value;
-      }
+      }*/
     } else {
       /*loop unrolling*/
       for (int i = 0; i < 12; i += 4) {

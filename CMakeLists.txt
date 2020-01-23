@@ -13,7 +13,7 @@ set(CMAKE_ENABLE_COMPILE_COMMANDS "ON")
 
 if (${CMAKE_BUILD_TYPE} STREQUAL "Release")
   message("-- Release mode, all optimizations enabled")
-  set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} -O3 -g -Ofast")
+  set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} -O3 -Ofast")
 endif ()
 
 ##################### PMDK ####################
@@ -63,11 +63,9 @@ endif ()
 
 if (USE_PMEM MATCHES "ON")
   add_executable(test_pmem src/test_pmem.cpp)
-  add_executable(test_pmem_simple src/test_pmem_simple.cpp)
   add_executable(test_cceh src/CCEH/test_cceh.cpp)
   add_executable(test_level src/Level/test_level.cpp)
   target_link_libraries(test_pmem PRIVATE ${libs_to_link})
-  target_link_libraries(test_pmem_simple PRIVATE ${libs_to_link})
   target_link_libraries(test_cceh PRIVATE ${libs_to_link})
   target_link_libraries(test_level PRIVATE ${libs_to_link})
   add_dependencies(test_pmem PMDK)

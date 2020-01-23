@@ -51,7 +51,7 @@ struct log_entry {
 * In the following description, CacheLine actually means the bucket
 */
 // the number of cachelines in one bucket
-const size_t bucketSize = 1;
+const size_t bucketSize = 2;
 // const size_t kCacheLineSize = 64;
 constexpr size_t kSegmentBits = 8;
 /*We could tune the kMask, which means the number of buckets in the segment*/
@@ -62,7 +62,7 @@ constexpr size_t kSegmentSize = (1 << kSegmentBits) * 16 * 4;
 /* This is actually the #k-v pairs in one bucket*/
 constexpr size_t kNumPairPerCacheLine = (kCacheLineSize * bucketSize) / 16;
 /* The numebr of buckets to probe*/
-constexpr size_t kNumCacheLine = 4;
+constexpr size_t kNumCacheLine = 2;
 
 uint64_t clflushCount;
 
@@ -789,7 +789,10 @@ STARTOVER:
   } else {
     key_hash = h(&key, sizeof(key));
   }
+
+  /*which slot this key should be inserted*/
   auto y = (key_hash & kMask) * kNumPairPerCacheLine;
+//  std::cout << "row = "<<(key_hash & kMask)<<";y = " << y << std::endl; 
 
 RETRY:
   auto old_sa = dir->sa;
@@ -936,7 +939,6 @@ Value_t CCEH<T>::Get(T key) {
   uint64_t key_hash;
   if constexpr (std::is_pointer_v<T>) {
     key_hash = h(key->key, key->length);
-    // key_hash = h(key, (reinterpret_cast<string_key *>(key))->length);
   } else {
     key_hash = h(&key, sizeof(key));
   }
@@ -953,12 +955,10 @@ RETRY:
   if (!dir_->try_get_rd_lock(pool_addr)) {
     goto RETRY;
   }
-  // dir_->get_rd_lock(pool_addr);
 
   if ((key_hash >> (8 * sizeof(key_hash) - dir_->local_depth)) !=
           dir_->pattern ||
       dir_->sema == -1) {
-    // dir_->mutex.unlock_shared();
     dir_->release_rd_lock(pool_addr);
     goto RETRY;
   }
@@ -972,7 +972,6 @@ RETRY:
                        dir_->_[slot].key->length))) {
         auto value = dir_->_[slot].value;
 #ifdef INPLACE
-        // dir_->mutex.unlock_shared();
         dir_->release_rd_lock(pool_addr);
 #endif
         return value;
@@ -981,10 +980,8 @@ RETRY:
       if (dir_->_[slot].key == key) {
         auto value = dir_->_[slot].value;
 #ifdef INPLACE
-        // dir_->mutex.unlock_shared();
         dir_->release_rd_lock(pool_addr);
 #endif
-        // std::cout<<"End: Get key "<<key<<std::endl;
         return value;
       }
     }

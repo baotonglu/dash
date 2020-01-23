@@ -142,6 +142,7 @@ struct Allocator {
         pmemobj_zalloc(instance_->pm_pool_, pm_ptr, size, TOID_TYPE_NUM(char));
 
     if (ret) {
+      std::cout << "Allocation size = " << size << std::endl;
       LOG_FATAL("allocation error");
     }
   }
