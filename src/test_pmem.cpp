@@ -27,7 +27,7 @@
 std::string pool_name = "/mnt/pmem0/";
 //std::string pool_name = "";
 // static const char *pool_name = "pmem_hash.data";
-static const size_t pool_size = 1024ul * 1024ul * 1024ul * 20ul;
+static const size_t pool_size = 1024ul * 1024ul * 1024ul * 30ul;
 DEFINE_string(index, "dash-ex",
               "which index to evaluate:dash-ex/dash-lh/cceh/level");
 DEFINE_string(k, "fixed", "the type of stored keys: fixed/variable");
@@ -151,7 +151,7 @@ Hash<T> *InitializeIndex(int seg_num) {
         Allocator::GetRoot(sizeof(level::LevelHashing<T>)));
     if (!file_exist) {
       new (eh) level::LevelHashing<T>();
-      int level_size = 14;
+      int level_size = 13;
       level::initialize_level(Allocator::Get()->pm_pool_,
                               reinterpret_cast<level::LevelHashing<T> *>(eh),
                               &level_size);
@@ -749,8 +749,8 @@ void mixed_without_epoch(struct range *_range, Hash<T> *index) {
   uint32_t insert_sign = (uint32_t)(insert_ratio * 100);
   uint32_t read_sign = (uint32_t)(read_ratio * 100) + insert_sign;
   uint32_t delete_sign = (uint32_t)(delete_ratio * 100) + read_sign;
-  std::cout << "insert sign = " << insert_sign << std::endl;
-  std::cout << "read sign = " << read_sign << std::endl;
+  //std::cout << "insert sign = " << insert_sign << std::endl;
+  //std::cout << "read sign = " << read_sign << std::endl;
 
   spin_wait();
 
@@ -796,8 +796,8 @@ void mixed(struct range *_range, Hash<T> *index) {
   uint32_t insert_sign = (uint32_t)(insert_ratio * 100);
   uint32_t read_sign = (uint32_t)(read_ratio * 100) + insert_sign;
   uint32_t delete_sign = (uint32_t)(delete_ratio * 100) + read_sign;
-  std::cout << "insert sign = " << insert_sign << std::endl;
-  std::cout << "read sign = " << read_sign << std::endl;
+  //std::cout << "insert sign = " << insert_sign << std::endl;
+  //std::cout << "read sign = " << read_sign << std::endl;
 
   uint64_t round = (end - begin) / EPOCH_DURATION;
   uint64_t i = 0;

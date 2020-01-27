@@ -17,7 +17,7 @@
 #include "../../util/pair.h"
 #include "../../util/persist.h"
 #include "../Hash.h"
-#define ASSOC_NUM 3
+#define ASSOC_NUM 7
 #define NODE_TYPE 1000
 #define LEVEL_TYPE 2000
 #define LOCK_TYPE 3000
@@ -45,7 +45,7 @@ struct Entry {
 template <class T>
 struct Node {
   uint8_t token[ASSOC_NUM];
-  char dummy[13]; 
+  char dummy[9]; 
   Entry<T> slot[ASSOC_NUM];
   void *operator new[](size_t size) {
     void *ret;

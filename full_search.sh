@@ -3,7 +3,7 @@
 
 thread_num=(0 1 2 4 8 16 24 48)
 workload=(0 190000000)
-base=(0 10000000)
+base=(0 60000000)
 key_type=(0 fixed variab1e)
 index_type=(0 dash-ex dash-lh cceh level)
 epoch=(0 1 1 1 0)
@@ -14,11 +14,11 @@ epoch=(0 1 1 1 0)
 # k specify the testing index
 # i specify the key type, 1 means fixed-length key, 2 means variable-length key
 # j specify the number of threads
-for k in 2 
+for k in {1..4}
 do
 	for i in 1
 	do 
-		for j in 6
+		for j in {1..6}
 		do
 			echo "Begin: ${base[1]} ${workload[${i}]} ${thread_num[${j}]}"
 			numaarg=""
@@ -36,7 +36,7 @@ do
 			rm -f /mnt/pmem0/pmem_lh.data
 			rm -f /mnt/pmem0/pmem_cceh.data			
 			rm -f /mnt/pmem0/pmem_level.data
-			OP_PLACES=threads OMP_PROC_BIND=true OMP_NESTED=true PMEM_IS_PMEM_FORCE=1 LD_PRELOAD="./build/pmdk/src/PMDK/src/nondebug/libpmemobj.so.1 ./build/pmdk/src/PMDK/src/nondebug/libpmem.so.1" numactl $numaarg ./build/test_pmem -n ${base[1]} -p ${workload[1]} -t ${thread_num[$j]} -k ${key_type[$i]} -index ${index_type[$k]} -e ${epoch[$k]} #-vl 40 #-op "insert" #-ms 100 #-distribution "zipfian"
+			OP_PLACES=threads OMP_PROC_BIND=true OMP_NESTED=true PMEM_IS_PMEM_FORCE=1 LD_PRELOAD="./build/pmdk/src/PMDK/src/nondebug/libpmemobj.so.1 ./build/pmdk/src/PMDK/src/nondebug/libpmem.so.1" numactl $numaarg ./build/test_pmem -n ${base[1]} -p ${workload[1]} -t ${thread_num[$j]} -k ${key_type[$i]} -index ${index_type[$k]} -e ${epoch[$k]} -op "mixed" -r 0.8 -s 0.2 #-ms 100 #-distribution "zipfian"
 		done
 	done
 done
