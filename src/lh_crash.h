@@ -2131,6 +2131,12 @@ class Linear : public Hash<T> {
   ~Linear(void);
   void Insert(T key, Value_t value);
   bool Delete(T);
+  void bootRestore(){
+    ADD(&restore_seg, 1);
+  }
+  void reportRestore(){
+    std::cout << "Recovered seg: " << restore_seg << std::endl;
+  }
   void Insert(T key, Value_t value, bool);
   bool Delete(T, bool);
   inline Value_t Get(T);
@@ -2425,6 +2431,7 @@ sizeof(Table<T>) * seg_size);*/
 #endif
   Directory<T> dir;
   int lock;
+  uint64_t restore_seg;
 };
 
 template <class T>
@@ -2432,6 +2439,7 @@ Linear<T>::Linear(PMEMobjpool *_pool) {
   std::cout << "Start to initialize from scratch" << std::endl;
   pool_addr = _pool;
   lock = 0;
+  restore_seg = 0;
   dir.N_next = baseShifBits << 32;
   std::cout << "Table size is " << sizeof(Table<T>) << std::endl;
   memset(dir._, 0, directorySize * sizeof(uint64_t));
@@ -2602,6 +2610,7 @@ RETRY:
   // pmemobj_mutex_lock(pool_addr, &target->dirty_bit);
   target->seg_version = dir.crash_version;
   SUB(&dir.recover_counter[dir_idx], 1);
+  bootRestore();
   if (dir.recover_counter[dir_idx] <= 0) {
     // std::cout << "reset the dirty bit" << std::endl;
     *seg_ptr = (Table<T> *)(snapshot & (~recoverLockBit));

@@ -7,6 +7,8 @@
 
 static const char* layout_name = "hashtable";
 static const constexpr uint64_t pool_addr = 0x5f0000000000;
+//0x7ff600000000;
+//0x5f0000000000;
 
 typedef void (*DestroyCallback)(void* callback_context, void* object);
 
@@ -23,6 +25,11 @@ struct Allocator {
                                         instance_->pm_pool_, 1024*8);
     std::cout << "pool opened at: " << std::hex << instance_->pm_pool_
               << std::dec << std::endl;
+  }
+
+  static void Close_pool() {
+    pmemobj_close(instance_->pm_pool_);
+    delete instance_;
   }
 
   static void ReInitialize_test_only(const char* pool_name, size_t pool_size) {

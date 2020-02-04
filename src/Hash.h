@@ -13,6 +13,16 @@ class Hash {
     ~Hash(void) = default;
     virtual void Insert(T, Value_t) = 0;
     virtual void Insert(T, Value_t, bool) = 0;
+    virtual void Insert(T, Value_t, int){
+
+    };
+
+    virtual void bootRestore(){
+
+    };
+    virtual void reportRestore(){
+
+    };
     virtual bool Delete(T) = 0;
     virtual bool Delete(T, bool) = 0;
     virtual Value_t Get(T) = 0;

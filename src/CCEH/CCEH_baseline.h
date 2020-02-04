@@ -357,6 +357,7 @@ class CCEH : public Hash<T> {
   ~CCEH(void);
   void Insert(T key, Value_t value);
   void Insert(T key, Value_t value, bool);
+  void Insert(T key, Value_t value, int);
   bool InsertOnly(T, Value_t);
   bool Delete(T);
   bool Delete(T, bool);
@@ -627,7 +628,7 @@ CCEH<T>::~CCEH(void) {}
 template <class T>
 void CCEH<T>::Recovery(void) {
   std::cout << "Start the Recovery" << std::endl;
-  // Allocator::EpochRecovery();
+  Allocator::EpochRecovery();
   for (int i = 0; i < LOG_NUM; ++i) {
     if (!OID_IS_NULL(log[i].temp)) {
       pmemobj_free(&log[i].temp);
@@ -645,6 +646,7 @@ void CCEH<T>::Recovery(void) {
     size_t global_depth = dir->sa->global_depth;
     size_t depth_cur, buddy, stride, i = 0;
     /*Recover the Directory*/
+    std::cout << "Start the scanning process, the capacity is " << dir->capacity << std::endl;
     while (i < dir->capacity) {
       auto target = dir_entry[i];
       depth_cur = target->local_depth;
@@ -764,6 +766,78 @@ void CCEH<T>::Directory_Update(int x, Segment<T> *s0, PMEMoid *s1) {
       dir_entry[x + base + i] = seg_ptr;
       Allocator::Persist(&dir_entry[x + base + i], sizeof(uint64_t));
     }
+  }
+}
+
+/* The crash function of CCEH */
+template <class T>
+void CCEH<T>::Insert(T key, Value_t value, int is_crash) {
+  STARTOVER:
+  uint64_t key_hash;
+  if constexpr (std::is_pointer_v<T>) {
+    key_hash = h(key->key, key->length);
+  } else {
+    key_hash = h(&key, sizeof(key));
+  }
+  auto y = (key_hash & kMask) * kNumPairPerCacheLine;
+
+RETRY:
+  auto old_sa = dir->sa;
+  auto x = (key_hash >> (8 * sizeof(key_hash) - old_sa->global_depth));
+  auto dir_entry = old_sa->_;
+  Segment<T> *target = dir_entry[x];
+  if (old_sa != dir->sa) {
+    goto RETRY;
+  }
+
+  if (is_crash != 0 ){
+    if(random()%100000 == 0){
+        abort();
+    }
+  }
+
+  auto ret = target->Insert(pool_addr, key, value, y, key_hash);
+
+  if (ret == 1) {
+    auto s = target->Split(pool_addr, key_hash, log);
+    if (s == nullptr) {
+      goto RETRY;
+    }
+
+    auto ss = reinterpret_cast<Segment<T> *>(pmemobj_direct(*s));
+    ss->pattern =
+        ((key_hash >> (8 * sizeof(key_hash) - ss->local_depth + 1)) << 1) + 1;
+    Allocator::Persist(&ss->pattern, sizeof(ss->pattern));
+
+    // Directory management
+    Lock_Directory();
+    {  // CRITICAL SECTION - directory update
+      auto sa = dir->sa;
+      dir_entry = sa->_;
+
+      x = (key_hash >> (8 * sizeof(key_hash) - sa->global_depth));
+      target = dir_entry[x];
+      if (target->local_depth < sa->global_depth) {
+        Directory_Update(x, target, s);
+      } else {  // directory doubling
+        Directory_Doubling(x, target, s);
+      }
+      target->pattern =
+          (key_hash >> (8 * sizeof(key_hash) - target->local_depth)) << 1;
+      Allocator::Persist(&target->pattern, sizeof(target->pattern));
+      target->local_depth += 1;
+      Allocator::Persist(&target->local_depth, sizeof(target->local_depth));
+#ifdef INPLACE
+      target->sema = 0;
+      target->release_lock(pool_addr);
+#endif
+    }  // End of critical section
+    Unlock_Directory();
+    uint64_t log_pos = key_hash % LOG_NUM;
+    log[log_pos].Unlock_log();
+    goto RETRY;
+  } else if (ret == 2) {
+    goto STARTOVER;
   }
 }
 
