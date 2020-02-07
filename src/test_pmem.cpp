@@ -17,15 +17,14 @@
 #include "./Level/level.h"
 #include "Hash.h"
 #include "allocator.h"
-#include "ex_nofinger.h"
-#include "lh_crash.h"
+#include "ex_finger.h"
+#include "lh_finger.h"
 #include "libpmemobj.h"
 #include "utils.h"
 
 #define EPOCH_DURATION 1000
 
 std::string pool_name = "/mnt/pmem0/";
-//std::string pool_name = "";
 // static const char *pool_name = "pmem_hash.data";
 static const size_t pool_size = 1024ul * 1024ul * 1024ul * 30ul;
 DEFINE_string(index, "dash-ex",
@@ -462,8 +461,8 @@ void concurr_search_sample(struct range *_range, Hash<T> *index) {
       auto epoch_guard = Allocator::AquireEpochGuard();
       uint64_t _end = begin + (i + 1) * EPOCH_DURATION;
       for (uint64_t j = begin + i * EPOCH_DURATION; j < _end; ++j) {
-        //if (index->Get(key_array[j], true) == NONE) not_found++;
-        index->Get(key_array[j], true);
+        if (index->Get(key_array[j], true) == NONE) not_found++;
+        //index->Get(key_array[j], true);
         operation_record[curr_index].number++;
       }
       ++i;
@@ -472,8 +471,8 @@ void concurr_search_sample(struct range *_range, Hash<T> *index) {
     {
       auto epoch_guard = Allocator::AquireEpochGuard();
       for (i = begin + EPOCH_DURATION * round; i < end; ++i) {
-        //if (index->Get(key_array[i], true) == NONE) not_found++;
-        index->Get(key_array[i], true);
+        if (index->Get(key_array[i], true) == NONE) not_found++;
+        //index->Get(key_array[i], true);
         operation_record[curr_index].number++;
       }
     }
@@ -897,7 +896,7 @@ void GeneralBench(range *rarray, Hash<T> *index, int thread_num,
   bar_c = thread_num;
 
   std::cout << profile_name << " Begin" << std::endl;
- //System::profile(profile_name, [&]() {
+// System::profile(profile_name, [&]() {
   for (uint64_t i = 0; i < thread_num; ++i) {
     thread_array[i] = new std::thread(*test_func, &rarray[i], index);
   }
@@ -950,7 +949,7 @@ void GeneralBench(range *rarray, Hash<T> *index, int thread_num,
             (double)(tv2.tv_sec - tv1.tv_sec),
         operation_num / duration);
   */
-  //});
+//  });
   std::cout << profile_name << " End" << std::endl;
 }
 

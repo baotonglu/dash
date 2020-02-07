@@ -1,5 +1,6 @@
-#ifndef Linear_H
-#define Linear_H
+#pragma once
+//#ifndef Linear_H
+//#define Linear_H
 
 #include <immintrin.h>
 
@@ -23,6 +24,7 @@
 #define SINGLE 1
 #define DOUBLE_EXPANSION 1
 #define EPOCH 1
+//#define DEBUG 1
 //#define PREALLOC 1
 //#define COUNTING 1
 
@@ -30,28 +32,6 @@
 #include <libpmemobj.h>
 #endif
 namespace linear {
-
-#define SIMD 1
-#define SIMD_CMP8(src, key)                                         \
-  do {                                                              \
-    const __m256i key_data = _mm256_set1_epi8(key);                 \
-    __m256i seg_data =                                              \
-        _mm256_loadu_si256(reinterpret_cast<const __m256i *>(src)); \
-    __m256i rv_mask = _mm256_cmpeq_epi8(seg_data, key_data);        \
-    mask = _mm256_movemask_epi8(rv_mask);                           \
-  } while (0)
-
-#define SSE_CMP8(src, key)                                       \
-  do {                                                           \
-    const __m128i key_data = _mm_set1_epi8(key);                 \
-    __m128i seg_data =                                           \
-        _mm_loadu_si128(reinterpret_cast<const __m128i *>(src)); \
-    __m128i rv_mask = _mm_cmpeq_epi8(seg_data, key_data);        \
-    mask = _mm_movemask_epi8(rv_mask);                           \
-  } while (0)
-
-#define CHECK_BIT(var, pos) ((((var) & (1 << (pos))) > 0) ? (1) : (0))
-
 const uint32_t lockSet = 1 << 31;
 const uint32_t lockMask = ((uint32_t)1 << 31) - 1;
 const int overflowSet = 1 << 15;
@@ -112,8 +92,8 @@ const uint64_t recoverLockBit = recoverBit | lockBit;
 #define META_HASH(hash) ((uint8_t)((hash) >> (64 - kFingerBits)))
 #define GET_COUNT(var) ((var)&countMask)
 #define GET_BITMAP(var) (((var) >> 4) & allocMask)
-#define ORG_BITMAP(var) ((~((var)&allocMask)) & allocMask)
-#define PROBE_BITMAP(var) ((var)&allocMask)
+//#define ORG_BITMAP(var) ((~((var)&allocMask)) & allocMask)
+//#define PROBE_BITMAP(var) ((var)&allocMask)
 
 #define PARTITION 1
 
@@ -1282,6 +1262,9 @@ struct Table {
 #ifdef COUNTING
     __sync_fetch_and_add(&number, 1);
 #endif
+#ifdef DEBUG
+    std::cout << "Insert to new overflow" << std::endl;
+#endif
     return -1;
   }
 
@@ -1835,12 +1818,17 @@ int Table<T>::Insert(T key, Value_t value, size_t key_hash, Directory<T> *_dir,
   // BUCKET_INDEX(key_hash), meta_hash);
   target->get_lock();
   if (!neighbor->try_get_lock()) {
+#ifdef DEBUG
+    std::cout << "try lock failure" << key << std::endl;
+#endif
     target->release_lock();
     return -2;
   }
 
   if (!target->test_initialize()) {
-    // printf("initialize bucket %d\n", index);
+#ifdef DEBUG
+    printf("initialize bucket %d\n", index);
+#endif
     neighbor->release_lock();
     target->release_lock();
     for (int i = 0; i < kNumBucket; ++i) {
@@ -1855,6 +1843,9 @@ int Table<T>::Insert(T key, Value_t value, size_t key_hash, Directory<T> *_dir,
         Bucket<T> *curr_bucket = bucket + i;
         curr_bucket->release_lock();
       }
+#ifdef DEBUG
+    printf("verify failure initial\n");
+#endif
       return -2;
     }
     // printf("finish the verify process\n");
@@ -1877,6 +1868,9 @@ int Table<T>::Insert(T key, Value_t value, size_t key_hash, Directory<T> *_dir,
   } else {
     auto ret = verify_access(_dir, index, old_N, old_next);
     if (ret == -1) {
+#ifdef DEBUG
+    std::cout << "verify access failure" << key << std::endl;
+#endif
       neighbor->release_lock();
       target->release_lock();
       return -2;
@@ -1885,6 +1879,9 @@ int Table<T>::Insert(T key, Value_t value, size_t key_hash, Directory<T> *_dir,
     /*the unique_check is to check whether the key has existed*/
     ret = target->unique_check(meta_hash, key, neighbor, stash);
     if (ret == -1) {
+#ifdef DEBUG
+      std::cout << "duplicate key " << key << std::endl;
+#endif
       neighbor->release_lock();
       target->release_lock();
       return 0;
@@ -1898,6 +1895,9 @@ int Table<T>::Insert(T key, Value_t value, size_t key_hash, Directory<T> *_dir,
       Bucket<T> *next_neighbor = bucket + ((y + 2) & bucketMask);
       // Next displacement
       if (!next_neighbor->try_get_lock()) {
+#ifdef DEBUG
+    std::cout << "Get next-lock failure" << key << std::endl;
+#endif
         neighbor->release_lock();
         target->release_lock();
         return -2;
@@ -1920,6 +1920,9 @@ int Table<T>::Insert(T key, Value_t value, size_t key_hash, Directory<T> *_dir,
       }
 
       if (!prev_neighbor->try_get_lock()) {
+#ifdef DEBUG
+    std::cout << "Get pre-lock failure" << key << std::endl;
+#endif
         target->release_lock();
         neighbor->release_lock();
         return -2;
@@ -2630,8 +2633,9 @@ RETRY:
   uint64_t old_N_next = dir.N_next;
   uint32_t N = old_N_next >> 32;
   uint32_t next = (uint32_t)old_N_next;
-  // printf("insertion for key %lu\n", key);
-
+#ifdef DEBUG
+  printf("insertion for key %lu\n", key);
+#endif
   auto x = IDX(key_hash, N);
   if (x < next) {
     x = IDX(key_hash, N + 1);
@@ -2657,6 +2661,9 @@ RETRY:
   auto ret = target->Insert(key, value, key_hash, &dir, x, N, next);
 
   if (ret == -2) {
+#ifdef DEBUG
+    std::cout << "Need to retry for " << key << std::endl;
+#endif
     goto RETRY;
   } else if (ret == -1) {
     Expand(2);
@@ -3047,11 +3054,6 @@ RETRY:
   SEG_IDX_OFFSET(static_cast<uint32_t>(x), dir_idx, offset);
   Table<T> *target = dir._[dir_idx] + offset;
   if (reinterpret_cast<uint64_t>(dir._[dir_idx]) & recoverLockBit) {
-    /*
-    int flag = recoverSegment(&dir._[dir_idx], x, dir_idx, offset);
-    if (flag == -1) {
-      goto RETRY;
-    }*/
     recoverSegment(&dir._[dir_idx], x, dir_idx, offset);
     target =
         (Table<T> *)((uint64_t)(dir._[dir_idx]) & (~recoverLockBit)) + offset;
@@ -3247,5 +3249,11 @@ RETRY:
   // meta_hash);
   return false;
 }
-#endif
+
+#undef PARTITION_INDEX
+#undef BUCKET_INDEX 
+#undef META_HASH 
+#undef GET_COUNT
+#undef GET_BITMAP
 }
+//#endif

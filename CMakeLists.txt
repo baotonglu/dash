@@ -8,7 +8,7 @@ include(FetchContent)
 include(ExternalProject)
 
 set(CMAKE_CXX_STANDARD 17)
-set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} -Wno-long-long -pedantic -fPIC -march=native")
+set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} -Wno-long-long -fPIC -march=native")
 set(CMAKE_ENABLE_COMPILE_COMMANDS "ON")
 
 if (${CMAKE_BUILD_TYPE} STREQUAL "Release")

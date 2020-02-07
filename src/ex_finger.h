@@ -35,27 +35,6 @@ namespace extendible {
 #define EPOCH 1
 //#define PREALLOC 1
 
-#define SIMD 1
-#define SIMD_CMP8(src, key)                                         \
-  do {                                                              \
-    const __m256i key_data = _mm256_set1_epi8(key);                 \
-    __m256i seg_data =                                              \
-        _mm256_loadu_si256(reinterpret_cast<const __m256i *>(src)); \
-    __m256i rv_mask = _mm256_cmpeq_epi8(seg_data, key_data);        \
-    mask = _mm256_movemask_epi8(rv_mask);                           \
-  } while (0)
-
-#define SSE_CMP8(src, key)                                       \
-  do {                                                           \
-    const __m128i key_data = _mm_set1_epi8(key);                 \
-    __m128i seg_data =                                           \
-        _mm_loadu_si128(reinterpret_cast<const __m128i *>(src)); \
-    __m128i rv_mask = _mm_cmpeq_epi8(seg_data, key_data);        \
-    mask = _mm_movemask_epi8(rv_mask);                           \
-  } while (0)
-
-#define CHECK_BIT(var, pos) ((((var) & (1 << pos)) > 0) ? (1) : (0))
-
 const uint32_t lockSet = ((uint32_t)1 << 31);      /*locking information*/
 const uint32_t lockMask = ((uint32_t)1 << 31) - 1; /*locking mask*/
 const int overflowSet = 1 << 15;
@@ -86,11 +65,12 @@ const uint64_t tailMask =
     (1UL << 56) - 1; /*hide the highest 8 bits of the uint64_4*/
 const uint64_t headerMask = ((1UL << 8) - 1)
                             << 56; /*hide the highest 8 bits of the uint64_4*/
+
 #define BUCKET_INDEX(hash) ((hash >> kFingerBits) & bucketMask)
 #define GET_COUNT(var) ((var)&countMask)
 #define GET_BITMAP(var) (((var) >> 4) & allocMask)
-#define ORG_BITMAP(var) ((~((var)&allocMask)) & allocMask)
-#define PROBE_BITMAP(var) ((var)&allocMask)
+//#define ORG_BITMAP(var) ((~((var)&allocMask)) & allocMask)
+//#define PROBE_BITMAP(var) ((var)&allocMask)
 
 inline bool var_compare(char *str1, char *str2, int len1, int len2) {
   if (len1 != len2) return false;
@@ -2951,4 +2931,7 @@ int Finger_EH<T>::FindAnyway(T key) {
   return -1;
 }
 
+#undef BUCKET_INDEX
+#undef GET_COUNT
+#undef GET_BITMAP
 }  // namespace extendible

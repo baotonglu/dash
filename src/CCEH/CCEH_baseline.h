@@ -1,5 +1,6 @@
-#ifndef CCEH_H_
-#define CCEH_H_
+#pragma once
+//#ifndef CCEH_H_
+//#define CCEH_H_
 
 #include <bitset>
 #include <cassert>
@@ -382,7 +383,7 @@ class CCEH : public Hash<T> {
   PMEMobjpool *pool_addr;
 #endif
 };
-#endif  // EXTENDIBLE_PTR_H_
+//#endif  // EXTENDIBLE_PTR_H_
 
 template <class T>
 int Segment<T>::Insert(PMEMobjpool *pool_addr, T key, Value_t value, size_t loc,
@@ -647,6 +648,7 @@ void CCEH<T>::Recovery(void) {
     size_t depth_cur, buddy, stride, i = 0;
     /*Recover the Directory*/
     std::cout << "Start the scanning process, the capacity is " << dir->capacity << std::endl;
+    size_t seg_count = 0;
     while (i < dir->capacity) {
       auto target = dir_entry[i];
       depth_cur = target->local_depth;
@@ -660,8 +662,10 @@ void CCEH<T>::Recovery(void) {
           target->pattern = i >> (global_depth - depth_cur);
         }
       }
+      seg_count++;
       i = i + stride;
     }
+    std::cout << "The segment number is " << seg_count << std::endl;
   }
   std::cout << "Finish the recovery" << std::endl;
 }

@@ -20,11 +20,11 @@ static bool FileExists(const char *pool_path) {
 
 #ifdef PMEM
 #define CREATE_MODE_RW (S_IWUSR | S_IRUSR)
-#ifndef POBJ_LAYOUT_TOID(allocator, char)
-POBJ_LAYOUT_BEGIN(allocator);
-POBJ_LAYOUT_TOID(allocator, char)
-POBJ_LAYOUT_END(allocator)
-#endif
+//#ifndef POBJ_LAYOUT_TOID(allocator, char)
+//POBJ_LAYOUT_BEGIN(allocator);
+//POBJ_LAYOUT_TOID(allocator, char);
+//POBJ_LAYOUT_END(allocator);
+//#endif
 #endif
 
 #define LOG_FATAL(msg)      \
@@ -38,6 +38,27 @@ POBJ_LAYOUT_END(allocator)
 #define SUB(_p, _v) (__atomic_sub_fetch(_p, _v, __ATOMIC_SEQ_CST))
 #define LOAD(_p) (__atomic_load_n(_p, __ATOMIC_SEQ_CST))
 #define STORE(_p, _v) (__atomic_store_n(_p, _v, __ATOMIC_SEQ_CST))
+
+#define SIMD 1
+#define SIMD_CMP8(src, key)                                         \
+  do {                                                              \
+    const __m256i key_data = _mm256_set1_epi8(key);                 \
+    __m256i seg_data =                                              \
+        _mm256_loadu_si256(reinterpret_cast<const __m256i *>(src)); \
+    __m256i rv_mask = _mm256_cmpeq_epi8(seg_data, key_data);        \
+    mask = _mm256_movemask_epi8(rv_mask);                           \
+  } while (0)
+
+#define SSE_CMP8(src, key)                                       \
+  do {                                                           \
+    const __m128i key_data = _mm_set1_epi8(key);                 \
+    __m128i seg_data =                                           \
+        _mm_loadu_si128(reinterpret_cast<const __m128i *>(src)); \
+    __m128i rv_mask = _mm_cmpeq_epi8(seg_data, key_data);        \
+    mask = _mm_movemask_epi8(rv_mask);                           \
+  } while (0)
+
+#define CHECK_BIT(var, pos) ((((var) & (1 << pos)) > 0) ? (1) : (0))
 
 int msleep(uint64_t msec){
   struct timespec ts;
