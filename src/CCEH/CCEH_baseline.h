@@ -358,7 +358,7 @@ class CCEH : public Hash<T> {
   ~CCEH(void);
   void Insert(T key, Value_t value);
   void Insert(T key, Value_t value, bool);
-  void Insert(T key, Value_t value, int);
+  //void Insert(T key, Value_t value, int);
   bool InsertOnly(T, Value_t);
   bool Delete(T);
   bool Delete(T, bool);
@@ -774,6 +774,7 @@ void CCEH<T>::Directory_Update(int x, Segment<T> *s0, PMEMoid *s1) {
 }
 
 /* The crash function of CCEH */
+/*
 template <class T>
 void CCEH<T>::Insert(T key, Value_t value, int is_crash) {
   STARTOVER:
@@ -844,6 +845,7 @@ RETRY:
     goto STARTOVER;
   }
 }
+*/
 
 template <class T>
 void CCEH<T>::Insert(T key, Value_t value, bool is_in_epoch) {
@@ -856,11 +858,6 @@ void CCEH<T>::Insert(T key, Value_t value, bool is_in_epoch) {
 
 template <class T>
 void CCEH<T>::Insert(T key, Value_t value) {
-/*
-#ifdef EPOCH
-  auto epoch_guard = Allocator::AquireEpochGuard();
-#endif
-*/
 STARTOVER:
   uint64_t key_hash;
   if constexpr (std::is_pointer_v<T>) {
@@ -936,11 +933,6 @@ bool CCEH<T>::Delete(T key, bool is_in_epoch) {
 // TODO
 template <class T>
 bool CCEH<T>::Delete(T key) {
-  /*
-  #ifdef EPOCH
-    auto epoch_guard = Allocator::AquireEpochGuard();
-  #endif
-  */
   uint64_t key_hash;
   if constexpr (std::is_pointer_v<T>) {
     key_hash = h(key->key, key->length);
@@ -955,7 +947,6 @@ RETRY:
   auto dir_entry = old_sa->_;
   Segment<T> *dir_ = dir_entry[x];
 
-#ifdef INPLACE
   auto sema = dir_->sema;
   if (sema == -1) {
     goto RETRY;
@@ -968,7 +959,6 @@ RETRY:
     dir_->release_lock(pool_addr);
     goto RETRY;
   }
-#endif
 
   for (unsigned i = 0; i < kNumPairPerCacheLine * kNumCacheLine; ++i) {
     auto slot = (y + i) % Segment<T>::kNumSlot;
@@ -978,18 +968,14 @@ RETRY:
                        dir_->_[slot].key->length))) {
         dir_->_[slot].key = (T)INVALID;
         Allocator::Persist(&dir_->_[slot], sizeof(_Pair<T>));
-#ifdef INPLACE
         dir_->release_lock(pool_addr);
-#endif
         return true;
       }
     } else {
       if (dir_->_[slot].key == key) {
         dir_->_[slot].key = (T)INVALID;
         Allocator::Persist(&dir_->_[slot], sizeof(_Pair<T>));
-#ifdef INPLACE
         dir_->release_lock(pool_addr);
-#endif
         return true;
       }
     }

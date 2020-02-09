@@ -14,7 +14,7 @@
 #include "../util/key_generator.hpp"
 #include "../util/uniform.hpp"
 #include "./CCEH/CCEH_baseline.h"
-#include "./Level/level.h"
+#include "./Level/level_baseline.h"
 #include "Hash.h"
 #include "allocator.h"
 #include "ex_finger.h"
@@ -461,8 +461,8 @@ void concurr_search_sample(struct range *_range, Hash<T> *index) {
       auto epoch_guard = Allocator::AquireEpochGuard();
       uint64_t _end = begin + (i + 1) * EPOCH_DURATION;
       for (uint64_t j = begin + i * EPOCH_DURATION; j < _end; ++j) {
-        if (index->Get(key_array[j], true) == NONE) not_found++;
-        //index->Get(key_array[j], true);
+        //if (index->Get(key_array[j], true) == NONE) not_found++;
+        index->Get(key_array[j], true);
         operation_record[curr_index].number++;
       }
       ++i;
@@ -471,8 +471,8 @@ void concurr_search_sample(struct range *_range, Hash<T> *index) {
     {
       auto epoch_guard = Allocator::AquireEpochGuard();
       for (i = begin + EPOCH_DURATION * round; i < end; ++i) {
-        if (index->Get(key_array[i], true) == NONE) not_found++;
-        //index->Get(key_array[i], true);
+        //if (index->Get(key_array[i], true) == NONE) not_found++;
+        index->Get(key_array[i], true);
         operation_record[curr_index].number++;
       }
     }
@@ -505,7 +505,7 @@ void concurr_search_sample(struct range *_range, Hash<T> *index) {
       }
     }
   }
-  std::cout << "not_found = " << not_found << std::endl;
+  //std::cout << "not_found = " << not_found << std::endl;
   end_sub();
 }
 

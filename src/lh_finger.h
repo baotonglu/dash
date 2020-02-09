@@ -2870,11 +2870,6 @@ RETRY:
   Table<T> *target = dir._[dir_idx] + offset;
 
   if (reinterpret_cast<uint64_t>(dir._[dir_idx]) & recoverLockBit) {
-    /*
-    int flag = recoverSegment(&dir._[dir_idx], x, dir_idx, offset);
-    if (flag == -1) {
-      goto RETRY;
-    }*/
     recoverSegment(&dir._[dir_idx], x, dir_idx, offset);
     target =
         (Table<T> *)((uint64_t)(dir._[dir_idx]) & (~recoverLockBit)) + offset;

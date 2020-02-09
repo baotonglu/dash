@@ -16,9 +16,9 @@ epoch=(0 1 1 1 0)
 # k specify the testing index
 # i specify the key type, 1 means fixed-length key, 2 means variable-length key
 # j spec1fy the number of threads
-for k in 1 2
+for k in 1
 do
-	for i in 1 2
+	for i in 1 
 	do 
 		for j in 1
 		do
