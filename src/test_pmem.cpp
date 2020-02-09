@@ -1157,16 +1157,6 @@ void Run() {
       GeneralBench<T>(rarray, index, thread_num, operation_num, "Insert",
                       &concurr_insert_without_epoch);
     }
-
-    std::cout << "Start the recovery algorithm" << std::endl;
-    gettimeofday(&tv1, NULL);
-    index->Recovery();
-    gettimeofday(&tv2, NULL);  // test end
-    double duration = (double)(tv2.tv_usec - tv1.tv_usec) / 1000000 +
-          (double)(tv2.tv_sec - tv1.tv_sec);
-    std::cout << "The recovery time = " << duration << std::endl;
-    //Allocator::report_num();
-    //index->getNumber();
   } else if (operation == "pos") {
     if (!load_num) {
       std::cout << "Please first specify the # pre_load keys!" << std::endl;
