@@ -1,7 +1,5 @@
 # Dash: Scalable Hashing on Persistent Memory
 
-[![Build Status](https://dev.azure.com/haoxiangpeng/VeryPM/_apis/build/status/XiangpengHao.VeryPM?branchName=master)](https://dev.azure.com/haoxiangpeng/VeryPM/_build/latest?definitionId=2&branchName=master)
-
 Persistent memory friendly hashing index.
 
 ## What's included
@@ -37,3 +35,10 @@ make test_pmem
 ```bash
 PMEM_IS_PMEM_FORCE=1 ./build/test_pmem 64 1000000 1
 ```
+
+
+## Miscellaneous
+
+We noticed a possible `mmap` bug on our testing environment: `MAP_SHARED_VALIDATE` is incompatible with `MAP_FIXED_NOREPLACE`.
+To ensure safe memory mapping, we modified the original PMDK to use `MAP_SHARED` rather than `MAP_SHARED_VALIDATE`, which has the same functionality as the former one except for extra flag validation.
+For a more detailed explanation and minimal reproducible code, please check out our [blog post](https://blog.haoxp.xyz/posts/mmap-bug/) about this issue.
