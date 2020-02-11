@@ -24,10 +24,23 @@ cmake -DCMAKE_BUILD_TYPE=Release -DUSE_PMEM=ON ..
 make -j
 ```
 
-### Run on a real device
+### Running
 
 ```bash
-./run.sh
+./build/test_pmem --helpshort
+Usage: 
+    ./build/test_pmem [OPTION...]
+-index      the index to evaluate:dash-ex/dash-lh/cceh/level (default: "dash-ex")
+-op         the type of operation to execute:insert/pos/neg/delete/mixed (default: "full")
+-n          the number of warm-up workload (default: 0)
+-p          the number of operations(insert/search/delete) to execute (default: 20000000)
+-t          the number of concurrent threads (default: 1)
+-r          search ratio for mixed workload: 0.0~1.0 (default: 1.0)
+-s          insert ratio for mixed workload: 0.0~1.0 (default: 0.0)
+-d          delete ratio for mixed workload: 0.0~1.0 (default: 0.0)
+-e          whether to register epoch in application level: 0/1 (default: 0)
+-k          (the type of stored keys: fixed/variable (default: "fixed")
+-vl         the length of the variable length key (default: 16)
 ```
 
 ## Miscellaneous

@@ -16,21 +16,19 @@ epoch=(0 1 1 1 0)
 # k specify the testing index
 # i specify the key type, 1 means fixed-length key, 2 means variable-length key
 # j spec1fy the number of threads
-for k in 3
+for k in 4
 do
-	for i in 1 2
+	for i in 1
 	do 
-		for j in 1
+		for j in {1..6}
 		do
 			echo "Begin: ${base[1]} ${workload[${i}]} ${thread_num[${j}]}"
 			numaarg=""
 			if [ ${thread_num[$j]} -le 24 ]
 			then
-				#numaarg="--cpunodebind=0 --membind=0 --physcpubind=0,1,2,3,4,5,6,7,8,9,10,11,12,13,14,15,16,17,18,19,20,21,22,23"
 				numaarg="--cpunodebind=0 --membind=0"
 			elif [ ${thread_num[$j]} -le 48 ]
 			then
-				#numaarg="--cpunodebind=0,1 --membind=0,1 --physcpubind=0,1,2,3,4,5,6,7,8,9,10,11,12,13,14,15,16,17,18,19,20,21,22,23,24,25,26,2728,29,30,31,32,33,34,35,36,37,38,39,40,41,42,43,44,45,46,47"
 				numaarg="--cpunodebind=0,1 --membind=0"
 			fi
 			echo $numaarg
@@ -43,5 +41,3 @@ do
 	done
 done
 
-#./extract_plot2.sh
-# OMP_PROC_BIND=true

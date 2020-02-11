@@ -19,7 +19,7 @@
 #include "../../util/pair.h"
 #include "../../util/persist.h"
 #include "../Hash.h"
-#define ASSOC_NUM 7
+#define ASSOC_NUM 15
 #define NODE_TYPE 1000
 #define LEVEL_TYPE 2000
 #define LOCK_TYPE 3000
@@ -44,10 +44,16 @@ struct Entry {
   }
 };
 
+/*
+* 1 cacheline setting: ASSOC_NUM = 3; dummy = 13
+* 2 cacheline setting: ASSOC_NUM = 7; dummy = 9
+* 4 cacheline setting: ASSOC_NUM = 15; dummy = 1
+*/
+
 template <class T>
 struct Node {
   uint8_t token[ASSOC_NUM];
-  char dummy[9]; 
+  char dummy[1]; 
   Entry<T> slot[ASSOC_NUM];
   void *operator new[](size_t size) {
     void *ret;

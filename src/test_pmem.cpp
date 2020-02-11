@@ -13,7 +13,7 @@
 #include "../util/System.hpp"
 #include "../util/key_generator.hpp"
 #include "../util/uniform.hpp"
-#include "./CCEH/CCEH_baseline.h"
+#include "./CCEH/CCEH_adjust.h"
 #include "./Level/level_baseline.h"
 #include "Hash.h"
 #include "allocator.h"
@@ -25,13 +25,12 @@
 #define EPOCH_DURATION 1000
 
 std::string pool_name = "/mnt/pmem0/";
-// static const char *pool_name = "pmem_hash.data";
 static const size_t pool_size = 1024ul * 1024ul * 1024ul * 30ul;
 DEFINE_string(index, "dash-ex",
               "which index to evaluate:dash-ex/dash-lh/cceh/level");
 DEFINE_string(k, "fixed", "the type of stored keys: fixed/variable");
 DEFINE_string(distribution, "uniform",
-              "The distribution of the workload, by default, it is uniform");
+              "The distribution of the workload: uniform/skew");
 DEFINE_uint64(i, 64, "the initial number of segments in extendible hashing");
 DEFINE_uint64(t, 1, "the number of concurrent threads");
 DEFINE_uint64(n, 0, "the number of pre-insertion load");
@@ -39,14 +38,14 @@ DEFINE_uint64(p, 20000000,
               "the number of operations(insert/search/deletion) to execute");
 DEFINE_string(op, "full",
               "which type of operation to execute:insert/pos/neg/delete/mixed");
-DEFINE_double(r, 1, "read ratio for mixed workload");
-DEFINE_double(s, 0, "insert ratio for mixed workload");
-DEFINE_double(d, 0, "delete ratio for mixed workload");
-DEFINE_double(skew, 0.8, "skew ratio of the workload");
-DEFINE_uint32(e, 0, "whether register epoch in application level");
+DEFINE_double(r, 1, "read ratio for mixed workload:0~1.0");
+DEFINE_double(s, 0, "insert ratio for mixed workload: 0~1.0");
+DEFINE_double(d, 0, "delete ratio for mixed workload:0~1.0");
+DEFINE_double(skew, 0.8, "skew factor of the workload");
+DEFINE_uint32(e, 0, "whether register epoch in application level:0/1");
 DEFINE_uint32(ms, 100, "#miliseconds to sample the operations");
 DEFINE_uint32(vl, 16, "the length of the variable length key");
-DEFINE_uint32(crash, 0, "whether to do the crash insertion");
+//DEFINE_uint32(crash, 0, "whether to do the crash insertion");
 
 uint64_t initCap, thread_num, load_num, operation_num;
 std::string operation;
@@ -135,14 +134,12 @@ Hash<T> *InitializeIndex(int seg_num) {
     std::string index_pool_name = pool_name + "pmem_cceh.data";
     if (FileExists(index_pool_name.c_str())) file_exist = true;
     Allocator::Initialize(index_pool_name.c_str(), pool_size);
-    //std::cout << "Initialize CCEH" << std::endl;
     eh = reinterpret_cast<Hash<T> *>(Allocator::GetRoot(sizeof(cceh::CCEH<T>)));
     if (!file_exist) {
       new (eh) cceh::CCEH<T>(seg_num, Allocator::Get()->pm_pool_);
     } else {
       new (eh) cceh::CCEH<T>();
     }
-    std::cout << "Finish the initialization of CCEH" << std::endl;
   } else if (index_type == "level") {
     std::string index_pool_name = pool_name + "pmem_level.data";
     if (FileExists(index_pool_name.c_str())) file_exist = true;
@@ -152,7 +149,7 @@ Hash<T> *InitializeIndex(int seg_num) {
         Allocator::GetRoot(sizeof(level::LevelHashing<T>)));
     if (!file_exist) {
       new (eh) level::LevelHashing<T>();
-      int level_size = 13;
+      int level_size = 12;
       level::initialize_level(Allocator::Get()->pm_pool_,
                               reinterpret_cast<level::LevelHashing<T> *>(eh),
                               &level_size);
@@ -1164,18 +1161,6 @@ void Run() {
     RecoveryBench<T>(rarray, index, thread_num, operation_num, "Pos_search");
     
   } else { /*do the benchmark for all single operations*/
-
-    if(is_crash){
-      std::cout << "crash insertion start" << std::endl;
-      for (int i = 0; i < thread_num; ++i) {
-        rarray[i].workload = not_used_insert_workload;
-      }
-      GeneralBench<T>(rarray, index, thread_num, operation_num, "Insert",
-                        &concurr_insert_with_crash);
-      //index->getNumber();
-      return;
-    }
-
     std::cout << "Comprehensive Benchmark" << std::endl;
     std::cout << "insertion start" << std::endl;
     for (int i = 0; i < thread_num; ++i) {
@@ -1254,10 +1239,7 @@ int main(int argc, char *argv[]) {
   std::cout << "FLAGS_e = " << FLAGS_e << std::endl;
   open_epoch = FLAGS_e;
   msec = FLAGS_ms;
-  is_crash = FLAGS_crash;
   var_length = FLAGS_vl;
-  if(is_crash == true)
-    std::cout << "The insertion operation will be crashed" << std::endl;
   if (open_epoch == true)
     std::cout << "EPOCH registration in application level" << std::endl;
 
