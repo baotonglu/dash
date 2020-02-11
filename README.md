@@ -24,12 +24,13 @@ cmake -DCMAKE_BUILD_TYPE=Release -DUSE_PMEM=ON ..
 make -j
 ```
 
-### Running
+## Running
 
 ```bash
 ./build/test_pmem --helpshort
 Usage: 
     ./build/test_pmem [OPTION...]
+&nbsp
 -index      the index to evaluate:dash-ex/dash-lh/cceh/level (default: "dash-ex")
 -op         the type of operation to execute:insert/pos/neg/delete/mixed (default: "full")
 -n          the number of warm-up workload (default: 0)
