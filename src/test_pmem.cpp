@@ -176,76 +176,6 @@ Hash<T> *InitializeIndex(int seg_num) {
   return eh;
 }
 
-/*
-template <class T>
-Hash<T> *InitializeIndex(int seg_num) {
-  Hash<T> *eh;
-  bool file_exist = false;
-  if (index_type == "dash-ex") {
-    std::string index_pool_name = pool_name + "pmem_ex.data";
-    if (FileExists(index_pool_name.c_str())) file_exist = true;
-    Allocator::Initialize(index_pool_name.c_str(), pool_size);
-
-    std::cout << "pool addr is " << Allocator::Get()->pm_pool_ << std::endl;
-    std::cout << "Initialize DASH-Extendible Hashing" << std::endl;
-#ifdef PREALLOC
-    extendible::TlsTablePool<Key_t>::Initialize();
-#endif
-    eh = reinterpret_cast<Hash<T> *>(
-        Allocator::GetRoot(sizeof(extendible::Finger_EH<T>)));
-    if (!file_exist) {
-      new (eh) extendible::Finger_EH<T>(seg_num, Allocator::Get()->pm_pool_);
-    } else {
-      new (eh) extendible::Finger_EH<T>();
-    }
-
-  } else if (index_type == "dash-lh") {
-    std::string index_pool_name = pool_name + "pmem_lh.data";
-    if (FileExists(index_pool_name.c_str())) file_exist = true;
-    Allocator::Initialize(index_pool_name.c_str(), pool_size);
-    std::cout << "Initialize DASH-Linear Hashing" << std::endl;
-#ifdef PREALLOC
-    linear::TlsTablePool<Key_t>::Initialize();
-#endif
-    eh = reinterpret_cast<Hash<T> *>(
-        Allocator::GetRoot(sizeof(linear::Linear<T>)));
-    if (!file_exist) {
-      new (eh) linear::Linear<T>(Allocator::Get()->pm_pool_);
-    } else {
-      new (eh) linear::Linear<T>();
-    }
-  } else if (index_type == "cceh") {
-    std::string index_pool_name = pool_name + "pmem_cceh.data";
-    if (FileExists(index_pool_name.c_str())) file_exist = true;
-    Allocator::Initialize(index_pool_name.c_str(), pool_size);
-    std::cout << "Initialize CCEH" << std::endl;
-    eh = reinterpret_cast<Hash<T> *>(Allocator::GetRoot(sizeof(cceh::CCEH<T>)));
-    if (!file_exist) {
-      new (eh) cceh::CCEH<T>(seg_num, Allocator::Get()->pm_pool_);
-    } else {
-      new (eh) cceh::CCEH<T>();
-    }
-    std::cout << "Finish the initialization of CCEH" << std::endl;
-  } else if (index_type == "level") {
-    std::string index_pool_name = pool_name + "pmem_level.data";
-    if (FileExists(index_pool_name.c_str())) file_exist = true;
-    Allocator::Initialize(index_pool_name.c_str(), pool_size);
-    std::cout << "Initialize Level Hashing" << std::endl;
-    eh = reinterpret_cast<Hash<T> *>(
-        Allocator::GetRoot(sizeof(level::LevelHashing<T>)));
-    if (!file_exist) {
-      new (eh) level::LevelHashing<T>();
-      int level_size = 13;
-      level::initialize_level(Allocator::Get()->pm_pool_,
-                              reinterpret_cast<level::LevelHashing<T> *>(eh),
-                              &level_size);
-    } else {
-      new (eh) level::LevelHashing<T>();
-    }
-  }
-  return eh;
-}
-*/
 /*generate random 8-byte number and store it in the memory_region*/
 void generate_8B(void *memory_region, uint64_t generate_num, bool persist,
                  key_generator_t *key_generator) {
@@ -1233,23 +1163,6 @@ void Run() {
     }
     RecoveryBench<T>(rarray, index, thread_num, operation_num, "Pos_search");
     
-    // to use insertion workload
-    /*
-    for (int i = 0; i < thread_num; ++i) {
-      rarray[i].begin = operation_num + i * chunk_size;
-      rarray[i].end = operation_num + (i + 1) * chunk_size;
-    }
-    rarray[thread_num - 1].end = 2 * operation_num;
-    RecoveryBench<T>(rarray, index, thread_num, operation_num, "Insert");
-    
-    if (open_epoch == true) {
-      GeneralBench<T>(rarray, index, thread_num, operation_num, "Search",
-                      &concurr_search);
-    } else {
-      GeneralBench<T>(rarray, index, thread_num, operation_num, "Search",
-                      &concurr_search_without_epoch);
-    }
-    */    
   } else { /*do the benchmark for all single operations*/
 
     if(is_crash){
@@ -1276,19 +1189,6 @@ void Run() {
       GeneralBench<T>(rarray, index, thread_num, operation_num, "Insert",
                       &concurr_insert_without_epoch);
     }
-/*
-    for (int i = 0; i < thread_num; ++i) {
-      rarray[i].workload = not_used_insert_workload;
-    }
-    if (open_epoch == true) {
-      GeneralBench<T>(rarray, index, thread_num, operation_num, "Insert",
-                      &concurr_insert);
-    } else {
-      GeneralBench<T>(rarray, index, thread_num, operation_num, "Insert",
-                      &concurr_insert_without_epoch);
-    }
-    index->getNumber();
-*/
 
     if (open_epoch == true) {
       GeneralBench<T>(rarray, index, thread_num, operation_num, "Pos_search",
