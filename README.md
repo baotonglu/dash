@@ -21,21 +21,14 @@ We tested our build with Linux Kernel 5.2.11 and gcc 9.2.0.
 ```bash
 mkdir build && cd build
 cmake -DCMAKE_BUILD_TYPE=Release -DUSE_PMEM=ON .. 
-make test_pmem
+make -j
 ```
 
 ### Run on a real device
 
 ```bash
-./build/test_pmem 64 1000000 1
+./run.sh
 ```
-
-### Simulate on DRAM 
-
-```bash
-PMEM_IS_PMEM_FORCE=1 ./build/test_pmem 64 1000000 1
-```
-
 
 ## Miscellaneous
 
