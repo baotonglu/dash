@@ -25,9 +25,9 @@
 #define EPOCH_DURATION 1000
 
 std::string pool_name = "/mnt/pmem0/";
-static const size_t pool_size = 1024ul * 1024ul * 1024ul * 30ul;
+//static const size_t pool_size = 1024ul * 1024ul * 1024ul * 30ul;
 DEFINE_string(index, "dash-ex",
-              "which index to evaluate:dash-ex/dash-lh/cceh/level");
+              "the index to evaluate:dash-ex/dash-lh/cceh/level");
 DEFINE_string(k, "fixed", "the type of stored keys: fixed/variable");
 DEFINE_string(distribution, "uniform",
               "The distribution of the workload: uniform/skew");
@@ -45,6 +45,7 @@ DEFINE_double(skew, 0.8, "skew factor of the workload");
 DEFINE_uint32(e, 0, "whether register epoch in application level:0/1");
 DEFINE_uint32(ms, 100, "#miliseconds to sample the operations");
 DEFINE_uint32(vl, 16, "the length of the variable length key");
+DEFINE_uint64(ps, 30ul, "The size of the memory pool (GB)");
 //DEFINE_uint32(crash, 0, "whether to do the crash insertion");
 
 uint64_t initCap, thread_num, load_num, operation_num;
@@ -61,6 +62,7 @@ bool is_crash = false;
 bool open_epoch;
 uint32_t msec, var_length;
 struct timeval tv1, tv2, tv3;
+size_t pool_size = 1024ul * 1024ul * 1024ul * 30ul;
 key_generator_t *uniform_generator;
 
 struct operation_record_t {
@@ -149,7 +151,7 @@ Hash<T> *InitializeIndex(int seg_num) {
         Allocator::GetRoot(sizeof(level::LevelHashing<T>)));
     if (!file_exist) {
       new (eh) level::LevelHashing<T>();
-      int level_size = 12;
+      int level_size = 14;
       level::initialize_level(Allocator::Get()->pm_pool_,
                               reinterpret_cast<level::LevelHashing<T> *>(eh),
                               &level_size);
@@ -157,7 +159,6 @@ Hash<T> *InitializeIndex(int seg_num) {
       new (eh) level::LevelHashing<T>();
     }
   }
-
   if (operation == "recovery"){
     gettimeofday(&tv3, NULL);  // test end
     eh->Recovery();
@@ -1240,10 +1241,10 @@ int main(int argc, char *argv[]) {
   open_epoch = FLAGS_e;
   msec = FLAGS_ms;
   var_length = FLAGS_vl;
+  pool_size = FLAGS_ps * 1024ul * 1024ul * 1024ul; /*pool_size*/
   if (open_epoch == true)
     std::cout << "EPOCH registration in application level" << std::endl;
 
-  // std::cout << "Hello world" << std::endl;
   read_ratio = FLAGS_r;
   insert_ratio = FLAGS_s;
   delete_ratio = FLAGS_d;

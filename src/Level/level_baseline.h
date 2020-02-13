@@ -19,7 +19,7 @@
 #include "../../util/pair.h"
 #include "../../util/persist.h"
 #include "../Hash.h"
-#define ASSOC_NUM 15
+#define ASSOC_NUM 3
 #define NODE_TYPE 1000
 #define LEVEL_TYPE 2000
 #define LOCK_TYPE 3000
@@ -53,7 +53,7 @@ struct Entry {
 template <class T>
 struct Node {
   uint8_t token[ASSOC_NUM];
-  char dummy[1]; 
+  char dummy[13]; 
   Entry<T> slot[ASSOC_NUM];
   void *operator new[](size_t size) {
     void *ret;
@@ -574,7 +574,7 @@ void LevelHashing<T>::resize(PMEMobjpool *pop) {
 
     levels++;
     resize_num++;
-    pmemobj_tx_free(_buckets[1]);
+    pmemobj_tx_free(_buckets[1]); /*free the old bottom level*/
     _buckets[1] = _buckets[0];
     _buckets[0] = _interim_level_buckets;
     buckets[1] = (Node<T> *)cache_align(pmemobj_direct(_buckets[1]));
@@ -588,7 +588,7 @@ void LevelHashing<T>::resize(PMEMobjpool *pop) {
 #endif
     addr_capacity = new_addr_capacity;
     total_capacity = pow(2, levels) + pow(2, levels - 1);
-    pmemobj_tx_free(_old_mutex);
+    pmemobj_tx_free(_old_mutex); /*free the old mutex*/
     resizing = false;
   }
   TX_ONABORT { printf("resizing txn 2 fails\n"); }

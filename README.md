@@ -40,7 +40,7 @@ Usage:
 -s          insert ratio for mixed workload: 0.0~1.0 (default: 0.0)
 -d          delete ratio for mixed workload: 0.0~1.0 (default: 0.0)
 -e          whether to register epoch in application level: 0/1 (default: 0)
--k          (the type of stored keys: fixed/variable (default: "fixed")
+-k          the type of stored keys: fixed/variable (default: "fixed")
 -vl         the length of the variable length key (default: 16)
 ```
 
