@@ -19,7 +19,7 @@
 #include "../../util/pair.h"
 #include "../../util/persist.h"
 #include "../Hash.h"
-#define ASSOC_NUM 3
+#define ASSOC_NUM 7
 #define NODE_TYPE 1000
 #define LEVEL_TYPE 2000
 #define LOCK_TYPE 3000
@@ -53,7 +53,7 @@ struct Entry {
 template <class T>
 struct Node {
   uint8_t token[ASSOC_NUM];
-  char dummy[13]; 
+  char dummy[9]; 
   Entry<T> slot[ASSOC_NUM];
   void *operator new[](size_t size) {
     void *ret;
@@ -129,14 +129,16 @@ class LevelHashing : public Hash<T> {
   Value_t Get(T);
   Value_t Get(T key, bool flag) { return Get(key); }
   void Recovery() { 
-    if(!OID_IS_NULL(_old_mutex)){
-      pmemobj_free(&_old_mutex);
-    }
-    if(!OID_IS_NULL(_interim_level_buckets)){
-      pmemobj_free(&_interim_level_buckets);
-    }
-    resizing = false;
-    resizing_lock = 0;
+    if (resizing){
+       if(!OID_IS_NULL(_old_mutex)){
+        pmemobj_free(&_old_mutex);
+      }
+      if(!OID_IS_NULL(_interim_level_buckets)){
+        pmemobj_free(&_interim_level_buckets);
+      }
+      resizing = false;
+      resizing_lock = 0;
+    } 
   }
   void getNumber() { 
     std::cout << "Entry Size: " << sizeof(struct Entry<T>) << std::endl;

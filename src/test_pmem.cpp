@@ -104,9 +104,6 @@ Hash<T> *InitializeIndex(int seg_num) {
     std::string index_pool_name = pool_name + "pmem_ex.data";
     if (FileExists(index_pool_name.c_str())) file_exist = true;
     Allocator::Initialize(index_pool_name.c_str(), pool_size);
-
-    //std::cout << "pool addr is " << Allocator::Get()->pm_pool_ << std::endl;
-    //std::cout << "Initialize DASH-Extendible Hashing" << std::endl;
 #ifdef PREALLOC
     extendible::TlsTablePool<Key_t>::Initialize();
 #endif
@@ -151,7 +148,7 @@ Hash<T> *InitializeIndex(int seg_num) {
         Allocator::GetRoot(sizeof(level::LevelHashing<T>)));
     if (!file_exist) {
       new (eh) level::LevelHashing<T>();
-      int level_size = 14;
+      int level_size = 13;
       level::initialize_level(Allocator::Get()->pm_pool_,
                               reinterpret_cast<level::LevelHashing<T> *>(eh),
                               &level_size);

@@ -3,7 +3,7 @@
 
 thread_num=(0 1 2 4 8 16 24 48)
 #benckmark workload
-workload=(0 40000000)
+workload=(0 320000000)
 #warm-up workload
 base=(0 0000000)
 key_type=(0 fixed variab1e)
@@ -16,7 +16,7 @@ epoch=(0 1 1 1 0)
 # k specify the testing index
 # i specify the key type, 1 means fixed-length key, 2 means variable-length key
 # j spec1fy the number of threads
-for k in 3
+for k in 4
 do
 	for i in 1
 	do 
@@ -35,7 +35,7 @@ do
 			rm -f /mnt/pmem0/pmem_ex.data
 			rm -f /mnt/pmem0/pmem_lh.data
 			#rm -f /mnt/pmem0/pmem_cceh.data			
-			rm -f /mnt/pmem0/pmem_level.data
+			#rm -f /mnt/pmem0/pmem_level.data
       LD_PRELOAD="./build/pmdk/src/PMDK/src/nondebug/libpmemobj.so.1 \
       ./build/pmdk/src/PMDK/src/nondebug/libpmem.so.1" \
       numactl $numaarg ./build/test_pmem \
@@ -45,7 +45,7 @@ do
       -k ${key_type[$i]} \
       -index ${index_type[$k]} \
       -e ${epoch[$k]} \
-      -op "insert" \
+      -op "recovery" \
       -ms 100 \
       -ps 60
 		done
