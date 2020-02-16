@@ -13,10 +13,10 @@
 #include "../util/System.hpp"
 #include "../util/key_generator.hpp"
 #include "../util/uniform.hpp"
-#include "./CCEH/CCEH_adjust.h"
-#include "./Level/level_baseline.h"
 #include "Hash.h"
 #include "allocator.h"
+#include "./CCEH/CCEH_baseline.h"
+#include "./Level/level_baseline.h"
 #include "ex_finger.h"
 #include "lh_finger.h"
 #include "libpmemobj.h"
@@ -1246,6 +1246,12 @@ int main(int argc, char *argv[]) {
   insert_ratio = FLAGS_s;
   delete_ratio = FLAGS_d;
   skew_factor = FLAGS_skew;
+  if (operation == "mixed"){
+    std::cout << "Search ratio = " << read_ratio << std::endl;
+    std::cout << "Insert ratio = " << insert_ratio << std::endl;
+    std::cout << "Delete ratio = " << delete_ratio << std::endl;
+
+  }
   if (!check_ratio()) {
     std::cout << "The ratio is wrong!" << std::endl;
     return 0;

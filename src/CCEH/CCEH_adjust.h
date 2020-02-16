@@ -51,7 +51,7 @@ struct log_entry {
 * In the following description, CacheLine actually means the bucket
 */
 // the number of cachelines in one bucket
-const size_t bucketSize = 2;
+const size_t bucketSize = 1;
 // const size_t kCacheLineSize = 64;
 constexpr size_t kSegmentBits = 8;
 /*We could tune the kMask, which means the number of buckets in the segment*/
@@ -62,7 +62,7 @@ constexpr size_t kSegmentSize = (1 << kSegmentBits) * 16 * 4;
 /* This is actually the #k-v pairs in one bucket*/
 constexpr size_t kNumPairPerCacheLine = (kCacheLineSize * bucketSize) / 16;
 /* The numebr of buckets to probe*/
-constexpr size_t kNumCacheLine = 2;
+constexpr size_t kNumCacheLine = 4;
 
 uint64_t clflushCount;
 
@@ -429,8 +429,6 @@ int Segment<T>::Insert(PMEMobjpool *pool_addr, T key, Value_t value, size_t loc,
   for (unsigned i = 0; i < kNumPairPerCacheLine * kNumCacheLine; ++i) {
     slot = (loc + i) % kNumSlot;
     if constexpr (std::is_pointer_v<T>) {
-      // if ((_[slot].key != (T)INVALID) && ((h(_[slot].key,strlen(_[slot].key))
-      // >> (8*sizeof(key_hash)-local_depth)) != pattern)) {
       if ((_[slot].key != (T)INVALID) &&
           ((h(_[slot].key->key, _[slot].key->length) >>
             (8 * sizeof(key_hash) - local_depth)) != pattern)) {

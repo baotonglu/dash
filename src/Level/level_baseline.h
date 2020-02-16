@@ -84,11 +84,10 @@ class LevelHashing : public Hash<T> {
   uint64_t f_seed;
   uint64_t s_seed;
   uint32_t resize_num;
-  // int32_t resizing_lock = 0;
   /* lock information */
   std::atomic<int64_t> resizing_lock;
   PMEMoid _mutex;
-  PMEMoid _old_mutex;
+  PMEMoid _old_mutex; /*old mutex lock*/
   PMEMrwlock *mutex;
   //int prev_nlocks;
   int nlocks;
@@ -130,7 +129,7 @@ class LevelHashing : public Hash<T> {
   Value_t Get(T key, bool flag) { return Get(key); }
   void Recovery() { 
     if (resizing){
-       if(!OID_IS_NULL(_old_mutex)){
+       if(!OID_IS_NULL(_old_mutex) && !OID_EQUALS(_old_mutex, _mutex)){
         pmemobj_free(&_old_mutex);
       }
       if(!OID_IS_NULL(_interim_level_buckets)){
@@ -468,20 +467,17 @@ void LevelHashing<T>::resize(PMEMobjpool *pop) {
     pmemobj_rwlock_wrlock(pop, &mutex[i]);
   }
 
-  // nlocks = nlocks + 2*addr_capacity/locksize+1;
   size_t new_addr_capacity = pow(2, levels + 1);
+  /*
   TX_BEGIN(pop) {
     pmemobj_tx_add_range_direct(&nlocks, sizeof(nlocks));
-    //pmemobj_tx_add_range_direct(&prev_nlocks, sizeof(prev_nlocks));
     pmemobj_tx_add_range_direct(&_old_mutex, sizeof(_old_mutex));
     pmemobj_tx_add_range_direct(&_mutex, sizeof(_mutex));
     pmemobj_tx_add_range_direct(&interim_level_buckets,
                                 sizeof(interim_level_buckets));
     pmemobj_tx_add_range_direct(&_interim_level_buckets,
                                 sizeof(_interim_level_buckets));
-
     _old_mutex = _mutex;
-    //prev_nlocks = nlocks;
     nlocks = (3 * 2 * addr_capacity / 2) / locksize + 1;
     _mutex = pmemobj_tx_zalloc(nlocks * sizeof(PMEMrwlock), TOID_TYPE_NUM(char));
     mutex = (PMEMrwlock *)(pmemobj_direct(_mutex));
@@ -492,9 +488,26 @@ void LevelHashing<T>::resize(PMEMobjpool *pop) {
   }
   TX_ONABORT { printf("resizing txn 1 fails\n"); }
   TX_END
+  */
+  _old_mutex = _mutex;
+  pmemobj_persist(pop, &_old_mutex, sizeof(_old_mutex));
+  nlocks = (3 * 2 * addr_capacity / 2) / locksize + 1;
+  auto ret = pmemobj_zalloc(pop, &_mutex, nlocks * sizeof(PMEMrwlock), TOID_TYPE_NUM(char));
+  if(ret){
+    std::cout << "Ret = " << ret << std::endl;
+    std::cout << "Allocation Size = " << std::hex << nlocks * sizeof(PMEMrwlock) << std::endl;
+    LOG_FATAL("Allocation Error in New Mutex");
+  }
+  mutex = (PMEMrwlock *)(pmemobj_direct(_mutex));
+  ret = pmemobj_zalloc(pop, &_interim_level_buckets, new_addr_capacity * sizeof(Node<T>) + 1, TOID_TYPE_NUM(char));
+  if(ret){
+    std::cout << "Ret = " << ret << std::endl;
+    std::cout << "Allocation Size = " << std::hex <<  new_addr_capacity * sizeof(Node<T>) + 1 << std::endl;
+    LOG_FATAL("Allocation Error in Table");
+  }
+  interim_level_buckets =
+        (Node<T> *)cache_align(pmemobj_direct(_interim_level_buckets));
 
-  //PMEMrwlock *old_mutex = (PMEMrwlock *)(pmemobj_direct(_old_mutex));
-  //mutex = (PMEMrwlock *)pmemobj_direct(_mutex);
   uint64_t new_level_item_num = 0;
   uint64_t old_idx;
   for (old_idx = 0; old_idx < pow(2, levels - 1); old_idx++) {

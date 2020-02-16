@@ -7,7 +7,6 @@
 static const char* layout_name = "hashtable";
 static const constexpr uint64_t pool_addr = 0x5f0000000000;
 //0x7ff600000000;
-//;
 
 typedef void (*DestroyCallback)(void* callback_context, void* object);
 
@@ -42,12 +41,6 @@ struct Allocator {
       LOG("creating a new pool");
       pm_pool_ = pmemobj_create_addr(pool_name, layout_name, pool_size,
                                      CREATE_MODE_RW, (void*)pool_addr);
-      /*
-      if(pmem_is_pmem((void*)pool_addr, 64)){
-        std::cout << "It is real PM" << std::endl;
-      }else{
-        std::cout << "It NOT real PM" << std::endl;
-      }*/
       //pm_pool_ = pmemobj_create(pool_name, layout_name, pool_size, CREATE_MODE_RW);
       if (pm_pool_ == nullptr) {
         LOG_FATAL("failed to create a pool;");
