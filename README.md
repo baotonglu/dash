@@ -16,7 +16,7 @@ Fully open-sourced under MIT license.
 
 ## Build using CMake
 
-We tested our build with Linux Kernel 5.2.11 and gcc 9.2.0.
+We tested our build with Linux Kernel 5.5.3 and gcc 9.2.0.
 
 ```bash
 mkdir build && cd build
