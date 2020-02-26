@@ -2187,6 +2187,9 @@ class Linear : public Hash<T> {
   Value_t Get(T key, bool is_in_epoch);
   void FindAnyway(T key);
   void Recovery();
+  void ShutDown(){
+    clean = true;
+  }
   bool TryMerge(uint64_t, Table<T> *);
   void recoverSegment(Table<T> **seg_ptr, size_t, size_t, size_t);
   void getNumber() {
@@ -2194,7 +2197,6 @@ class Linear : public Hash<T> {
     uint64_t prev_length = 0;
     uint64_t after_length = 0;
     uint64_t Bucket_num = 0;
-    // for (int idx = 0; idx < partitionNum; ++idx) {
     uint64_t old_N_next = dir.N_next;
     uint32_t N = old_N_next >> 32;
     uint32_t next = (uint32_t)old_N_next;
@@ -2475,6 +2477,7 @@ sizeof(Table<T>) * seg_size);*/
 #endif
   Directory<T> dir;
   int lock;
+  bool clean;
 };
 
 template <class T>
@@ -2482,6 +2485,7 @@ Linear<T>::Linear(PMEMobjpool *_pool) {
   std::cout << "Start to initialize from scratch" << std::endl;
   pool_addr = _pool;
   lock = 0;
+  clean = false;
   dir.N_next = baseShifBits << 32;
   std::cout << "Table size is " << sizeof(Table<T>) << std::endl;
   memset(dir._, 0, directorySize * sizeof(uint64_t));
@@ -2559,6 +2563,10 @@ bool Linear<T>::TryMerge(uint64_t x, Table<T> *shrunk_table) {
 
 template <class T>
 void Linear<T>::Recovery() {
+  if(clean) {
+    clean = false;
+    return;
+  }
   Allocator::EpochRecovery();
   uint64_t old_N_next = dir.N_next;
   uint32_t N = old_N_next >> 32;

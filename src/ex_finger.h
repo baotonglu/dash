@@ -1707,7 +1707,9 @@ class Finger_EH : public Hash<T> {
   void Lock_Directory();
   void Unlock_Directory();
   int FindAnyway(T key);
-  void CheckDepthCount();
+  void ShutDown(){
+    clean = true;
+  }
   void getNumber() {
     printf("the size of the bucket is %lld\n", sizeof(struct Bucket<T>));
     // printf("the size of the Table is %lld\n", sizeof(struct Table));
@@ -1770,13 +1772,11 @@ class Finger_EH : public Hash<T> {
       crash_version; /*when the crash version equals to 0Xff => set the crash
                         version as 0, set the version of all entries as 1*/
   bool clean;
-#ifdef PMEM
   PMEMobjpool *pool_addr;
   /* directory allocation will write to here first,
    * in oder to perform safe directory allocation
    * */
   PMEMoid back_dir;
-#endif
 };
 
 template <class T>
@@ -1787,7 +1787,7 @@ Finger_EH<T>::Finger_EH(size_t initCap, PMEMobjpool *_pool) {
   back_dir = OID_NULL;
   lock = 0;
   crash_version = 0;
-  clean = 0;
+  clean = false;
   PMEMoid ptr;
   Table<T>::New(&ptr, dir->global_depth, OID_NULL);
   dir->_[initCap - 1] = (Table<T> *)pmemobj_direct(ptr);
@@ -2097,6 +2097,10 @@ template <class T>
 void Finger_EH<T>::Recovery() {
   /*scan the directory, set the clear bit, and also set the dirty bit in the
    * segment to indicate that this segment is clean*/
+  if (clean) {
+    clean = false;
+    return;
+  }
   Allocator::EpochRecovery();
   lock = 0;
   /*first check the back_dir log*/
@@ -2110,16 +2114,12 @@ void Finger_EH<T>::Recovery() {
   crash_version = ((crash_version >> 56) + 1) << 56;
   if (crash_version == 0) {
     uint64_t set_one = 1UL << 56;
-#pragma omp parallel for num_threads(24)
     for (int i = 0; i < length; ++i) {
-      // dir_entry[i] = (Table<T> *)((uint64_t)dir_entry[i] | recoverBit);
       uint64_t snapshot = (uint64_t)dir_entry[i];
       dir_entry[i] =
           reinterpret_cast<Table<T> *>((snapshot & tailMask) | set_one);
     }
-#ifdef PMEM
     Allocator::Persist(dir_entry, sizeof(uint64_t) * length);
-#endif
   }
 }
 
@@ -2798,22 +2798,6 @@ RETRY:
   // x, y,target_table->local_depth, dir->global_depth,target_table->pattern);
   return false;
 }
-
-/*
-template<class T>
-void Finger_EH::CheckDepthCount() {
-  auto capacity = pow(2, dir->global_depth);
-  auto dir_entry = dir->_;
-  Table<T> *current_table;
-  int count = 0;
-  for (int i = 0; i < capacity; ++i) {
-    current_table = dir_entry[i];
-    count += (current_table->local_depth == dir->global_depth) ? 1 : 0;
-  }
-  printf("calculate count = %d\n", count);
-  printf("the recorded depth_count = %d\n", dir->depth_count);
-}
-*/
 
 /*DEBUG FUNCTION: search the position of the key in this table and print
  * correspongdign informantion in this table, to test whether it is correct*/

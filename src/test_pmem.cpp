@@ -325,11 +325,6 @@ void concurr_insert(struct range *_range, Hash<T> *index) {
       uint64_t _end = begin + (i + 1) * EPOCH_DURATION;
       for (uint64_t j = begin + i * EPOCH_DURATION; j < _end; ++j) {
         index->Insert(key_array[j], DEFAULT);
-        /*
-        if(index->Insert_bool(key_array[j], DEFAULT) == false){
-          repeat_key++;
-        }
-        */
       }
       ++i;
     }
@@ -338,11 +333,6 @@ void concurr_insert(struct range *_range, Hash<T> *index) {
       auto epoch_guard = Allocator::AquireEpochGuard();
       for (i = begin + EPOCH_DURATION * round; i < end; ++i) {
         index->Insert(key_array[i], DEFAULT);
-        /*
-        if(index->Insert_bool(key_array[i], DEFAULT) == false){
-          repeat_key++;
-        }
-        */
       }
     }
   } else {
@@ -371,7 +361,6 @@ void concurr_insert(struct range *_range, Hash<T> *index) {
     }
   }
 
-  //std::cout << "Repeat keys = " << repeat_key << std::endl;
   end_notify(_range);
 }
 
@@ -965,11 +954,6 @@ void *GenerateSkewWorkload(uint64_t load_num, uint64_t exist_num,
     if (load_type == 1){
       key_generator_t *range_generator = new range_key_generator_t(1);
       generate_8B(fixed_workload, load_num, false, range_generator);
-      /*
-      for (uint64_t i = 0; i < load_num; ++i){
-        std::cout << fixed_workload[i] << std::endl;
-      }
-      */
       delete range_generator;
     }else{
       generate_8B(fixed_workload, load_num, false, uniform_generator);

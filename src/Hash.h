@@ -12,9 +12,6 @@ class Hash {
     Hash(void) = default;
     ~Hash(void) = default;
     virtual void Insert(T, Value_t) = 0;
-    virtual bool Insert_bool(T, Value_t) {
-      return true;
-    };
     virtual void Insert(T, Value_t, bool) = 0;
     virtual void Insert(T, Value_t, int){
 
