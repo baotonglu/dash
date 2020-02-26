@@ -1,6 +1,4 @@
 #pragma once
-//#ifndef Linear_H
-//#define Linear_H
 
 #include <immintrin.h>
 
@@ -23,7 +21,6 @@
 #define _INVALID 0 /* we use 0 as the invalid key*/
 #define SINGLE 1
 #define DOUBLE_EXPANSION 1
-#define EPOCH 1
 //#define DEBUG 1
 //#define PREALLOC 1
 //#define COUNTING 1
@@ -280,7 +277,7 @@ struct overflowBucket {
     assert(GET_COUNT(bitmap) > 0);
     bitmap--;
   }
-
+  /*
   inline void get_lock() {
     auto old_value = version_lock & lockMask;
     auto new_value = version_lock | lockSet;
@@ -298,6 +295,26 @@ struct overflowBucket {
       old_value = version_lock;
       new_value = ((old_value & lockMask) + 1) & lockMask;
     }
+  }*/
+
+  inline void get_lock() {
+    uint32_t new_value = 0;
+    uint32_t old_value = 0;
+    do {
+      while (true) {
+        old_value = __atomic_load_n(&version_lock, __ATOMIC_ACQUIRE);
+        if (!(old_value & lockSet)) {
+          old_value &= lockMask;
+          break;
+        }
+      }
+      new_value = old_value | lockSet;
+    } while (!CAS(&version_lock, &old_value, new_value));
+  }
+
+  inline void release_lock() {
+    uint32_t v = version_lock;
+    __atomic_store_n(&version_lock, v + 1 - lockSet, __ATOMIC_RELEASE);
   }
 
   int Insert(T key, Value_t value, uint8_t meta_hash) {
@@ -313,7 +330,7 @@ struct overflowBucket {
 #ifdef PMEM
     Allocator::Persist(&_[slot], sizeof(_[slot]));
 #endif
-    mfence();
+//    mfence();
     set_hash(slot, meta_hash);
     return 0;
   }
@@ -733,9 +750,10 @@ struct Bucket {
   }
 
   /*for normal bucket*/
+  /*
   inline void get_lock() {
     auto old_value = version_lock & lockMask;
-    auto new_value = version_lock | lockSet; /*the first one bit is locked*/
+    auto new_value = version_lock | lockSet; 
     while (!CAS(&version_lock, &old_value, new_value)) {
       old_value = version_lock & lockMask;
       new_value = version_lock | lockSet;
@@ -758,6 +776,37 @@ struct Bucket {
       new_value = new_value = (((old_value & versionMask) + 1) & versionMask) |
                               (old_value & initialSet);
     }
+  }
+  */
+
+ inline void get_lock() {
+    uint32_t new_value = 0;
+    uint32_t old_value = 0;
+    do {
+      while (true) {
+        old_value = __atomic_load_n(&version_lock, __ATOMIC_ACQUIRE);
+        if (!(old_value & lockSet)) {
+          old_value &= lockMask;
+          break;
+        }
+      }
+      new_value = old_value | lockSet;
+    } while (!CAS(&version_lock, &old_value, new_value));
+  }
+
+  inline bool try_get_lock() {
+    uint32_t v = __atomic_load_n(&version_lock, __ATOMIC_ACQUIRE);
+    if (v & lockSet) {
+      return false;
+    }
+    auto old_value = v & lockMask;
+    auto new_value = v | lockSet;
+    return CAS(&version_lock, &old_value, new_value);
+  }
+
+  inline void release_lock() {
+    uint32_t v = version_lock;
+    __atomic_store_n(&version_lock, v + 1 - lockSet, __ATOMIC_RELEASE);
   }
 
   /*if the lock is set, return true*/
@@ -811,7 +860,7 @@ struct Bucket {
 #ifdef PMEM
     Allocator::Persist(&_[slot], sizeof(_[slot]));
 #endif
-    mfence();
+//    mfence();
     set_hash(slot, meta_hash, probe);
     return 0;
   }
@@ -935,7 +984,7 @@ struct Bucket {
 #ifdef PMEM
     Allocator::Persist(&_[slot], sizeof(_Pair<T>));
 #endif
-    mfence();
+//    mfence();
     set_hash(slot, meta_hash, probe);
   }
 
@@ -1814,8 +1863,6 @@ int Table<T>::Insert(T key, Value_t value, size_t key_hash, Directory<T> *_dir,
   auto y = BUCKET_INDEX(key_hash);
   Bucket<T> *target = bucket + y;
   Bucket<T> *neighbor = bucket + ((y + 1) & bucketMask);
-  // printf("for key %lld, target bucket is %lld, meta_hash is %d\n", key,
-  // BUCKET_INDEX(key_hash), meta_hash);
   target->get_lock();
   if (!neighbor->try_get_lock()) {
 #ifdef DEBUG
@@ -3020,11 +3067,6 @@ bool Linear<T>::Delete(T key, bool is_in_epoch) {
 /*the delete operation of the */
 template <class T>
 bool Linear<T>::Delete(T key) {
-  /*
-  #ifdef EPOCH
-    auto epoch_guard = Allocator::AquireEpochGuard();
-  #endif
-  */
   uint64_t key_hash;
   if constexpr (std::is_pointer_v<T>) {
     key_hash = h(key->key, key->length);

@@ -24,6 +24,19 @@ public:
     }
 };
 
+class range_key_generator_t : public key_generator_t{
+public:
+    range_key_generator_t(size_t start){
+        start_number = start;
+    }
+
+    uint64_t next_uint64(){
+        return start_number++;
+    }
+private:
+    size_t start_number = 0;
+};
+
 class zipfian_key_generator_t : public key_generator_t{
 public:
     zipfian_key_generator_t(size_t start, size_t end, float skew) : dist_(start, end, skew), generator_(time(0)){

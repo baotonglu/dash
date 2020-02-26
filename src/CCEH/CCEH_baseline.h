@@ -435,17 +435,10 @@ int Segment<T>::Insert(PMEMobjpool *pool_addr, T key, Value_t value, size_t loc,
         _[slot].key = (T)INVALID;
       }
       if (CAS(&_[slot].key, &LOCK, SENTINEL)) {
-        // T new_key = (T)malloc(strlen(key)+1);
-        // strcpy(new_key, key);
-        // clflush((char*)new_key, strlen(key)+1);
         _[slot].value = value;
-        mfence();
+//        mfence();
         _[slot].key = key;
-        // clflush((char*)&_[slot],sizeof(_Pair<T>));
-#ifdef PMEM
         Allocator::Persist(&_[slot], sizeof(_Pair<T>));
-#endif
-        // count++;
         ret = 0;
         break;
       } else {
@@ -458,11 +451,9 @@ int Segment<T>::Insert(PMEMobjpool *pool_addr, T key, Value_t value, size_t loc,
       }
       if (CAS(&_[slot].key, &LOCK, SENTINEL)) {
         _[slot].value = value;
-        mfence();
+//        mfence();
         _[slot].key = key;
-        // clflush((char*)&_[slot],sizeof(_Pair<T>));
         Allocator::Persist(&_[slot], sizeof(_Pair<T>));
-        // count++;
         ret = 0;
         break;
       } else {

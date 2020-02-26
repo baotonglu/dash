@@ -5,7 +5,7 @@ thread_num=(0 1 2 4 8 16 24 48)
 #benckmark workload
 workload=(0 190000000)
 #warm-up workload
-base=(0 10000000)
+base=(0 200000000)
 key_type=(0 fixed variab1e)
 index_type=(0 dash-ex dash-lh cceh level)
 epoch=(0 1 1 1 0)
@@ -16,13 +16,13 @@ epoch=(0 1 1 1 0)
 # k specify the testing index
 # i specify the key type, 1 means fixed-length key, 2 means variable-length key
 # j spec1fy the number of threads
-#for q in 0.5 0.6 0.7 0.8 0.9 0.99
-#do
-for k in 2
+for q in 0.99
+do 
+for k in {1..2}
 do
 	for i in 1
 	do 
-		for j in 1 6
+		for j in 6
 		do
 			echo "Begin: ${base[1]} ${workload[${i}]} ${thread_num[${j}]}"
 			numaarg=""
@@ -42,20 +42,21 @@ do
       ./build/pmdk/src/PMDK/src/nondebug/libpmem.so.1" \
       numactl $numaarg ./build/test_pmem \
       -n ${base[1]} \
-      -loadType 0 \
+      -loadType 1 \
       -p ${workload[1]} \
       -t ${thread_num[$j]} \
       -k ${key_type[$i]} \
-      -distribution "uniform" \
+      -distribution "skew" \
+      -skew $q \
       -index ${index_type[$k]} \
       -e ${epoch[$k]} \
       -ed 1000 \
-      -op "full" \
-      -r 0.8 \
-      -s 0.2 \
+      -op "skew-all" \
+      -r 0.8\
+      -s 0.2\
       -ms 100 \
       -ps 60
 		done
 	done
 done
-#done
+done

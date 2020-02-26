@@ -38,7 +38,7 @@ do
 			rm -f /mnt/pmem0/pmem_lh.data
 			rm -f /mnt/pmem0/pmem_cceh.data			
 			rm -f /mnt/pmem0/pmem_level.data
-			OP_PLACES=threads OMP_PROC_BIND=true OMP_NESTED=true LD_PRELOAD="./build/pmdk/src/PMDK/src/nondebug/libpmemobj.so.1 ./build/pmdk/src/PMDK/src/nondebug/libpmem.so.1" numactl $numaarg ./build/test_pmem -n ${base[1]} -p ${workload[1]} -t ${thread_num[$j]} -k ${key_type[$i]} -index ${index_type[$k]} -e ${epoch[$k]} -op "insert" -ms 100
+			OMP_PLACES=threads OMP_PROC_BIND=true OMP_NESTED=true LD_PRELOAD="./build/pmdk/src/PMDK/src/nondebug/libpmemobj.so.1 ./build/pmdk/src/PMDK/src/nondebug/libpmem.so.1" numactl $numaarg ./build/test_pmem -n ${base[1]} -p ${workload[1]} -t ${thread_num[$j]} -k ${key_type[$i]} -index ${index_type[$k]} -e ${epoch[$k]} -op "insert" -ms 100
 		done
 	done
 done

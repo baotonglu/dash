@@ -333,7 +333,7 @@ UNIQUE:
 #ifndef SINGLE_LINE
         pmemobj_persist(pop, &buckets[i][f_idx].slot[j], sizeof(Entry<T>));
 #endif
-        mfence();
+//        mfence();
         buckets[i][f_idx].token[j] = 1;
         pmemobj_persist(pop, &buckets[i][f_idx].token[j], sizeof(uint8_t));
 #ifdef COUNTING
@@ -362,7 +362,7 @@ UNIQUE:
 #ifndef SINGLE_LINE
         pmemobj_persist(pop, &buckets[i][s_idx].slot[j], sizeof(Entry<T>));
 #endif
-        mfence();
+//        mfence();
         buckets[i][s_idx].token[j] = 1;
         pmemobj_persist(pop, &buckets[i][s_idx].token[j], sizeof(uint8_t));
 #ifdef COUNTING
@@ -407,7 +407,7 @@ UNIQUE:
           pmemobj_persist(pop, &buckets[1][f_idx].slot[empty_loc],
                           sizeof(Entry<T>));
 #endif
-          mfence();
+//          mfence();
           buckets[1][f_idx].token[empty_loc] = 1;
           pmemobj_persist(pop, &buckets[1][f_idx].token[empty_loc],
                           sizeof(uint8_t));
@@ -433,7 +433,7 @@ UNIQUE:
           pmemobj_persist(pop, &buckets[1][s_idx].slot[empty_loc],
                           sizeof(Entry<T>));
 #endif
-          mfence();
+//          mfence();
           buckets[1][s_idx].token[empty_loc] = 1;
           // clflush((char*)&buckets[1][s_idx], sizeof(Node));
           pmemobj_persist(pop, &buckets[1][s_idx].token[empty_loc],
@@ -530,7 +530,7 @@ void LevelHashing<T>::resize(PMEMobjpool *pop) {
             pmemobj_persist(pop, &interim_level_buckets[f_idx].slot[j],
                             sizeof(Entry<T>));
 #endif
-            mfence();
+//            mfence();
 #endif
             interim_level_buckets[f_idx].token[j] = 1;
 #ifndef BATCH
@@ -551,7 +551,7 @@ void LevelHashing<T>::resize(PMEMobjpool *pop) {
             pmemobj_persist(pop, &interim_level_buckets[s_idx].slot[j],
                             sizeof(Entry<T>));
 #endif
-            mfence();
+//            mfence();
 #endif
             interim_level_buckets[s_idx].token[j] = 1;
 #ifndef BATCH
@@ -644,7 +644,7 @@ uint8_t LevelHashing<T>::try_movement(PMEMobjpool *pop, uint64_t idx,
           pmemobj_persist(pop, &buckets[level_num][jdx].slot[j],
                           sizeof(Entry<T>));
 #endif
-          mfence();
+//          mfence();
           buckets[level_num][jdx].token[j] = 1;
           pmemobj_persist(pop, &buckets[level_num][jdx].token[j],
                           sizeof(uint8_t));
@@ -658,7 +658,7 @@ uint8_t LevelHashing<T>::try_movement(PMEMobjpool *pop, uint64_t idx,
           pmemobj_persist(pop, &buckets[level_num][idx].slot[i],
                           sizeof(Entry<T>));
 #endif
-          mfence();
+//          mfence();
           buckets[level_num][idx].token[i] = 1;
           pmemobj_persist(pop, &buckets[level_num][idx].token[i],
                           sizeof(uint8_t));
@@ -710,7 +710,7 @@ int LevelHashing<T>::b2t_movement(PMEMobjpool *pop, uint64_t idx) {
 #ifndef SINGLE_LINE
         pmemobj_persist(pop, &buckets[0][f_idx].slot[j], sizeof(Entry<T>));
 #endif
-        mfence();
+//        mfence();
         buckets[0][f_idx].token[j] = 1;
         // clflush((char*)&buckets[0][f_idx], sizeof(Node));
         pmemobj_persist(pop, &buckets[0][f_idx].token[j], sizeof(uint8_t));
@@ -738,7 +738,7 @@ int LevelHashing<T>::b2t_movement(PMEMobjpool *pop, uint64_t idx) {
 #ifndef SINGLE_LINE
         pmemobj_persist(pop, &buckets[0][s_idx].slot[j], sizeof(Entry<T>));
 #endif
-        mfence();
+//        mfence();
         buckets[0][s_idx].token[j] = 1;
         // clflush((char*)&buckets[0][s_idx], sizeof(Node));
         pmemobj_persist(pop, &buckets[0][s_idx].token[j], sizeof(uint8_t));

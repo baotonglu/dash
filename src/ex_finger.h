@@ -32,7 +32,6 @@ namespace extendible {
 #define _INVALID 0 /* we use 0 as the invalid key*/
 #define SINGLE 1
 //#define COUNTING 1
-#define EPOCH 1
 //#define PREALLOC 1
 
 const uint32_t lockSet = ((uint32_t)1 << 31);      /*locking information*/
@@ -364,11 +363,6 @@ struct Bucket {
     assert(GET_COUNT(bitmap) < kNumPairPerBucket);
     new_bitmap += 1;
     bitmap = new_bitmap;
-    // #ifdef PMEM
-    // Allocator::NTWrite32(reinterpret_cast<uint32_t *>(&bitmap), new_bitmap);
-    // #else
-    // bitmap = new_bitmap;
-    // #endif
     if (probe) {
       *((int *)membership) = (1 << index) | *((int *)membership);
     }
@@ -454,9 +448,6 @@ struct Bucket {
 
   /*if the lock is set, return true*/
   inline bool test_lock_set(uint32_t &version) {
-    // auto value = __atomic_load_n(&version_lock, __ATOMIC_ACQUIRE);
-    // version = value & lockMask;
-    // return (value & lockSet) != 0;
     version = __atomic_load_n(&version_lock, __ATOMIC_ACQUIRE);
     return (version & lockSet) != 0;
   }
@@ -482,7 +473,7 @@ struct Bucket {
 #ifdef PMEM
     Allocator::Persist(&_[slot], sizeof(_[slot]));
 #endif
-    mfence();
+//    mfence();
     set_hash(slot, meta_hash, probe);
     return 0;
   }
@@ -618,7 +609,7 @@ struct Bucket {
 #ifdef PMEM
     Allocator::Persist(&_[slot], sizeof(_Pair<T>));
 #endif
-    mfence();
+//    mfence();
     set_hash(slot, meta_hash, probe);
   }
 
@@ -1944,11 +1935,7 @@ void Finger_EH<T>::Directory_Doubling(int x, Table<T> *new_b, Table<T> *old_b) {
     std::cout << "TXN fails during doubling directory" << std::endl;
   }
   TX_END
-/*
-#ifdef EPOCH
-  Allocator::Free(old_dir);
-#endif
-*/
+
 #else
   dir = new_sa;
 #endif
@@ -2086,9 +2073,7 @@ void Finger_EH<T>::recoverTable(Table<T> **target_table, size_t key_hash,
         target->Merge(next_table, true);
         Allocator::Persist(target, sizeof(Table<T>));
         target->next = next_table->next;
-#ifdef EPOCH
         Allocator::Free(next_table);
-#endif
       }
     }
     target->state = 0;
@@ -2251,9 +2236,7 @@ RETRY:
 template <class T>
 Value_t Finger_EH<T>::Get(T key, bool is_in_epoch) {
   if (!is_in_epoch) {
-#ifdef EPOCH
     auto epoch_guard = Allocator::AquireEpochGuard();
-#endif
     return Get(key);
   }
   // return Get(key);
