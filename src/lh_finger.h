@@ -2189,6 +2189,7 @@ class Linear : public Hash<T> {
   void Recovery();
   void ShutDown(){
     clean = true;
+    Allocator::Persist(&clean, sizeof(clean))l
   }
   bool TryMerge(uint64_t, Table<T> *);
   void recoverSegment(Table<T> **seg_ptr, size_t, size_t, size_t);

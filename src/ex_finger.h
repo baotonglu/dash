@@ -1709,6 +1709,7 @@ class Finger_EH : public Hash<T> {
   int FindAnyway(T key);
   void ShutDown(){
     clean = true;
+    Allocator::Persist(&clean, sizeof(clean));
   }
   void getNumber() {
     printf("the size of the bucket is %lld\n", sizeof(struct Bucket<T>));
