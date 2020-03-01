@@ -2131,10 +2131,8 @@ class Linear : public Hash<T> {
   ~Linear(void);
   void Insert(T key, Value_t value);
   bool Delete(T);
-  void bootRestore(){
-    ADD(&restore_seg, 1);
-  }
-  void reportRestore(){
+  void bootRestore() { ADD(&restore_seg, 1); }
+  void reportRestore() {
     std::cout << "Recovered seg: " << restore_seg << std::endl;
   }
   void Insert(T key, Value_t value, bool);
@@ -2528,7 +2526,8 @@ void Linear<T>::Recovery() {
   uint32_t offset;
   SEG_IDX_OFFSET(x, dir_idx, offset);
 
-  //std::cout << dir_idx << " segments array in the linear hashing" << std::endl;
+  // std::cout << dir_idx << " segments array in the linear hashing" <<
+  // std::endl;
   for (int i = 0; i < dir_idx; ++i) {
     dir.recover_counter[i] = SEG_SIZE_BY_SEGARR_ID(i);
     dir._[i] = reinterpret_cast<Table<T> *>((uint64_t)dir._[i] | recoverBit);

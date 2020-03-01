@@ -2,9 +2,10 @@
 #include <immintrin.h>
 #include <stdlib.h>
 #include <sys/stat.h>
+#include <time.h>
+
 #include <cstdint>
 #include <iostream>
-#include <time.h>
 
 #ifdef PMEM
 #include "libpmem.h"
@@ -21,9 +22,9 @@ static bool FileExists(const char *pool_path) {
 #ifdef PMEM
 #define CREATE_MODE_RW (S_IWUSR | S_IRUSR)
 //#ifndef POBJ_LAYOUT_TOID(allocator, char)
-//POBJ_LAYOUT_BEGIN(allocator);
-//POBJ_LAYOUT_TOID(allocator, char);
-//POBJ_LAYOUT_END(allocator);
+// POBJ_LAYOUT_BEGIN(allocator);
+// POBJ_LAYOUT_TOID(allocator, char);
+// POBJ_LAYOUT_END(allocator);
 //#endif
 #endif
 
@@ -60,21 +61,20 @@ static bool FileExists(const char *pool_path) {
 
 #define CHECK_BIT(var, pos) ((((var) & (1 << pos)) > 0) ? (1) : (0))
 
-int msleep(uint64_t msec){
+int msleep(uint64_t msec) {
   struct timespec ts;
   int res;
 
-  if (msec < 0)
-  {
-      errno = EINVAL;
-      return -1;
+  if (msec < 0) {
+    errno = EINVAL;
+    return -1;
   }
 
   ts.tv_sec = msec / 1000;
   ts.tv_nsec = (msec % 1000) * 1000000;
 
   do {
-      res = nanosleep(&ts, &ts);
+    res = nanosleep(&ts, &ts);
   } while (res && errno == EINTR);
 
   return res;

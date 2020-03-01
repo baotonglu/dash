@@ -473,7 +473,7 @@ struct Bucket {
 #ifdef PMEM
     Allocator::Persist(&_[slot], sizeof(_[slot]));
 #endif
-//    mfence();
+    //    mfence();
     set_hash(slot, meta_hash, probe);
     return 0;
   }
@@ -609,7 +609,7 @@ struct Bucket {
 #ifdef PMEM
     Allocator::Persist(&_[slot], sizeof(_Pair<T>));
 #endif
-//    mfence();
+    //    mfence();
     set_hash(slot, meta_hash, probe);
   }
 
@@ -1707,12 +1707,12 @@ class Finger_EH : public Hash<T> {
   void Lock_Directory();
   void Unlock_Directory();
   int FindAnyway(T key);
-  void ShutDown(){
+  void ShutDown() {
     clean = true;
     Allocator::Persist(&clean, sizeof(clean));
   }
-  void getNumber() {g
-    printf("the size of the bucket is %lld\n", sizeof(struct Bucket<T>));
+  void getNumber() {
+    g printf("the size of the bucket is %lld\n", sizeof(struct Bucket<T>));
     // printf("the size of the Table is %lld\n", sizeof(struct Table));
 
     size_t _count = 0;

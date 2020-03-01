@@ -25,8 +25,8 @@
 #endif
 
 /*
-* Used to test the crash experiment, and also decopmposition experiment
-*/
+ * Used to test the crash experiment, and also decopmposition experiment
+ */
 
 uint64_t merge_time;
 PMEMmutex cmp;
@@ -321,55 +321,55 @@ struct Bucket {
           return _[i].value;
         }
       }
-        /*
-        if (CHECK_BIT(mask, i) &&
-            (var_compare((reinterpret_cast<string_key *>(_[i].key))->key,
-                         _key->key,
-                         (reinterpret_cast<string_key *>(_[i].key))->length,
-                         _key->length))) {
-          return _[i].value;
-        }
-
-        if (CHECK_BIT(mask, i + 1) &&
-            (var_compare((reinterpret_cast<string_key *>(_[i + 1].key))->key,
-                         _key->key,
-                         (reinterpret_cast<string_key *>(_[i + 1].key))->length,
-                         _key->length))) {
-          return _[i + 1].value;
-        }
-
-        if (CHECK_BIT(mask, i + 2) &&
-            (var_compare((reinterpret_cast<string_key *>(_[i + 2].key))->key,
-                         _key->key,
-                         (reinterpret_cast<string_key *>(_[i + 2].key))->length,
-                         _key->length))) {
-          return _[i + 2].value;
-        }
-
-        if (CHECK_BIT(mask, i + 3) &&
-            (var_compare((reinterpret_cast<string_key *>(_[i + 3].key))->key,
-                         _key->key,
-                         (reinterpret_cast<string_key *>(_[i + 3].key))->length,
-                         _key->length))) {
-          return _[i + 3].value;
-        }
+      /*
+      if (CHECK_BIT(mask, i) &&
+          (var_compare((reinterpret_cast<string_key *>(_[i].key))->key,
+                       _key->key,
+                       (reinterpret_cast<string_key *>(_[i].key))->length,
+                       _key->length))) {
+        return _[i].value;
       }
 
-      if (CHECK_BIT(mask, 12) &&
-          (var_compare((reinterpret_cast<string_key *>(_[12].key))->key,
+      if (CHECK_BIT(mask, i + 1) &&
+          (var_compare((reinterpret_cast<string_key *>(_[i + 1].key))->key,
                        _key->key,
-                       (reinterpret_cast<string_key *>(_[12].key))->length,
+                       (reinterpret_cast<string_key *>(_[i + 1].key))->length,
                        _key->length))) {
-        return _[12].value;
+        return _[i + 1].value;
       }
 
-      if (CHECK_BIT(mask, 13) &&
-          (var_compare((reinterpret_cast<string_key *>(_[13].key))->key,
+      if (CHECK_BIT(mask, i + 2) &&
+          (var_compare((reinterpret_cast<string_key *>(_[i + 2].key))->key,
                        _key->key,
-                       (reinterpret_cast<string_key *>(_[13].key))->length,
+                       (reinterpret_cast<string_key *>(_[i + 2].key))->length,
                        _key->length))) {
-        return _[13].value;
-      }*/
+        return _[i + 2].value;
+      }
+
+      if (CHECK_BIT(mask, i + 3) &&
+          (var_compare((reinterpret_cast<string_key *>(_[i + 3].key))->key,
+                       _key->key,
+                       (reinterpret_cast<string_key *>(_[i + 3].key))->length,
+                       _key->length))) {
+        return _[i + 3].value;
+      }
+    }
+
+    if (CHECK_BIT(mask, 12) &&
+        (var_compare((reinterpret_cast<string_key *>(_[12].key))->key,
+                     _key->key,
+                     (reinterpret_cast<string_key *>(_[12].key))->length,
+                     _key->length))) {
+      return _[12].value;
+    }
+
+    if (CHECK_BIT(mask, 13) &&
+        (var_compare((reinterpret_cast<string_key *>(_[13].key))->key,
+                     _key->key,
+                     (reinterpret_cast<string_key *>(_[13].key))->length,
+                     _key->length))) {
+      return _[13].value;
+    }*/
     } else {
       /*loop unrolling*/
       for (int i = 0; i < 12; i += 4) {
@@ -512,11 +512,11 @@ struct Bucket {
     uint32_t v = version_lock;
     __atomic_store_n(&version_lock, v + 1 - lockSet, __ATOMIC_RELEASE);
 #else
-    __atomic_store_n(&version_lock, 0, __ATOMIC_RELEASE);    
+    __atomic_store_n(&version_lock, 0, __ATOMIC_RELEASE);
 #endif
   }
 
-    inline void get_read_lock(){
+  inline void get_read_lock() {
     uint32_t v = __atomic_load_n(&version_lock, __ATOMIC_ACQUIRE);
     uint32_t old_value = v & lockMask;
     auto new_value = ((v & lockMask) + 1) & lockMask;
@@ -527,16 +527,14 @@ struct Bucket {
     }
   }
 
-  inline bool try_get_read_lock(){
+  inline bool try_get_read_lock() {
     uint32_t v = __atomic_load_n(&version_lock, __ATOMIC_ACQUIRE);
     uint32_t old_value = v & lockMask;
     auto new_value = ((v & lockMask) + 1) & lockMask;
     return CAS(&version_lock, &old_value, new_value);
   }
 
-  inline void release_read_lock(){
-    SUB(&version_lock, 1);
-  }
+  inline void release_read_lock() { SUB(&version_lock, 1); }
 
   /*if the lock is set, return true*/
   inline bool test_lock_set(uint32_t &version) {
@@ -1145,7 +1143,7 @@ struct Table {
                 scanning operation*/
   PMEMmutex
       lock_bit; /* for the synchronization of the lazy recovery in one segment*/
-  //PMEMmutex dirty_bit; /* to indicate whether segment is clean*/
+  // PMEMmutex dirty_bit; /* to indicate whether segment is clean*/
 };
 
 /* it needs to verify whether this bucket has been deleted...*/
@@ -1804,11 +1802,9 @@ class Finger_EH : public Hash<T> {
   bool Delete(T, bool);
   inline Value_t Get(T);
   Value_t Get(T key, bool is_in_epoch);
-  void bootRestore(){
-    ADD(&restore_seg, 1);
-  }
+  void bootRestore() { ADD(&restore_seg, 1); }
 
-  void reportRestore(){
+  void reportRestore() {
     std::cout << "Recovered seg: " << restore_seg << std::endl;
   }
   void TryMerge(uint64_t);
@@ -1861,7 +1857,7 @@ class Finger_EH : public Hash<T> {
            (double)(_count * 16) / (seg_count * sizeof(Table<T>)));
   }
 
-  void recoverTable(Table<T> **target_table, size_t, size_t, Directory<T>*);
+  void recoverTable(Table<T> **target_table, size_t, size_t, Directory<T> *);
   void Recovery();
 
   inline bool Acquire(void) {
@@ -2152,13 +2148,14 @@ void Finger_EH<T>::Directory_Merge_Update(Directory<T> *_sa, uint64_t key_hash,
 }
 
 template <class T>
-void Finger_EH<T>::recoverTable(Table<T> **target_table, size_t key_hash, size_t x, Directory<T> *old_sa) {
+void Finger_EH<T>::recoverTable(Table<T> **target_table, size_t key_hash,
+                                size_t x, Directory<T> *old_sa) {
   /*Set the lockBit to ahieve the mutal exclusion of the recover process*/
   auto dir_entry = old_sa->_;
   uint64_t snapshot = (uint64_t)*target_table;
   Table<T> *target = (Table<T> *)(snapshot & tailMask);
   /*try to get the exclusive recovery lock*/
-  //std::cout << "begin " << x <<std::endl;
+  // std::cout << "begin " << x <<std::endl;
   if (pmemobj_mutex_trylock(pool_addr, &target->lock_bit) != 0) {
     return;
   }
@@ -2202,12 +2199,13 @@ void Finger_EH<T>::recoverTable(Table<T> **target_table, size_t key_hash, size_t
   }
 
   /*Compute for all entries and clear the dirty bit*/
-  //std::cout << "end " << x <<std::endl;
+  // std::cout << "end " << x <<std::endl;
   int chunk_size = pow(2, old_sa->global_depth - target->local_depth);
   x = x - (x % chunk_size);
-  for(int i = x; i < (x + chunk_size); ++i){
-    //std::cout << "udpate " << i << std::endl;
-    dir_entry[i] = reinterpret_cast<Table<T>*>((reinterpret_cast<uint64_t>(dir_entry[i]) & tailMask) | crash_version);
+  for (int i = x; i < (x + chunk_size); ++i) {
+    // std::cout << "udpate " << i << std::endl;
+    dir_entry[i] = reinterpret_cast<Table<T> *>(
+        (reinterpret_cast<uint64_t>(dir_entry[i]) & tailMask) | crash_version);
   }
 
   bootRestore();
@@ -2255,7 +2253,6 @@ void Finger_EH<T>::Insert(T key, Value_t value, bool is_in_epoch) {
   return Insert(key, value);
 }
 
-
 template <class T>
 void Finger_EH<T>::Insert(T key, Value_t value, int is_crash) {
   uint64_t key_hash;
@@ -2279,12 +2276,12 @@ RETRY:
     goto RETRY;
   }
 
-  if (is_crash != 0 ){
-    if(random()%100000 == 0){
-        abort();
+  if (is_crash != 0) {
+    if (random() % 100000 == 0) {
+      abort();
     }
   }
-  
+
   // printf("insert key %lld, x = %d, y = %d, meta_hash = %d\n", key, x,
   // BUCKET_INDEX(key_hash), meta_hash);
   auto ret = target->Insert(key, value, key_hash, meta_hash, &dir);
@@ -2361,7 +2358,6 @@ RETRY:
     goto RETRY;
   }
 }
-
 
 template <class T>
 void Finger_EH<T>::Insert(T key, Value_t value) {
@@ -2471,7 +2467,7 @@ Value_t Finger_EH<T>::Get(T key, bool is_in_epoch) {
 #endif
     return Get(key);
   }
-  //return Get(key);
+  // return Get(key);
   uint64_t key_hash;
   if constexpr (std::is_pointer_v<T>) {
     key_hash = h(key->key, key->length);
@@ -2527,12 +2523,12 @@ RETRY:
     return ret;
   }
 #else
-  if(ret != NONE){
+  if (ret != NONE) {
     target_bucket->release_read_lock();
     return ret;
   }
 
-  if(!neighbor_bucket->try_get_read_lock()){
+  if (!neighbor_bucket->try_get_read_lock()) {
     target_bucket->release_read_lock();
     goto RETRY;
   }
@@ -2549,7 +2545,7 @@ RETRY:
     return ret;
   }
 #else
-  if(ret != NONE){
+  if (ret != NONE) {
     target_bucket->release_read_lock();
     neighbor_bucket->release_read_lock();
     return ret;
@@ -2642,12 +2638,12 @@ RETRY:
         auto ret = stash->check_and_get(meta_hash, key, false);
         if (ret != NONE) {
 #ifndef SPINLOCK
-              if (target_bucket->test_lock_version_change(old_version)) {
-                goto RETRY;
-              }
+          if (target_bucket->test_lock_version_change(old_version)) {
+            goto RETRY;
+          }
 #else
-              target_bucket->release_read_lock();
-              neighbor_bucket->release_read_lock();
+          target_bucket->release_read_lock();
+          neighbor_bucket->release_read_lock();
 #endif
           return ret;
         }
@@ -2816,13 +2812,13 @@ void Finger_EH<T>::TryMerge(size_t key_hash) {
     auto right_seg = old_dir->_[right];
 
     if (((uint64_t)left_seg & recoverBit)) {
-      //recoverTable(&old_dir->_[left], key_hash);
+      // recoverTable(&old_dir->_[left], key_hash);
       recoverTable(&old_dir->_[left], key_hash, left, old_dir);
       continue;
     }
 
     if (((uint64_t)right_seg & recoverBit)) {
-      //recoverTable(&old_dir->_[right], key_hash);
+      // recoverTable(&old_dir->_[right], key_hash);
       recoverTable(&old_dir->_[right], key_hash, right, old_dir);
       continue;
     }
@@ -2953,7 +2949,7 @@ RETRY:
 
   if ((reinterpret_cast<uint64_t>(dir_entry[x]) & headerMask) !=
       crash_version) {
-    //recoverTable(&dir_entry[x], key_hash);
+    // recoverTable(&dir_entry[x], key_hash);
     recoverTable(&dir_entry[x], key_hash, x, old_sa);
     goto RETRY;
   }
@@ -3014,36 +3010,36 @@ RETRY:
     return true;
   }
 #ifdef NO_META
-      Bucket<T> *stash = target_table->bucket + kNumBucket;
-      stash->get_lock();
-      for (int i = 0; i < stashBucket; ++i) {
-        int index = ((i + (y & stashMask)) & stashMask);
-        Bucket<T> *curr_stash = target_table->bucket + kNumBucket + index;
-        auto ret = curr_stash->Delete(key, meta_hash, false);
-        if (ret == 0) {
-          /*need to unset indicator in original bucket*/
-          stash->release_lock();
-#ifdef PMEM
-          Allocator::Persist(&curr_stash->bitmap, sizeof(curr_stash->bitmap));
-#endif
-          auto bucket_ix = BUCKET_INDEX(key_hash);
-          auto org_bucket = target_table->bucket + bucket_ix;
-          assert(org_bucket == target);
-          target->unset_indicator(meta_hash, neighbor, key, index);
-#ifdef COUNTING
-          auto num = SUB(&target_table->number, 1);
-#endif
-          neighbor->release_lock();
-          target->release_lock();
-#ifdef COUNTING
-          if (num == 0) {
-            TryMerge(key_hash);
-          }
-#endif
-          return true;
-        }
-      }
+  Bucket<T> *stash = target_table->bucket + kNumBucket;
+  stash->get_lock();
+  for (int i = 0; i < stashBucket; ++i) {
+    int index = ((i + (y & stashMask)) & stashMask);
+    Bucket<T> *curr_stash = target_table->bucket + kNumBucket + index;
+    auto ret = curr_stash->Delete(key, meta_hash, false);
+    if (ret == 0) {
+      /*need to unset indicator in original bucket*/
       stash->release_lock();
+#ifdef PMEM
+      Allocator::Persist(&curr_stash->bitmap, sizeof(curr_stash->bitmap));
+#endif
+      auto bucket_ix = BUCKET_INDEX(key_hash);
+      auto org_bucket = target_table->bucket + bucket_ix;
+      assert(org_bucket == target);
+      target->unset_indicator(meta_hash, neighbor, key, index);
+#ifdef COUNTING
+      auto num = SUB(&target_table->number, 1);
+#endif
+      neighbor->release_lock();
+      target->release_lock();
+#ifdef COUNTING
+      if (num == 0) {
+        TryMerge(key_hash);
+      }
+#endif
+      return true;
+    }
+  }
+  stash->release_lock();
 #else
   if (target->test_stash_check()) {
     auto test_stash = false;

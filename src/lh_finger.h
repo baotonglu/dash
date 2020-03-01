@@ -21,7 +21,6 @@
 #define _INVALID 0 /* we use 0 as the invalid key*/
 #define SINGLE 1
 #define DOUBLE_EXPANSION 1
-//#define DEBUG 1
 //#define PREALLOC 1
 //#define COUNTING 1
 
@@ -330,7 +329,7 @@ struct overflowBucket {
 #ifdef PMEM
     Allocator::Persist(&_[slot], sizeof(_[slot]));
 #endif
-//    mfence();
+    //    mfence();
     set_hash(slot, meta_hash);
     return 0;
   }
@@ -753,7 +752,7 @@ struct Bucket {
   /*
   inline void get_lock() {
     auto old_value = version_lock & lockMask;
-    auto new_value = version_lock | lockSet; 
+    auto new_value = version_lock | lockSet;
     while (!CAS(&version_lock, &old_value, new_value)) {
       old_value = version_lock & lockMask;
       new_value = version_lock | lockSet;
@@ -779,7 +778,7 @@ struct Bucket {
   }
   */
 
- inline void get_lock() {
+  inline void get_lock() {
     uint32_t new_value = 0;
     uint32_t old_value = 0;
     do {
@@ -860,7 +859,7 @@ struct Bucket {
 #ifdef PMEM
     Allocator::Persist(&_[slot], sizeof(_[slot]));
 #endif
-//    mfence();
+    //    mfence();
     set_hash(slot, meta_hash, probe);
     return 0;
   }
@@ -984,7 +983,7 @@ struct Bucket {
 #ifdef PMEM
     Allocator::Persist(&_[slot], sizeof(_Pair<T>));
 #endif
-//    mfence();
+    //    mfence();
     set_hash(slot, meta_hash, probe);
   }
 
@@ -1310,9 +1309,6 @@ struct Table {
     target->set_indicator(meta_hash, neighbor, 3);
 #ifdef COUNTING
     __sync_fetch_and_add(&number, 1);
-#endif
-#ifdef DEBUG
-    std::cout << "Insert to new overflow" << std::endl;
 #endif
     return -1;
   }
@@ -1865,24 +1861,17 @@ int Table<T>::Insert(T key, Value_t value, size_t key_hash, Directory<T> *_dir,
   Bucket<T> *neighbor = bucket + ((y + 1) & bucketMask);
   target->get_lock();
   if (!neighbor->try_get_lock()) {
-#ifdef DEBUG
-    std::cout << "try lock failure" << key << std::endl;
-#endif
     target->release_lock();
     return -2;
   }
 
   if (!target->test_initialize()) {
-#ifdef DEBUG
-    printf("initialize bucket %d\n", index);
-#endif
     neighbor->release_lock();
     target->release_lock();
     for (int i = 0; i < kNumBucket; ++i) {
       Bucket<T> *curr_bucket = bucket + i;
       curr_bucket->get_lock();
     }
-    // printf("I enter the lock region\n");
 
     auto ret = verify_access(_dir, index, old_N, old_next);
     if (ret == -1) {
@@ -1890,12 +1879,8 @@ int Table<T>::Insert(T key, Value_t value, size_t key_hash, Directory<T> *_dir,
         Bucket<T> *curr_bucket = bucket + i;
         curr_bucket->release_lock();
       }
-#ifdef DEBUG
-    printf("verify failure initial\n");
-#endif
       return -2;
     }
-    // printf("finish the verify process\n");
 
     uint64_t org_idx;
     uint64_t base_level;
@@ -1915,9 +1900,6 @@ int Table<T>::Insert(T key, Value_t value, size_t key_hash, Directory<T> *_dir,
   } else {
     auto ret = verify_access(_dir, index, old_N, old_next);
     if (ret == -1) {
-#ifdef DEBUG
-    std::cout << "verify access failure" << key << std::endl;
-#endif
       neighbor->release_lock();
       target->release_lock();
       return -2;
@@ -1926,9 +1908,6 @@ int Table<T>::Insert(T key, Value_t value, size_t key_hash, Directory<T> *_dir,
     /*the unique_check is to check whether the key has existed*/
     ret = target->unique_check(meta_hash, key, neighbor, stash);
     if (ret == -1) {
-#ifdef DEBUG
-      std::cout << "duplicate key " << key << std::endl;
-#endif
       neighbor->release_lock();
       target->release_lock();
       return 0;
@@ -1942,9 +1921,6 @@ int Table<T>::Insert(T key, Value_t value, size_t key_hash, Directory<T> *_dir,
       Bucket<T> *next_neighbor = bucket + ((y + 2) & bucketMask);
       // Next displacement
       if (!next_neighbor->try_get_lock()) {
-#ifdef DEBUG
-    std::cout << "Get next-lock failure" << key << std::endl;
-#endif
         neighbor->release_lock();
         target->release_lock();
         return -2;
@@ -1967,9 +1943,6 @@ int Table<T>::Insert(T key, Value_t value, size_t key_hash, Directory<T> *_dir,
       }
 
       if (!prev_neighbor->try_get_lock()) {
-#ifdef DEBUG
-    std::cout << "Get pre-lock failure" << key << std::endl;
-#endif
         target->release_lock();
         neighbor->release_lock();
         return -2;
@@ -2187,7 +2160,7 @@ class Linear : public Hash<T> {
   Value_t Get(T key, bool is_in_epoch);
   void FindAnyway(T key);
   void Recovery();
-  void ShutDown(){
+  void ShutDown() {
     clean = true;
     Allocator::Persist(&clean, sizeof(clean));
   }
@@ -2564,7 +2537,7 @@ bool Linear<T>::TryMerge(uint64_t x, Table<T> *shrunk_table) {
 
 template <class T>
 void Linear<T>::Recovery() {
-  if(clean) {
+  if (clean) {
     clean = false;
     return;
   }
@@ -2579,7 +2552,8 @@ void Linear<T>::Recovery() {
   uint32_t offset;
   SEG_IDX_OFFSET(x, dir_idx, offset);
 
-  //std::cout << dir_idx << " segments array in the linear hashing" << std::endl;
+  // std::cout << dir_idx << " segments array in the linear hashing" <<
+  // std::endl;
   for (int i = 0; i < dir_idx; ++i) {
     dir.recover_counter[i] = SEG_SIZE_BY_SEGARR_ID(i);
     dir._[i] = reinterpret_cast<Table<T> *>((uint64_t)dir._[i] | recoverBit);
@@ -2689,9 +2663,6 @@ RETRY:
   uint64_t old_N_next = dir.N_next;
   uint32_t N = old_N_next >> 32;
   uint32_t next = (uint32_t)old_N_next;
-#ifdef DEBUG
-  printf("insertion for key %lu\n", key);
-#endif
   auto x = IDX(key_hash, N);
   if (x < next) {
     x = IDX(key_hash, N + 1);
@@ -2717,9 +2688,6 @@ RETRY:
   auto ret = target->Insert(key, value, key_hash, &dir, x, N, next);
 
   if (ret == -2) {
-#ifdef DEBUG
-    std::cout << "Need to retry for " << key << std::endl;
-#endif
     goto RETRY;
   } else if (ret == -1) {
     Expand(2);
@@ -3297,9 +3265,9 @@ RETRY:
 }
 
 #undef PARTITION_INDEX
-#undef BUCKET_INDEX 
-#undef META_HASH 
+#undef BUCKET_INDEX
+#undef META_HASH
 #undef GET_COUNT
 #undef GET_BITMAP
-}
-//#endif
+}  // namespace linear
+   //#endif

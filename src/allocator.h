@@ -1,15 +1,15 @@
 #pragma once
 #include <garbage_list.h>
 #include <sys/mman.h>
+
 #include "utils.h"
 #include "x86intrin.h"
 
 static const char* layout_name = "hashtable";
 static const constexpr uint64_t pool_addr = 0x5f0000000000;
-//0x7ff600000000;
+// 0x7ff600000000;
 
 typedef void (*DestroyCallback)(void* callback_context, void* object);
-
 
 struct Allocator {
  public:
@@ -20,7 +20,7 @@ struct Allocator {
     instance_->heavy_zalloc = 0;
     instance_->epoch_manager_.Initialize();
     instance_->garbage_list_.Initialize(&instance_->epoch_manager_,
-                                        instance_->pm_pool_, 1024*8);
+                                        instance_->pm_pool_, 1024 * 8);
     std::cout << "pool opened at: " << std::hex << instance_->pm_pool_
               << std::dec << std::endl;
   }
@@ -41,7 +41,8 @@ struct Allocator {
       LOG("creating a new pool");
       pm_pool_ = pmemobj_create_addr(pool_name, layout_name, pool_size,
                                      CREATE_MODE_RW, (void*)pool_addr);
-      //pm_pool_ = pmemobj_create(pool_name, layout_name, pool_size, CREATE_MODE_RW);
+      // pm_pool_ = pmemobj_create(pool_name, layout_name, pool_size,
+      // CREATE_MODE_RW);
       if (pm_pool_ == nullptr) {
         LOG_FATAL("failed to create a pool;");
       }
@@ -50,7 +51,7 @@ struct Allocator {
     LOG("opening an existing pool, and trying to map to same address");
     /* Need to open an existing persistent pool */
     pm_pool_ = pmemobj_open_addr(pool_name, layout_name, (void*)pool_addr);
-    //pm_pool_ = pmemobj_open(pool_name, layout_name);
+    // pm_pool_ = pmemobj_open(pool_name, layout_name);
     if (pm_pool_ == nullptr) {
       LOG_FATAL("failed to open the pool");
     }
@@ -62,12 +63,12 @@ struct Allocator {
   EpochManager epoch_manager_{};
   GarbageList garbage_list_{};
 
-  static void clear_zero(){
+  static void clear_zero() {
     instance_->light_zalloc = 0;
     instance_->heavy_zalloc = 0;
   }
 
-  static void report_num(){
+  static void report_num() {
     std::cout << "Light zalloc = " << instance_->light_zalloc << std::endl;
     std::cout << "Heavy zalloc = " << instance_->heavy_zalloc << std::endl;
   }
@@ -126,7 +127,7 @@ struct Allocator {
 
   /*Must ensure that this pointer is in persistent memory*/
   static void ZAllocate(void** ptr, uint32_t alignment, size_t size) {
-    //ADD(&instance_->heavy_zalloc, 1);
+    // ADD(&instance_->heavy_zalloc, 1);
 #ifdef PMEM
     TX_BEGIN(instance_->pm_pool_) {
       pmemobj_tx_add_range_direct(ptr, sizeof(*ptr));
@@ -141,7 +142,7 @@ struct Allocator {
   }
 
   static void ZAllocate(PMEMoid* pm_ptr, uint32_t alignment, size_t size) {
-    //ADD(&instance_->light_zalloc, 1);
+    // ADD(&instance_->light_zalloc, 1);
     auto ret =
         pmemobj_zalloc(instance_->pm_pool_, pm_ptr, size, TOID_TYPE_NUM(char));
 
