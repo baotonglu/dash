@@ -3,7 +3,7 @@
 Persistent memory friendly hashing index, to appear at VLDB 2020:
 
 ````
-Dash: Scalable Hashing on Persistent Memory (to appear). [code]
+Dash: Scalable Hashing on Persistent Memory (to appear).
 Baotong Lu, Xiangpeng Hao, Tianzheng Wang and Eric Lo.
 VLDB 2020
 ````
