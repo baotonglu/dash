@@ -1712,7 +1712,7 @@ class Finger_EH : public Hash<T> {
     Allocator::Persist(&clean, sizeof(clean));
   }
   void getNumber() {
-    g printf("the size of the bucket is %lld\n", sizeof(struct Bucket<T>));
+    printf("the size of the bucket is %lld\n", sizeof(struct Bucket<T>));
     // printf("the size of the Table is %lld\n", sizeof(struct Table));
 
     size_t _count = 0;
