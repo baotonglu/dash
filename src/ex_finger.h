@@ -1,4 +1,9 @@
 #pragma once
+
+/*
+ * Dash Extendible Hashing
+ */
+
 #include <immintrin.h>
 #include <omp.h>
 
@@ -50,8 +55,10 @@ constexpr size_t kNumPairPerBucket =
     14; /* it is determined by the usage of the fingerprint*/
 constexpr size_t kFingerBits = 8;
 constexpr size_t kMask = (1 << kFingerBits) - 1;
-const constexpr size_t kNumBucket = 64;
-constexpr size_t stashBucket = 2;
+const constexpr size_t kNumBucket =
+    64; /* the number of normal buckets in one segment*/
+constexpr size_t stashBucket =
+    2; /* the number of stash buckets in one segment*/
 constexpr int allocMask = (1 << kNumPairPerBucket) - 1;
 constexpr size_t bucketMask = ((1 << (int)log2(kNumBucket)) - 1);
 constexpr size_t stashMask = (1 << (int)log2(stashBucket)) - 1;
@@ -68,8 +75,6 @@ const uint64_t headerMask = ((1UL << 8) - 1)
 #define BUCKET_INDEX(hash) ((hash >> kFingerBits) & bucketMask)
 #define GET_COUNT(var) ((var)&countMask)
 #define GET_BITMAP(var) (((var) >> 4) & allocMask)
-//#define ORG_BITMAP(var) ((~((var)&allocMask)) & allocMask)
-//#define PROBE_BITMAP(var) ((var)&allocMask)
 
 inline bool var_compare(char *str1, char *str2, int len1, int len2) {
   if (len1 != len2) return false;
@@ -88,14 +93,10 @@ struct Bucket {
   }
 
   /*true indicates overflow, needs extra check in the stash*/
-  inline bool test_overflow() {
-    // return (overflowCount != 0) ? true : false;
-    return overflowCount;
-  }
+  inline bool test_overflow() { return overflowCount; }
 
   inline bool test_stash_check() {
     int mask = *((int *)membership);
-    // return ((mask & overflowSet) != 0) ? true : false;
     return (mask & overflowSet);
   }
 
@@ -146,7 +147,6 @@ struct Bucket {
       if (CHECK_BIT(mask1, i) && (finger_array[15 + i] == meta_hash) &&
           (((1 << i) & overflowMember) == 0) &&
           (((finger_array[19] >> (2 * i)) & stashMask) == pos)) {
-        // printf("clear the indicator 1\n");
         finger_array[14] = finger_array[14] & ((uint8_t)(~(1 << i)));
         finger_array[19] = finger_array[19] & (~(3 << (i * 2)));
         assert(((finger_array[19] >> (i * 2)) & stashMask) == 0);
@@ -162,7 +162,6 @@ struct Bucket {
             (neighbor->finger_array[15 + i] == meta_hash) &&
             (((1 << i) & neighbor->overflowMember) != 0) &&
             (((neighbor->finger_array[19] >> (2 * i)) & stashMask) == pos)) {
-          // printf("clear the indicator 2\n");
           neighbor->finger_array[14] =
               neighbor->finger_array[14] & ((uint8_t)(~(1 << i)));
           neighbor->overflowMember =
@@ -177,7 +176,6 @@ struct Bucket {
     }
 
     if (!clear_success) {
-      // printf("decrease overflowCount\n");
       overflowCount--;
     }
 
@@ -185,14 +183,12 @@ struct Bucket {
     mask2 = neighbor->finger_array[14];
     if (((mask1 & (~overflowMember)) == 0) && (overflowCount == 0) &&
         ((mask2 & neighbor->overflowMember) == 0)) {
-      // printf("clear the stash check\n");
       clear_stash_check();
     }
   }
 
   int unique_check(uint8_t meta_hash, T key, Bucket<T> *neighbor,
                    Bucket<T> *stash) {
-    // return check_and_get(meta_hash, key) == NONE ? 0 : -1;
     if ((check_and_get(meta_hash, key, false) != NONE) ||
         (neighbor->check_and_get(meta_hash, key, true) != NONE)) {
       return -1;
@@ -236,13 +232,6 @@ struct Bucket {
         }
       }
     }
-    /*
-    for (int i = 0; i < stashBucket; ++i) {
-          Bucket *curr_bucket = stash + i;
-      if (curr_bucket->check_and_get(meta_hash, key, false) != NONE) {
-        return -1;
-      }
-    }*/
     return 0;
   }
 
@@ -265,6 +254,7 @@ struct Bucket {
     }
 
     if constexpr (std::is_pointer_v<T>) {
+      /* variable-length key*/
       string_key *_key = reinterpret_cast<string_key *>(key);
       for (int i = 0; i < 14; i += 1) {
         if (CHECK_BIT(mask, i) &&
@@ -275,56 +265,8 @@ struct Bucket {
           return _[i].value;
         }
       }
-      /*
-      if (CHECK_BIT(mask, i) &&
-          (var_compare((reinterpret_cast<string_key *>(_[i].key))->key,
-                       _key->key,
-                       (reinterpret_cast<string_key *>(_[i].key))->length,
-                       _key->length))) {
-        return _[i].value;
-      }
-
-      if (CHECK_BIT(mask, i + 1) &&
-          (var_compare((reinterpret_cast<string_key *>(_[i + 1].key))->key,
-                       _key->key,
-                       (reinterpret_cast<string_key *>(_[i + 1].key))->length,
-                       _key->length))) {
-        return _[i + 1].value;
-      }
-
-      if (CHECK_BIT(mask, i + 2) &&
-          (var_compare((reinterpret_cast<string_key *>(_[i + 2].key))->key,
-                       _key->key,
-                       (reinterpret_cast<string_key *>(_[i + 2].key))->length,
-                       _key->length))) {
-        return _[i + 2].value;
-      }
-
-      if (CHECK_BIT(mask, i + 3) &&
-          (var_compare((reinterpret_cast<string_key *>(_[i + 3].key))->key,
-                       _key->key,
-                       (reinterpret_cast<string_key *>(_[i + 3].key))->length,
-                       _key->length))) {
-        return _[i + 3].value;
-      }
-    }
-
-    if (CHECK_BIT(mask, 12) &&
-        (var_compare((reinterpret_cast<string_key *>(_[12].key))->key,
-                     _key->key,
-                     (reinterpret_cast<string_key *>(_[12].key))->length,
-                     _key->length))) {
-      return _[12].value;
-    }
-
-    if (CHECK_BIT(mask, 13) &&
-        (var_compare((reinterpret_cast<string_key *>(_[13].key))->key,
-                     _key->key,
-                     (reinterpret_cast<string_key *>(_[13].key))->length,
-                     _key->length))) {
-      return _[13].value;
-    }*/
     } else {
+      /*fixed-length key*/
       /*loop unrolling*/
       for (int i = 0; i < 12; i += 4) {
         if (CHECK_BIT(mask, i) && (_[i].key == key)) {
@@ -355,9 +297,7 @@ struct Bucket {
     return NONE;
   }
 
-  inline void set_hash(int index, uint8_t meta_hash,
-                       bool probe) /* Do I needs the atomic instruction????*/
-  {
+  inline void set_hash(int index, uint8_t meta_hash, bool probe) {
     finger_array[index] = meta_hash;
     auto new_bitmap = bitmap | (1 << (index + 4));
     assert(GET_COUNT(bitmap) < kNumPairPerBucket);
@@ -390,32 +330,7 @@ struct Bucket {
         (*((int *)membership)); /*since they are in the same cacheline,
                                    therefore no performance influence?*/
   }
-  /*
-    inline void get_lock() {
-      auto old_value = version_lock & lockMask;
-      auto new_value = version_lock | lockSet;
-      while (!CAS(&version_lock, &old_value, new_value)) {
-        old_value = version_lock & lockMask;
-        new_value = version_lock | lockSet;
-      }
-    }
 
-    inline bool try_get_lock() {
-      auto old_value = version_lock & lockMask;
-      auto new_value = version_lock | lockSet;
-      return CAS(&version_lock, &old_value, new_value);
-    }
-
-    inline void release_lock() {
-      auto old_value = version_lock;
-      auto new_value = ((old_value & lockMask) + 1) & lockMask;
-
-      while (!CAS(&version_lock, &old_value, new_value)) {
-        old_value = version_lock;
-        new_value = ((old_value & lockMask) + 1) & lockMask;
-      }
-    }
-  */
   inline void get_lock() {
     uint32_t new_value = 0;
     uint32_t old_value = 0;
@@ -454,8 +369,6 @@ struct Bucket {
 
   // test whether the version has change, if change, return true
   inline bool test_lock_version_change(uint32_t old_version) {
-    // auto value = __atomic_load_n(&version_lock, __ATOMIC_ACQUIRE);
-    // return ((value & lockSet) != 0) || ((value & lockMask) != old_version);
     auto value = __atomic_load_n(&version_lock, __ATOMIC_ACQUIRE);
     return (old_version != value);
   }
@@ -731,7 +644,6 @@ struct Directory {
       dir_ptr->global_depth =
           static_cast<size_t>(log2(std::get<0>(*value_ptr)));
       size_t cap = std::get<0>(*value_ptr);
-      // memset(&dir_ptr->_, 0, sizeof(table_p) * cap);
       pmemobj_persist(pool, dir_ptr,
                       sizeof(Directory<T>) + sizeof(uint64_t) * cap);
       return 0;
@@ -758,9 +670,6 @@ struct TlsTablePool {
   static void AllocateMore() {
     auto callback = [](PMEMobjpool *pool, void *ptr, void *arg) { return 0; };
     std::pair callback_para(0, nullptr);
-    /*
-    Allocator::Allocate((void **)&all_tables, kCacheLineSize, sizeof(Table<T>) *
-    kAllTables, callback, reinterpret_cast<void *>(&callback_para));*/
     Allocator::Allocate(&p_all_tables, kCacheLineSize,
                         sizeof(Table<T>) * kAllTables, callback,
                         reinterpret_cast<void *>(&callback_para));
@@ -782,7 +691,6 @@ struct TlsTablePool {
     uint32_t n = all_allocated.fetch_add(kTables);
     if (n == kAllTables) {
       AllocateMore();
-      printf("NO MORE\n");
       abort();
       goto retry;
     }
@@ -808,7 +716,6 @@ PMEMoid TlsTablePool<T>::p_all_tables = OID_NULL;
 /* the meta hash-table referenced by the directory*/
 template <class T>
 struct Table {
-  // static void New(Table<T> **tbl, size_t depth, Table<T> *pp) {
   static void New(PMEMoid *tbl, size_t depth, PMEMoid pp) {
 #ifdef PMEM
 #ifdef PREALLOC
@@ -887,25 +794,19 @@ struct Table {
     int displace_index = neighbor->Find_org_displacement();
     if ((GET_COUNT(next_neighbor->bitmap) != kNumPairPerBucket) &&
         (displace_index != -1)) {
-      // printf("do the displacement in next bucket, the displaced key is %lld,
-      // the new key is %lld\n", neighbor->_[displace_index].key, key);
       next_neighbor->Insert(neighbor->_[displace_index].key,
                             neighbor->_[displace_index].value,
                             neighbor->finger_array[displace_index], true);
-      // neighbor->setNextNonFlush();
       next_neighbor->release_lock();
 #ifdef PMEM
       Allocator::Persist(&next_neighbor->bitmap, sizeof(next_neighbor->bitmap));
 #endif
-      // neighbor->unsetNextNonFlush();
       neighbor->unset_hash(displace_index);
       neighbor->Insert_displace(key, value, meta_hash, displace_index, true);
-      // target->setNextNonFlush();
       neighbor->release_lock();
 #ifdef PMEM
       Allocator::Persist(&neighbor->bitmap, sizeof(neighbor->bitmap));
 #endif
-      // target->unsetNextNonFlush();
       target->release_lock();
 #ifdef COUNTING
       __sync_fetch_and_add(&number, 1);
@@ -921,25 +822,19 @@ struct Table {
     int displace_index = target->Find_probe_displacement();
     if ((GET_COUNT(prev_neighbor->bitmap) != kNumPairPerBucket) &&
         (displace_index != -1)) {
-      // printf("do the displacement in previous bucket,the displaced key is
-      // %lld, the new key is %lld\n", target->_[displace_index].key, key);
       prev_neighbor->Insert(target->_[displace_index].key,
                             target->_[displace_index].value,
                             target->finger_array[displace_index], false);
-      // target->setPreNonFlush();
       prev_neighbor->release_lock();
 #ifdef PMEM
       Allocator::Persist(&prev_neighbor->bitmap, sizeof(prev_neighbor->bitmap));
 #endif
-      // target->unsetPreNonFlush();
       target->unset_hash(displace_index);
       target->Insert_displace(key, value, meta_hash, displace_index, false);
-      // neighbor->setPreNonFlush();
       target->release_lock();
 #ifdef PMEM
       Allocator::Persist(&target->bitmap, sizeof(target->bitmap));
 #endif
-      // neighbor->unsetPreNonFlush();
       neighbor->release_lock();
 #ifdef COUNTING
       __sync_fetch_and_add(&number, 1);
@@ -955,7 +850,6 @@ struct Table {
       Bucket<T> *curr_bucket =
           bucket + kNumBucket + ((stash_pos + i) & stashMask);
       if (GET_COUNT(curr_bucket->bitmap) < kNumPairPerBucket) {
-        // printf("insertion in the stash for key %lld\n", key);
         curr_bucket->Insert(key, value, meta_hash, false);
 #ifdef PMEM
         Allocator::Persist(&curr_bucket->bitmap, sizeof(curr_bucket->bitmap));
@@ -975,7 +869,6 @@ struct Table {
     /*reset the lock and overflow meta-data*/
     uint64_t knumber = 0;
     for (int i = 0; i < kNumBucket; ++i) {
-      // printf("start: recover bucket %d\n",i);
       curr_bucket = bucket + i;
       curr_bucket->resetLock();
       curr_bucket->resetOverflowFP();
@@ -1039,7 +932,6 @@ struct Table {
                 scanning operation*/
   PMEMmutex
       lock_bit; /* for the synchronization of the lazy recovery in one segment*/
-  // PMEMmutex dirty_bit; /* to indicate whether segment is clean*/
 };
 
 /* it needs to verify whether this bucket has been deleted...*/
@@ -1051,7 +943,6 @@ RETRY:
   auto y = BUCKET_INDEX(key_hash);
   Bucket<T> *target = bucket + y;
   Bucket<T> *neighbor = bucket + ((y + 1) & bucketMask);
-  // printf("for key %lld, target bucket is %lld, meta_hash is %d\n", key,
   target->get_lock();
   if (!neighbor->try_get_lock()) {
     target->release_lock();
@@ -1060,7 +951,6 @@ RETRY:
 
   auto old_sa = *_dir;
   auto x = (key_hash >> (8 * sizeof(key_hash) - old_sa->global_depth));
-  // if (old_sa->_[x] != this) /* verify process*/
   if (reinterpret_cast<Table<T> *>(reinterpret_cast<uint64_t>(old_sa->_[x]) &
                                    tailMask) != this) {
     neighbor->release_lock();
@@ -1131,21 +1021,17 @@ RETRY:
 
   if (GET_COUNT(target->bitmap) <= GET_COUNT(neighbor->bitmap)) {
     target->Insert(key, value, meta_hash, false);
-    // neighbor->setPreNonFlush();
     target->release_lock();
 #ifdef PMEM
     Allocator::Persist(&target->bitmap, sizeof(target->bitmap));
 #endif
-    // neighbor->unsetPreNonFlush();
     neighbor->release_lock();
   } else {
     neighbor->Insert(key, value, meta_hash, true);
-    // target->setNextNonFlush();
     neighbor->release_lock();
 #ifdef PMEM
     Allocator::Persist(&neighbor->bitmap, sizeof(neighbor->bitmap));
 #endif
-    // target->unsetNextNonFlush();
     target->release_lock();
   }
 #ifdef COUNTING
@@ -1187,8 +1073,6 @@ void Table<T>::Insert4splitWithCheck(T key, Value_t value, size_t key_hash,
     displace_index = neighbor->Find_org_displacement();
     if (((GET_COUNT(next_neighbor->bitmap)) != kNumPairPerBucket) &&
         (displace_index != -1)) {
-      // printf("do the displacement in next bucket, the displaced key is %lld,
-      // the new key is %lld\n", neighbor->_[displace_index].key, key);
       next_neighbor->Insert_with_noflush(
           neighbor->_[displace_index].key, neighbor->_[displace_index].value,
           neighbor->finger_array[displace_index], true);
@@ -1213,8 +1097,6 @@ void Table<T>::Insert4splitWithCheck(T key, Value_t value, size_t key_hash,
     displace_index = target->Find_probe_displacement();
     if (((GET_COUNT(prev_neighbor->bitmap)) != kNumPairPerBucket) &&
         (displace_index != -1)) {
-      // printf("do the displacement in previous bucket,the displaced key is
-      // %lld, the new key is %lld\n", target->_[displace_index].key, key);
       prev_neighbor->Insert_with_noflush(
           target->_[displace_index].key, target->_[displace_index].value,
           target->finger_array[displace_index], false);
@@ -1238,8 +1120,6 @@ void Table<T>::Insert4split(T key, Value_t value, size_t key_hash,
   auto y = BUCKET_INDEX(key_hash);
   Bucket<T> *target = bucket + y;
   Bucket<T> *neighbor = bucket + ((y + 1) & bucketMask);
-  // auto insert_target =
-  // (target->count&lowCountMask)<=(neighbor->count&lowCountMask)?target:neighbor;
   Bucket<T> *insert_target;
   bool probe = false;
   if (GET_COUNT(target->bitmap) <= GET_COUNT(neighbor->bitmap)) {
@@ -1249,7 +1129,6 @@ void Table<T>::Insert4split(T key, Value_t value, size_t key_hash,
     probe = true;
   }
 
-  // assert(insert_target->count < kNumPairPerBucket);
   /*some bucket may be overflowed?*/
   if (GET_COUNT(insert_target->bitmap) < kNumPairPerBucket) {
     insert_target->_[GET_COUNT(insert_target->bitmap)].key = key;
@@ -1265,8 +1144,6 @@ void Table<T>::Insert4split(T key, Value_t value, size_t key_hash,
     displace_index = neighbor->Find_org_displacement();
     if (((GET_COUNT(next_neighbor->bitmap)) != kNumPairPerBucket) &&
         (displace_index != -1)) {
-      // printf("do the displacement in next bucket, the displaced key is %lld,
-      // the new key is %lld\n", neighbor->_[displace_index].key, key);
       next_neighbor->Insert_with_noflush(
           neighbor->_[displace_index].key, neighbor->_[displace_index].value,
           neighbor->finger_array[displace_index], true);
@@ -1291,8 +1168,6 @@ void Table<T>::Insert4split(T key, Value_t value, size_t key_hash,
     displace_index = target->Find_probe_displacement();
     if (((GET_COUNT(prev_neighbor->bitmap)) != kNumPairPerBucket) &&
         (displace_index != -1)) {
-      // printf("do the displacement in previous bucket,the displaced key is
-      // %lld, the new key is %lld\n", target->_[displace_index].key, key);
       prev_neighbor->Insert_with_noflush(
           target->_[displace_index].key, target->_[displace_index].value,
           target->finger_array[displace_index], false);
@@ -1322,8 +1197,6 @@ void Table<T>::Insert4merge(T key, Value_t value, size_t key_hash,
     if (ret == -1) return;
   }
 
-  // auto insert_target =
-  // (target->count&lowCountMask)<=(neighbor->count&lowCountMask)?target:neighbor;
   Bucket<T> *insert_target;
   bool probe = false;
   if (GET_COUNT(target->bitmap) <= GET_COUNT(neighbor->bitmap)) {
@@ -1333,7 +1206,6 @@ void Table<T>::Insert4merge(T key, Value_t value, size_t key_hash,
     probe = true;
   }
 
-  // assert(insert_target->count < kNumPairPerBucket);
   /*some bucket may be overflowed?*/
   if (GET_COUNT(insert_target->bitmap) < kNumPairPerBucket) {
     insert_target->Insert(key, value, meta_hash, probe);
@@ -1347,8 +1219,6 @@ void Table<T>::Insert4merge(T key, Value_t value, size_t key_hash,
     displace_index = neighbor->Find_org_displacement();
     if (((GET_COUNT(next_neighbor->bitmap)) != kNumPairPerBucket) &&
         (displace_index != -1)) {
-      // printf("do the displacement in next bucket, the displaced key is %lld,
-      // the new key is %lld\n", neighbor->_[displace_index].key, key);
       next_neighbor->Insert_with_noflush(
           neighbor->_[displace_index].key, neighbor->_[displace_index].value,
           neighbor->finger_array[displace_index], true);
@@ -1373,8 +1243,6 @@ void Table<T>::Insert4merge(T key, Value_t value, size_t key_hash,
     displace_index = target->Find_probe_displacement();
     if (((GET_COUNT(prev_neighbor->bitmap)) != kNumPairPerBucket) &&
         (displace_index != -1)) {
-      // printf("do the displacement in previous bucket,the displaced key is
-      // %lld, the new key is %lld\n", target->_[displace_index].key, key);
       prev_neighbor->Insert_with_noflush(
           target->_[displace_index].key, target->_[displace_index].value,
           target->finger_array[displace_index], false);
@@ -1451,7 +1319,6 @@ void Table<T>::HelpSplit(Table<T> *next_table) {
           org_bucket->unset_indicator(curr_bucket->finger_array[j],
                                       neighbor_bucket, curr_bucket->_[j].key,
                                       i);
-          // curr_bucket->unset_hash(j);
 #ifdef COUNTING
           number--;
 #endif
@@ -1481,9 +1348,7 @@ void Table<T>::HelpSplit(Table<T> *next_table) {
                                 cacheline, therefore no performance influence?*/
   }
 
-  // if constexpr (std::is_pointer_v<T>) {
   Allocator::Persist(this, sizeof(Table));
-  //}
 #endif
 }
 
@@ -1495,8 +1360,6 @@ Table<T> *Table<T>::Split(size_t _key_hash) {
   for (int i = 1; i < kNumBucket; ++i) {
     (bucket + i)->get_lock();
   }
-  // printf("my pattern is %lld, my load factor is %f\n", pattern,
-  // ((double)number)/(kNumBucket*kNumPairPerBucket+kNumPairPerBucket));
   state = -2;
   Allocator::Persist(&state, sizeof(state));
   Table<T>::New(&next, local_depth + 1, next);
@@ -1562,7 +1425,6 @@ Table<T> *Table<T>::Split(size_t _key_hash) {
           org_bucket->unset_indicator(curr_bucket->finger_array[j],
                                       neighbor_bucket, curr_bucket->_[j].key,
                                       i);
-          // curr_bucket->unset_hash(j);
 #ifdef COUNTING
           number--;
 #endif
@@ -1592,9 +1454,7 @@ Table<T> *Table<T>::Split(size_t _key_hash) {
                                 cacheline, therefore no performance influence?*/
   }
 
-  // if constexpr (std::is_pointer_v<T>) {
   Allocator::Persist(this, sizeof(Table));
-  //}
 #endif
   return next_table;
 }
@@ -1624,7 +1484,6 @@ void Table<T>::Merge(Table<T> *neighbor, bool unique_check_flag) {
       }
     }
 
-    /*split the stash bucket, the stash must be full, right?*/
     for (int i = 0; i < stashBucket; ++i) {
       auto *curr_bucket = neighbor->bucket + kNumBucket + i;
       auto mask = GET_BITMAP(curr_bucket->bitmap);
@@ -1713,8 +1572,6 @@ class Finger_EH : public Hash<T> {
   }
   void getNumber() {
     printf("the size of the bucket is %lld\n", sizeof(struct Bucket<T>));
-    // printf("the size of the Table is %lld\n", sizeof(struct Table));
-
     size_t _count = 0;
     size_t seg_count = 0;
     Directory<T> *seg = dir;
@@ -1741,9 +1598,7 @@ class Finger_EH : public Hash<T> {
     }
     std::cout << "seg_count = " << seg_count << std::endl;
     std::cout << "verify_seg_count = " << verify_seg_count << std::endl;
-
     printf("#items: %lld\n", _count);
-    // printf("the segment number in this hash table is %lld\n", seg_count);
     printf("load_factor: %f\n",
            (double)_count / (seg_count * kNumPairPerBucket * (kNumBucket + 2)));
     printf("Raw_Space: %f\n",
@@ -1792,8 +1647,6 @@ Finger_EH<T>::Finger_EH(size_t initCap, PMEMobjpool *_pool) {
   PMEMoid ptr;
   Table<T>::New(&ptr, dir->global_depth, OID_NULL);
   dir->_[initCap - 1] = (Table<T> *)pmemobj_direct(ptr);
-  //  std::cout << "The size of the pmdk lock is " << sizeof(PMEMmutex) <<
-  //  std::endl;
 
   dir->_[initCap - 1]->pattern = initCap - 1;
   /* Initilize the Directory*/
@@ -1866,16 +1719,12 @@ void Finger_EH<T>::Halve_Directory() {
 #ifdef PMEM
   Allocator::Persist(new_dir,
                      sizeof(Directory<T>) + sizeof(uint64_t) * capacity);
-
-  // auto old_dir = dir;
-  // void **reserve_addr = Allocator::ReserveMemory();
   auto reserve_item = Allocator::ReserveItem();
   TX_BEGIN(pool_addr) {
     // pmemobj_tx_add_range_direct(reserve_addr, sizeof(void *));
     pmemobj_tx_add_range_direct(reserve_item, sizeof(*reserve_item));
     pmemobj_tx_add_range_direct(&dir, sizeof(dir));
     pmemobj_tx_add_range_direct(&back_dir, sizeof(back_dir));
-    //*reserve_addr = (void *)dir;
     Allocator::Free(reserve_item, dir);
     dir = new_dir;
     back_dir = OID_NULL;
@@ -1906,7 +1755,6 @@ void Finger_EH<T>::Directory_Doubling(int x, Table<T> *new_b, Table<T> *old_b) {
     dd[2 * i] = d[i];
     dd[2 * i + 1] = d[i];
   }
-  // dd[2 * x + 1] = new_b;
   dd[2 * x + 1] = reinterpret_cast<Table<T> *>(
       reinterpret_cast<uint64_t>(new_b) | crash_version);
   new_sa->depth_count = 2;
@@ -1914,12 +1762,10 @@ void Finger_EH<T>::Directory_Doubling(int x, Table<T> *new_b, Table<T> *old_b) {
 #ifdef PMEM
   Allocator::Persist(new_sa,
                      sizeof(Directory<T>) + sizeof(uint64_t) * 2 * capacity);
-  // void **reserve_addr = Allocator::ReserveMemory();
   auto reserve_item = Allocator::ReserveItem();
   ++merge_time;
   auto old_dir = dir;
   TX_BEGIN(pool_addr) {
-    // pmemobj_tx_add_range_direct(reserve_addr, sizeof(void *));
     pmemobj_tx_add_range_direct(reserve_item, sizeof(*reserve_item));
     pmemobj_tx_add_range_direct(&dir, sizeof(dir));
     pmemobj_tx_add_range_direct(&back_dir, sizeof(back_dir));
@@ -1927,7 +1773,6 @@ void Finger_EH<T>::Directory_Doubling(int x, Table<T> *new_b, Table<T> *old_b) {
                                 sizeof(old_b->local_depth));
     old_b->local_depth += 1;
     Allocator::Free(reserve_item, dir);
-    //*reserve_addr = (void *)dir;
     /*Swap the memory addr between new directory and old directory*/
     dir = new_sa;
     back_dir = OID_NULL;
@@ -1940,21 +1785,16 @@ void Finger_EH<T>::Directory_Doubling(int x, Table<T> *new_b, Table<T> *old_b) {
 #else
   dir = new_sa;
 #endif
-  // printf("Done!!Directory_Doubling towards %lld\n", dir->global_depth);
 }
 
 template <class T>
 void Finger_EH<T>::Directory_Update(Directory<T> *_sa, int x, Table<T> *new_b,
                                     Table<T> *old_b) {
-  // printf("directory update for %d\n", x);
   Table<T> **dir_entry = _sa->_;
   auto global_depth = _sa->global_depth;
   unsigned depth_diff = global_depth - new_b->local_depth;
   if (depth_diff == 0) {
     if (x % 2 == 0) {
-      // dir_entry[x + 1] = new_b;
-      // Allocator::Persist(&dir_entry[x + 1], sizeof(uint64_t));
-      // old_b->local_depth += 1;
       TX_BEGIN(pool_addr) {
         pmemobj_tx_add_range_direct(&dir_entry[x + 1], sizeof(Table<T> *));
         pmemobj_tx_add_range_direct(&old_b->local_depth,
@@ -1966,14 +1806,10 @@ void Finger_EH<T>::Directory_Update(Directory<T> *_sa, int x, Table<T> *new_b,
       TX_ONABORT { std::cout << "Error for update txn" << std::endl; }
       TX_END
     } else {
-      // dir_entry[x] = new_b;
-      // old_b->local_depth += 1;
-      // Allocator::Persist(&dir_entry[x], sizeof(uint64_t));
       TX_BEGIN(pool_addr) {
         pmemobj_tx_add_range_direct(&dir_entry[x], sizeof(Table<T> *));
         pmemobj_tx_add_range_direct(&old_b->local_depth,
                                     sizeof(old_b->local_depth));
-        // dir_entry[x] = new_b;
         dir_entry[x] = reinterpret_cast<Table<T> *>(
             reinterpret_cast<uint64_t>(new_b) | crash_version);
         old_b->local_depth += 1;
@@ -1986,20 +1822,12 @@ void Finger_EH<T>::Directory_Update(Directory<T> *_sa, int x, Table<T> *new_b,
     int chunk_size = pow(2, global_depth - (new_b->local_depth - 1));
     x = x - (x % chunk_size);
     int base = chunk_size / 2;
-    /*
-    for (int i = base - 1; i >= 0; --i) {
-      dir_entry[x + base + i] = new_b;
-      Allocator::Persist(&dir_entry[x + base + i], sizeof(uint64_t));
-    }
-    old_b->local_depth += 1;
-    */
     TX_BEGIN(pool_addr) {
       pmemobj_tx_add_range_direct(&dir_entry[x + base],
                                   sizeof(Table<T> *) * base);
       pmemobj_tx_add_range_direct(&old_b->local_depth,
                                   sizeof(old_b->local_depth));
       for (int i = base - 1; i >= 0; --i) {
-        // dir_entry[x + base + i] = new_b;
         dir_entry[x + base + i] = reinterpret_cast<Table<T> *>(
             reinterpret_cast<uint64_t>(new_b) | crash_version);
       }
@@ -2014,7 +1842,6 @@ void Finger_EH<T>::Directory_Update(Directory<T> *_sa, int x, Table<T> *new_b,
 template <class T>
 void Finger_EH<T>::Directory_Merge_Update(Directory<T> *_sa, uint64_t key_hash,
                                           Table<T> *left_seg) {
-  // printf("directory update for %d\n", x);
   Table<T> **dir_entry = _sa->_;
   auto global_depth = _sa->global_depth;
   auto x = (key_hash >> (8 * sizeof(key_hash) - global_depth));
@@ -2039,8 +1866,6 @@ void Finger_EH<T>::recoverTable(Table<T> **target_table, size_t key_hash,
   auto dir_entry = old_sa->_;
   uint64_t snapshot = (uint64_t)*target_table;
   Table<T> *target = (Table<T> *)(snapshot & tailMask);
-  /*try to get the exclusive recovery lock*/
-  // std::cout << "begin " << x <<std::endl;
   if (pmemobj_mutex_trylock(pool_addr, &target->lock_bit) != 0) {
     return;
   }
@@ -2064,7 +1889,6 @@ void Finger_EH<T>::recoverTable(Table<T> **target_table, size_t key_hash,
           Directory_Doubling(x, next_table, target);
         }
         Unlock_Directory();
-        // Allocator::NTWrite64(&target->local_depth, target->local_depth + 1);
         /*release the lock for the target bucket and the new bucket*/
         next_table->state = 0;
         Allocator::Persist(&next_table->state, sizeof(int));
@@ -2082,11 +1906,9 @@ void Finger_EH<T>::recoverTable(Table<T> **target_table, size_t key_hash,
   }
 
   /*Compute for all entries and clear the dirty bit*/
-  // std::cout << "end " << x <<std::endl;
   int chunk_size = pow(2, old_sa->global_depth - target->local_depth);
   x = x - (x % chunk_size);
   for (int i = x; i < (x + chunk_size); ++i) {
-    // std::cout << "udpate " << i << std::endl;
     dir_entry[i] = reinterpret_cast<Table<T> *>(
         (reinterpret_cast<uint64_t>(dir_entry[i]) & tailMask) | crash_version);
   }
@@ -2157,8 +1979,6 @@ RETRY:
     goto RETRY;
   }
 
-  // printf("insert key %lld, x = %d, y = %d, meta_hash = %d\n", key, x,
-  // BUCKET_INDEX(key_hash), meta_hash);
   auto ret = target->Insert(key, value, key_hash, meta_hash, &dir);
   if (ret == -1) {
     if (!target->bucket->try_get_lock()) {
@@ -2180,21 +2000,17 @@ RETRY:
                                     lock for this rather than the spin lock*/
     /* update directory*/
   REINSERT:
-    // the following three statements may be unnecessary...
     old_sa = dir;
     dir_entry = old_sa->_;
     x = (key_hash >> (8 * sizeof(key_hash) - old_sa->global_depth));
-    // assert(target == dir_entry[x].bucket_p);
     if (target->local_depth < old_sa->global_depth) {
       if (Test_Directory_Lock_Set()) {
         goto REINSERT;
       }
-      // Lock_Directory();
       ADD(&old_sa->counter, 1);
       Directory_Update(old_sa, x, new_b, target);
       SUB(&old_sa->counter, 1);
-      // Unlock_Directory();
-      /*after the update, I need to recheck*/
+      /*after the update, need to recheck*/
       if (Test_Directory_Lock_Set() || old_sa->version != dir->version) {
         goto REINSERT;
       }
@@ -2209,13 +2025,7 @@ RETRY:
       Directory_Doubling(x, new_b, target);
       Unlock_Directory();
     }
-    /*
-#ifdef PMEM
-    Allocator::NTWrite64(&target->local_depth, target->local_depth + 1);
-#else
-    target->local_depth += 1;
-#endif
-*/
+
     /*release the lock for the target bucket and the new bucket*/
     target->state = 0;
     new_b->state = 0;
@@ -2240,7 +2050,6 @@ Value_t Finger_EH<T>::Get(T key, bool is_in_epoch) {
     auto epoch_guard = Allocator::AquireEpochGuard();
     return Get(key);
   }
-  // return Get(key);
   uint64_t key_hash;
   if constexpr (std::is_pointer_v<T>) {
     key_hash = h(key->key, key->length);
@@ -2314,9 +2123,6 @@ RETRY:
           if (CHECK_BIT(mask, i) &&
               (target_bucket->finger_array[15 + i] == meta_hash) &&
               (((1 << i) & target_bucket->overflowMember) == 0)) {
-            // test_stash = true;
-            // goto TEST_STASH;
-            /*directly check stash*/
             Bucket<T> *stash =
                 target->bucket + kNumBucket +
                 ((target_bucket->finger_array[19] >> (i * 2)) & stashMask);
@@ -2337,8 +2143,6 @@ RETRY:
           if (CHECK_BIT(mask, i) &&
               (neighbor_bucket->finger_array[15 + i] == meta_hash) &&
               (((1 << i) & neighbor_bucket->overflowMember) != 0)) {
-            // test_stash = true;
-            // break;
             Bucket<T> *stash =
                 target->bucket + kNumBucket +
                 ((neighbor_bucket->finger_array[19] >> (i * 2)) & stashMask);
@@ -2370,8 +2174,6 @@ RETRY:
     }
   }
 FINAL:
-  // printf("the x = %lld, the y = %lld, the meta_hash is %d\n", x, y,
-  // meta_hash);
   return NONE;
 }
 
@@ -2450,9 +2252,6 @@ RETRY:
           if (CHECK_BIT(mask, i) &&
               (target_bucket->finger_array[15 + i] == meta_hash) &&
               (((1 << i) & target_bucket->overflowMember) == 0)) {
-            // test_stash = true;
-            // goto TEST_STASH;
-            /*directly check stash*/
             Bucket<T> *stash =
                 target->bucket + kNumBucket +
                 ((target_bucket->finger_array[19] >> (i * 2)) & stashMask);
@@ -2473,8 +2272,6 @@ RETRY:
           if (CHECK_BIT(mask, i) &&
               (neighbor_bucket->finger_array[15 + i] == meta_hash) &&
               (((1 << i) & neighbor_bucket->overflowMember) != 0)) {
-            // test_stash = true;
-            // break;
             Bucket<T> *stash =
                 target->bucket + kNumBucket +
                 ((neighbor_bucket->finger_array[19] >> (i * 2)) & stashMask);
@@ -2506,8 +2303,6 @@ RETRY:
     }
   }
 FINAL:
-  // printf("the x = %lld, the y = %lld, the meta_hash is %d\n", x, y,
-  // meta_hash);
   return NONE;
 }
 
@@ -2526,13 +2321,11 @@ void Finger_EH<T>::TryMerge(size_t key_hash) {
     auto right_seg = old_dir->_[right];
 
     if (((uint64_t)left_seg & recoverBit)) {
-      // recoverTable(&old_dir->_[left], key_hash);
       recoverTable(&old_dir->_[left], key_hash, left, old_dir);
       continue;
     }
 
     if (((uint64_t)right_seg & recoverBit)) {
-      // recoverTable(&old_dir->_[right], key_hash);
       recoverTable(&old_dir->_[right], key_hash, right, old_dir);
       continue;
     }
@@ -2583,33 +2376,22 @@ void Finger_EH<T>::TryMerge(size_t key_hash) {
         if (right_seg->number != 0) {
           left_seg->Merge(right_seg);
         }
-        // std::cout << "reserve a memory addr "<<++merge_time<< std::endl;
-        // void **reserve_addr = Allocator::ReserveMemory();
         auto reserve_item = Allocator::ReserveItem();
-        // std::cout << "successfully get a memory addr" << std::endl;
         TX_BEGIN(pool_addr) {
-          // pmemobj_tx_add_range_direct(reserve_addr, sizeof(void *));
           pmemobj_tx_add_range_direct(reserve_item, sizeof(*reserve_item));
           pmemobj_tx_add_range_direct(&left_seg->next, sizeof(left_seg->next));
           Allocator::Free(reserve_item, right_seg);
-          //*reserve_addr = right_seg;
           left_seg->next = right_seg->next;
         }
         TX_ONABORT { std::cout << "Error for merge txn" << std::endl; }
         TX_END
 
-        // left_seg->next = right_seg->next;
         left_seg->pattern = left_seg->pattern >> 1;
         Allocator::Persist(&left_seg->pattern, sizeof(uint64_t));
         left_seg->state = 0;
         Allocator::Persist(&left_seg->state, sizeof(int));
         right_seg->Release_all_locks();
         left_seg->Release_all_locks();
-        /*
-        #ifdef EPOCH
-                Allocator::Free(right_seg);
-        #endif
-        */
         /*Try to halve directory?*/
         if ((dir->depth_count == 0) && (dir->global_depth > 2)) {
           Lock_Directory();
@@ -2626,7 +2408,7 @@ void Finger_EH<T>::TryMerge(size_t key_hash) {
       }
     } else {
       if (old_dir == dir) {
-        /* If the directory itself does not change, directory return*/
+        /* If the directory itself does not change, directly return*/
         return;
       }
     }
@@ -2663,7 +2445,6 @@ RETRY:
 
   if ((reinterpret_cast<uint64_t>(dir_entry[x]) & headerMask) !=
       crash_version) {
-    // recoverTable(&dir_entry[x], key_hash);
     recoverTable(&dir_entry[x], key_hash, x, old_sa);
     goto RETRY;
   }
@@ -2680,7 +2461,6 @@ RETRY:
 
   old_sa = dir;
   x = (key_hash >> (8 * sizeof(key_hash) - old_sa->global_depth));
-  // if (old_sa->_[x] != target_table) {
   if (reinterpret_cast<Table<T> *>(reinterpret_cast<uint64_t>(old_sa->_[x]) &
                                    tailMask) != target_table) {
     target->release_lock();
@@ -2794,9 +2574,6 @@ RETRY:
   }
   neighbor->release_lock();
   target->release_lock();
-  // printf("Not found key %lld, the position is %d, the bucket is %lld, the
-  // local depth = %lld, the global depth = %lld, the pattern is %lld\n", key,
-  // x, y,target_table->local_depth, dir->global_depth,target_table->pattern);
   return false;
 }
 
@@ -2859,7 +2636,6 @@ int Finger_EH<T>::FindAnyway(T key) {
         printf("the segment number is %d, the bucket_ix is %d\n", x, bucket_ix);
 
         printf("the image of org_bucket\n");
-        // printf("the stash check is %d\n", org_bucket->test_stash_check());
         int mask = org_bucket->finger_array[14];
         for (int j = 0; j < 4; ++j) {
           printf(
