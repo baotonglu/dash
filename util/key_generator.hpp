@@ -3,6 +3,11 @@
 #include "zipfian_int_distribution.hpp"
 #include "random.h"
 
+/*
+* Used to generate different key distribution used in the mini benchmark.
+* Including: (1) uniform random distribution (2) zipfian distribution (3) range distribution (generate the interger one by one in a range specified by the user)
+*/
+
 class key_generator_t{
 public:
  key_generator_t(){

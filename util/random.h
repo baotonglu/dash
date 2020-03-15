@@ -53,6 +53,8 @@
    email: m-mat @ math.sci.hiroshima-u.ac.jp (remove spaces)
 */
 
+/* Uniform Random Distribution*/
+
 #pragma once
 #include <stdio.h>
 

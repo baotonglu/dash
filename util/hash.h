@@ -1,5 +1,8 @@
 #ifndef UTIL_HASH_H_
 #define UTIL_HASH_H_
+/*
+* A collection of hash functions
+*/
 
 #include <bits/hash_bytes.h>
 #include <stddef.h>

@@ -6,6 +6,11 @@
 #include <libpmemobj.h>
 #endif
 
+/*
+* Parent function of all hash indexes
+* Used to define the interface of the hash indexes
+*/
+
 template <class T>
 class Hash {
  public:

@@ -1,3 +1,6 @@
+/*
+* Used to test the key generator (different key distribution)
+*/
 #include <random>
 #include <cstdint>
 #include "key_generator.hpp"
@@ -8,8 +11,6 @@
 int main(){
 	uint64_t N = 100;
 	uint64_t key_num = 100;
-	//std::default_random_engine generator(time(0));
-	//zipfian_int_distribution<uint64_t> dist_(1, N, 0.8);
 	key_generator_t *kg1;
 	key_generator_t *kg2;
 	kg1 = new zipfian_key_generator_t(100, 0.8);
@@ -19,7 +20,6 @@ int main(){
 	std::map<uint64_t,int> counting2_;
 
 	for (int i = 0; i < key_num; ++i){
-//		printf("%d\n", dist_(generator));
 		uint64_t random_num = kg1->next_uint64();
 		if(counting_.find(random_num) != counting_.end()){
 			counting_[random_num] += 1;
