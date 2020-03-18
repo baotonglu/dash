@@ -18,11 +18,11 @@ epoch=(0 1 1 1 0)
 # j spec1fy the number of threads
 #for q in 0.5 0.6 0.7 0.8 0.9 0.99
 #do
-for k in 2
+for k in 1 2
 do
-	for i in 1 
+	for i in 1
 	do 
-		for j in 6
+		for j in {1..6}
 		do
 			echo "Begin: ${base[1]} ${workload[${i}]} ${thread_num[${j}]}"
 			numaarg=""
@@ -50,7 +50,7 @@ do
       -index ${index_type[$k]} \
       -e ${epoch[$k]} \
       -ed 1000 \
-      -op "full" \
+      -op "insert" \
       -r 0.8 \
       -s 0.2 \
       -ms 100 \

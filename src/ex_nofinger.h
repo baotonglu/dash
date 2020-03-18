@@ -38,8 +38,8 @@ namespace extendible {
 //#define COUNTING 1
 #define EPOCH 1
 //#define NO_FINGER 1
-#define SPINLOCK 1
-//#define NO_META 1
+//#define SPINLOCK 1
+#define NO_META 1
 //#define PREALLOC 1
 
 #define SIMD 1
@@ -80,7 +80,7 @@ constexpr size_t kNumPairPerBucket =
 constexpr size_t kFingerBits = 8;
 constexpr size_t kMask = (1 << kFingerBits) - 1;
 const constexpr size_t kNumBucket = 64;
-constexpr size_t stashBucket = 2;
+constexpr size_t stashBucket = 4;
 constexpr int allocMask = (1 << kNumPairPerBucket) - 1;
 constexpr size_t bucketMask = ((1 << (int)log2(kNumBucket)) - 1);
 constexpr size_t stashMask = (1 << (int)log2(stashBucket)) - 1;
@@ -566,7 +566,6 @@ struct Bucket {
 #ifdef PMEM
     Allocator::Persist(&_[slot], sizeof(_[slot]));
 #endif
-    mfence();
     set_hash(slot, meta_hash, probe);
     return 0;
   }
@@ -711,7 +710,6 @@ struct Bucket {
 #ifdef PMEM
     Allocator::Persist(&_[slot], sizeof(_Pair<T>));
 #endif
-    mfence();
     set_hash(slot, meta_hash, probe);
   }
 

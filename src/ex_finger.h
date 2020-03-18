@@ -386,7 +386,6 @@ struct Bucket {
 #ifdef PMEM
     Allocator::Persist(&_[slot], sizeof(_[slot]));
 #endif
-    //    mfence();
     set_hash(slot, meta_hash, probe);
     return 0;
   }
@@ -522,7 +521,6 @@ struct Bucket {
 #ifdef PMEM
     Allocator::Persist(&_[slot], sizeof(_Pair<T>));
 #endif
-    //    mfence();
     set_hash(slot, meta_hash, probe);
   }
 
@@ -534,20 +532,6 @@ struct Bucket {
   }
 
   /* Find the displacment element in this bucket*/
-  /*
-  int Find_displacement(int x){
-          for (int i = 0; i < kNumPairPerBucket; ++i)
-          {
-                  auto key_hash = h(&_[i], sizeof(Key_t));
-                  auto y = BUCKET_INDEX(key_hash);
-                  if (x == y)
-                  {
-                          return i;
-                  }
-          }
-          return -1;
-  }*/
-
   inline int Find_org_displacement() {
     int mask = (~(*((int *)membership))) & allocMask;
     if (mask == 0) {
