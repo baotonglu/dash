@@ -11,7 +11,7 @@ VLDB 2020
 
 ## What's included
 
-- Dash EH - Proposed Dash extendable hashing
+- Dash EH - Proposed Dash extendible hashing
 - Dash LH - Proposed Dash linear Hashing
 - CCEH - PMDK patched CCEH variant used in our benchmark
 - Level Hashing - PMDK patched level hashing variant used in our benchmark
