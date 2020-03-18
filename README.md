@@ -59,4 +59,4 @@ For a more detailed explanation and minimal reproducible code, please check out 
 
 ## Contact
 
-For any questions, please contact us at 'btlu@cse.cuhk.edu.hk' and 'tzwang@sfu.ca'.
+For any questions, please contact us at `btlu@cse.cuhk.edu.hk` and `tzwang@sfu.ca`.
