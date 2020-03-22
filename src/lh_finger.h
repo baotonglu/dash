@@ -560,7 +560,7 @@ struct Bucket {
   }
 
   inline int get_current_mask() {
-    int mask = GET_BITMAP(bitmap) & ((~(*(int *)membership)) & allocMask);
+    int mask = GET_BITMAP(bitmap) & GET_INVERSE_MEMBER(bitmap);
     return mask;
   }
 
@@ -568,9 +568,9 @@ struct Bucket {
     int mask = 0;
     SSE_CMP8(finger_array, meta_hash);
     if (!probe) {
-      mask = mask & GET_BITMAP(bitmap) & ((~(*(int *)membership)) & allocMask);
+      mask = mask & GET_BITMAP(bitmap) & GET_INVERSE_MEMBER(bitmap);
     } else {
-      mask = mask & GET_BITMAP(bitmap) & ((*(int *)membership) & allocMask);
+      mask = mask & GET_BITMAP(bitmap) & GET_MEMBER(bitmap);
     }
 
     if constexpr (std::is_pointer_v<T>) {
@@ -649,26 +649,32 @@ struct Bucket {
   inline void set_hash(int index, uint8_t meta_hash, bool probe) {
     finger_array[index] = meta_hash;
     uint32_t new_bitmap = bitmap | (1 << (index + 18));
+    if (probe){
+      new_bitmap = new_bitmap | (1 << (index + 4));
+    }
     assert(GET_COUNT(bitmap) < kNumPairPerBucket);
     new_bitmap++;
     bitmap = new_bitmap;
+    /*
     if (probe) {
       *((int *)membership) = (1 << index) | *((int *)membership);
     }
+    */
   }
 
   inline uint8_t get_hash(int index) { return finger_array[index]; }
 
   inline void unset_hash(int index) {
-    uint32_t new_bitmap = bitmap & (~(1 << (index + 18)));
+    uint32_t new_bitmap = bitmap & (~(1 << (index + 18))) & (~(1 << (index + 4)));
     assert(GET_COUNT(bitmap) <= kNumPairPerBucket);
     assert(GET_COUNT(bitmap) > 0);
     new_bitmap--;
     bitmap = new_bitmap;
+    /*
     *((int *)membership) =
         (~(1 << index)) &
-        (*((int *)membership)); /*since they are in the same cacheline,
-                                   therefore no performance influence?*/
+        (*((int *)membership));
+    */
   }
 
   inline void get_lock() {
@@ -745,9 +751,9 @@ struct Bucket {
     int mask = 0;
     SSE_CMP8(finger_array, meta_hash);
     if (!probe) {
-      mask = mask & GET_BITMAP(bitmap) & ((~(*(int *)membership)) & allocMask);
+      mask = mask & GET_BITMAP(bitmap) & GET_INVERSE_MEMBER(bitmap);
     } else {
-      mask = mask & GET_BITMAP(bitmap) & ((*(int *)membership) & allocMask);
+      mask = mask & GET_BITMAP(bitmap) & GET_MEMBER(bitmap);
     }
     /*loop unrolling*/
     if constexpr (std::is_pointer_v<T>) {
@@ -870,7 +876,7 @@ struct Bucket {
 
   /* Find the displacment element in this bucket*/
   inline int Find_org_displacement() {
-    int mask = (~(*((int *)membership))) & allocMask;
+     uint32_t mask = GET_INVERSE_MEMBER(bitmap);
     if (mask == 0) {
       return -1;
     }
@@ -879,7 +885,7 @@ struct Bucket {
 
   /*find element that it is in the probe*/
   inline int Find_probe_displacement() {
-    int mask = (*((int *)membership)) & allocMask;
+    uint32_t mask = GET_MEMBER(bitmap);
     if (mask == 0) {
       return -1;
     }
@@ -1381,7 +1387,7 @@ void Table<T>::Split(Table<T> *org_table, uint64_t base_level, int org_idx,
         }
         auto x = key_hash % (2 * base_level);
         if (x >= base_level) {
-          invalid_mask = invalid_mask | (1 << (j + 18));
+          invalid_mask = invalid_mask | (1 << j);
           Insert4split(curr_bucket->_[j].key, curr_bucket->_[j].value, key_hash,
                        curr_bucket->finger_array[j]);
 #ifdef COUNTING
@@ -1408,7 +1414,7 @@ void Table<T>::Split(Table<T> *org_table, uint64_t base_level, int org_idx,
 
         auto x = key_hash % (2 * base_level);
         if (x >= base_level) {
-          invalid_mask = invalid_mask | (1 << (j + 18));
+          invalid_mask = invalid_mask | (1 << j);
           Insert4split(curr_bucket->_[j].key, curr_bucket->_[j].value, key_hash,
                        curr_bucket->finger_array[j]);
           auto bucket_ix = BUCKET_INDEX(key_hash);
@@ -1454,18 +1460,15 @@ void Table<T>::Split(Table<T> *org_table, uint64_t base_level, int org_idx,
   /*clear the bitmap in original table*/
   for (int i = 0; i < kNumBucket; ++i) {
     auto curr_bucket = org_table->bucket + i;
-    curr_bucket->bitmap = curr_bucket->bitmap & (~invalid_array[i]);
+    curr_bucket->bitmap = curr_bucket->bitmap & (~(invalid_array[i] << 18)) & (~(invalid_array[i] << 4));
     uint32_t count = __builtin_popcount(invalid_array[i]);
     curr_bucket->bitmap = curr_bucket->bitmap - count;
-
-    *((int *)curr_bucket->membership) =
-        (~(invalid_array[i] >> 18)) & (*((int *)curr_bucket->membership));
   }
 
   for (int i = 0; i < stashBucket; ++i) {
     auto curr_bucket = org_table->stash + i;
     curr_bucket->bitmap =
-        curr_bucket->bitmap & (~invalid_array[kNumBucket + i]);
+        curr_bucket->bitmap & (~(invalid_array[kNumBucket + i] << 18));
     uint32_t count = __builtin_popcount(invalid_array[kNumBucket + i]);
     curr_bucket->bitmap = curr_bucket->bitmap - count;
   }
