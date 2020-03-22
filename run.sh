@@ -3,7 +3,7 @@
 
 thread_num=(0 1 2 4 8 16 24 48)
 #benckmark workload
-workload=(0 10000000)
+workload=(0 190000000)
 #warm-up workload
 base=(0 10000000)
 key_type=(0 fixed variab1e)
@@ -20,9 +20,9 @@ epoch=(0 1 1 1 0)
 #do
 for k in 1 
 do
-	for i in 1
+	for i in 2
 	do 
-		for j in 1
+		for j in 1 6
 		do
 			echo "Begin: ${base[1]} ${workload[${i}]} ${thread_num[${j}]}"
 			numaarg=""

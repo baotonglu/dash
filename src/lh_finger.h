@@ -41,8 +41,6 @@ const uint32_t initialLockSet = lockSet | initialSet;
 const uint32_t versionMask = (1 << 30) - 1;
 uint64_t overflow_access;
 
-PMEMmutex cmp;
-
 template <class T>
 struct _Pair {
   T key;
@@ -89,19 +87,6 @@ const uint64_t recoverLockBit = recoverBit | lockBit;
 #define GET_COUNT(var) ((var)&countMask)
 #define GET_BITMAP(var) (((var) >> 4) & allocMask)
 #define PARTITION 1
-
-const int tab32[32] = {0,  9,  1,  10, 13, 21, 2,  29, 11, 14, 16,
-                       18, 22, 25, 3,  30, 8,  12, 20, 28, 15, 17,
-                       24, 7,  19, 27, 23, 6,  26, 5,  4,  31};
-
-inline int log2_32(uint32_t value) {
-  value |= value >> 1;
-  value |= value >> 2;
-  value |= value >> 4;
-  value |= value >> 8;
-  value |= value >> 16;
-  return tab32[(uint32_t)(value * 0x07C4ACDD) >> 27];
-}
 
 inline bool var_compare(char *str1, char *str2, int len1, int len2) {
   if (len1 != len2) return false;
@@ -158,8 +143,6 @@ template <class T>
 struct overflowBucket {
   overflowBucket() {
     memset(this, 0, sizeof(struct overflowBucket));
-    // memset(this, 0 ,64);
-    // initialize(this, 8);
   }
 
   inline int find_empty_slot() {
