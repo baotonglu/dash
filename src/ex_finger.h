@@ -68,7 +68,7 @@ const uint64_t tailMask =
     (1UL << 56) - 1; /*hide the highest 8 bits of the uint64_4*/
 const uint64_t headerMask = ((1UL << 8) - 1)
                             << 56; /*hide the highest 8 bits of the uint64_4*/
-const uint8_t overflowBitmapMask = (1 << 4) -1; 
+const uint8_t overflowBitmapMask = (1 << 4) - 1;
 
 #define BUCKET_INDEX(hash) ((hash >> kFingerBits) & bucketMask)
 #define GET_COUNT(var) ((var)&countMask)
@@ -95,9 +95,7 @@ struct Bucket {
   /*true indicates overflow, needs extra check in the stash*/
   inline bool test_overflow() { return overflowCount; }
 
-  inline bool test_stash_check() {
-   return (overflowBitmap & overflowSet);
-  }
+  inline bool test_stash_check() { return (overflowBitmap & overflowSet); }
 
   inline void clear_stash_check() {
     overflowBitmap = overflowBitmap & (~overflowSet);
@@ -164,8 +162,7 @@ struct Bucket {
               neighbor->overflowBitmap & ((uint8_t)(~(1 << i)));
           neighbor->overflowMember =
               neighbor->overflowMember & ((uint8_t)(~(1 << i)));
-          neighbor->overflowIndex =
-              neighbor->overflowIndex & (~(3 << (i * 2)));
+          neighbor->overflowIndex = neighbor->overflowIndex & (~(3 << (i * 2)));
           assert(((neighbor->overflowIndex >> (i * 2)) & stashMask) == 0);
           clear_success = true;
           break;
@@ -207,7 +204,7 @@ struct Bucket {
             }
           }
         }
-        
+
         mask = neighbor->overflowBitmap & overflowBitmapMask;
         if (mask != 0) {
           for (int i = 0; i < 4; ++i) {
@@ -298,7 +295,7 @@ struct Bucket {
   inline void set_hash(int index, uint8_t meta_hash, bool probe) {
     finger_array[index] = meta_hash;
     uint32_t new_bitmap = bitmap | (1 << (index + 18));
-    if(probe){
+    if (probe) {
       new_bitmap = new_bitmap | (1 << (index + 4));
     }
     new_bitmap += 1;
@@ -308,7 +305,8 @@ struct Bucket {
   inline uint8_t get_hash(int index) { return finger_array[index]; }
 
   inline void unset_hash(int index, bool nt_flush = false) {
-    uint32_t new_bitmap = bitmap & (~(1 << (index + 18))) & (~(1 << (index + 4)));
+    uint32_t new_bitmap =
+        bitmap & (~(1 << (index + 18))) & (~(1 << (index + 4)));
     assert(GET_COUNT(bitmap) <= kNumPairPerBucket);
     assert(GET_COUNT(bitmap) > 0);
     new_bitmap -= 1;
@@ -553,12 +551,12 @@ struct Bucket {
   }
 
   uint32_t version_lock;
-  uint32_t bitmap;               // allocation bitmap + pointer bitmap + counter
+  uint32_t bitmap;          // allocation bitmap + pointer bitmap + counter
   uint8_t finger_array[18]; /*only use the first 14 bytes, can be accelerated by
                                SSE instruction,0-13 for finger, 14-17 for
                                overflowed*/
   uint8_t overflowBitmap;
-  uint8_t overflowIndex;                   
+  uint8_t overflowIndex;
   uint8_t overflowMember; /*overflowmember indicates membership of the overflow
                              fingerprint*/
   uint8_t overflowCount;
@@ -1288,7 +1286,8 @@ void Table<T>::HelpSplit(Table<T> *next_table) {
   size_t sumBucket = kNumBucket + stashBucket;
   for (int i = 0; i < sumBucket; ++i) {
     auto curr_bucket = bucket + i;
-    curr_bucket->bitmap = curr_bucket->bitmap & (~(invalid_array[i] << 18)) & (~(invalid_array[i] << 4));
+    curr_bucket->bitmap = curr_bucket->bitmap & (~(invalid_array[i] << 18)) &
+                          (~(invalid_array[i] << 4));
     uint32_t count = __builtin_popcount(invalid_array[i]);
     curr_bucket->bitmap = curr_bucket->bitmap - count;
   }
@@ -1388,7 +1387,8 @@ Table<T> *Table<T>::Split(size_t _key_hash) {
   size_t sumBucket = kNumBucket + stashBucket;
   for (int i = 0; i < sumBucket; ++i) {
     auto curr_bucket = bucket + i;
-    curr_bucket->bitmap = curr_bucket->bitmap & (~(invalid_array[i] << 18)) & (~(invalid_array[i] << 4));
+    curr_bucket->bitmap = curr_bucket->bitmap & (~(invalid_array[i] << 18)) &
+                          (~(invalid_array[i] << 4));
     uint32_t count = __builtin_popcount(invalid_array[i]);
     curr_bucket->bitmap = curr_bucket->bitmap - count;
   }

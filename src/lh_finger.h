@@ -73,7 +73,7 @@ constexpr uint32_t expandShiftBits = fixedExpandBits + baseShifBits;
 const uint64_t recoverBit = 1UL << 63;
 const uint64_t lockBit = 1UL << 62;
 const uint64_t recoverLockBit = recoverBit | lockBit;
-const uint8_t overflowBitmapMask = (1 << 4) -1; 
+const uint8_t overflowBitmapMask = (1 << 4) - 1;
 
 #define BUCKET_INDEX(hash) (((hash) >> (64 - shiftBits)) & bucketMask)
 #define META_HASH(hash) ((uint8_t)((hash) >> (64 - kFingerBits)))
@@ -133,9 +133,7 @@ inline uint32_t SEG_SIZE_BY_SEGARR_ID(uint32_t segarr_idx) {
 /*the size uses 8 byte as the uinit*/
 template <class T>
 struct overflowBucket {
-  overflowBucket() {
-    memset(this, 0, sizeof(struct overflowBucket));
-  }
+  overflowBucket() { memset(this, 0, sizeof(struct overflowBucket)); }
 
   inline int find_empty_slot() {
     if (GET_COUNT(bitmap) == kNumPairPerBucket) {
@@ -227,7 +225,7 @@ struct overflowBucket {
   inline void set_hash(int index, uint8_t meta_hash) {
     finger_array[index] = meta_hash;
     uint32_t new_bitmap = bitmap | (1 << (index + 18));
-    new_bitmap++; 
+    new_bitmap++;
     bitmap = new_bitmap;
   }
 
@@ -404,9 +402,7 @@ struct Bucket {
   /*true indicates overflow, needs extra check in the stash*/
   inline bool test_overflow() { return overflowCount; }
 
-  inline bool test_stash_check() {
-   return (overflowBitmap & overflowSet);
-  }
+  inline bool test_stash_check() { return (overflowBitmap & overflowSet); }
 
   inline void clear_stash_check() {
     overflowBitmap = overflowBitmap & (~overflowSet);
@@ -430,7 +426,7 @@ struct Bucket {
       index = __builtin_ctz(mask);
       if (index < 4) {
         neighbor->finger_array[14 + index] = meta_hash;
-        neighbor->overflowBitmap=
+        neighbor->overflowBitmap =
             ((uint8_t)(1 << index) | neighbor->overflowBitmap);
         neighbor->overflowMember =
             ((uint8_t)(1 << index) | neighbor->overflowMember);
@@ -474,8 +470,7 @@ struct Bucket {
               neighbor->overflowBitmap & ((uint8_t)(~(1 << i)));
           neighbor->overflowMember =
               neighbor->overflowMember & ((uint8_t)(~(1 << i)));
-          neighbor->overflowIndex =
-              neighbor->overflowIndex & (~(3 << (i * 2)));
+          neighbor->overflowIndex = neighbor->overflowIndex & (~(3 << (i * 2)));
           assert(((neighbor->overflowIndex >> (i * 2)) & stashMask) == 0);
           clear_success = true;
           break;
@@ -519,7 +514,7 @@ struct Bucket {
             }
           }
         }
-        
+
         mask = neighbor->overflowBitmap & overflowBitmapMask;
         if (mask != 0) {
           for (int i = 0; i < 4; ++i) {
@@ -647,7 +642,7 @@ struct Bucket {
   inline void set_hash(int index, uint8_t meta_hash, bool probe) {
     finger_array[index] = meta_hash;
     uint32_t new_bitmap = bitmap | (1 << (index + 18));
-    if (probe){
+    if (probe) {
       new_bitmap = new_bitmap | (1 << (index + 4));
     }
     assert(GET_COUNT(bitmap) < kNumPairPerBucket);
@@ -658,7 +653,8 @@ struct Bucket {
   inline uint8_t get_hash(int index) { return finger_array[index]; }
 
   inline void unset_hash(int index) {
-    uint32_t new_bitmap = bitmap & (~(1 << (index + 18))) & (~(1 << (index + 4)));
+    uint32_t new_bitmap =
+        bitmap & (~(1 << (index + 18))) & (~(1 << (index + 4)));
     assert(GET_COUNT(bitmap) <= kNumPairPerBucket);
     assert(GET_COUNT(bitmap) > 0);
     new_bitmap--;
@@ -864,7 +860,7 @@ struct Bucket {
 
   /* Find the displacment element in this bucket*/
   inline int Find_org_displacement() {
-     uint32_t mask = GET_INVERSE_MEMBER(bitmap);
+    uint32_t mask = GET_INVERSE_MEMBER(bitmap);
     if (mask == 0) {
       return -1;
     }
@@ -891,7 +887,7 @@ struct Bucket {
   }
 
   uint32_t version_lock;
-  uint32_t bitmap;               // allocation bitmap + pointer bitmao + counter
+  uint32_t bitmap;          // allocation bitmap + pointer bitmao + counter
   uint8_t finger_array[18]; /*only use the first 14 bytes, can be accelerated by
                                SSE instruction,0-13 for finger, 14-17 for
                                overflowed*/
@@ -900,7 +896,7 @@ struct Bucket {
   uint8_t overflowMember; /*overflowmember indicates membership of the overflow
                              fingerprint*/
   uint8_t overflowCount;
-  uint8_t unused[2]; 
+  uint8_t unused[2];
   _Pair<T> _[kNumPairPerBucket];
 };
 
@@ -1447,7 +1443,8 @@ void Table<T>::Split(Table<T> *org_table, uint64_t base_level, int org_idx,
   /*clear the bitmap in original table*/
   for (int i = 0; i < kNumBucket; ++i) {
     auto curr_bucket = org_table->bucket + i;
-    curr_bucket->bitmap = curr_bucket->bitmap & (~(invalid_array[i] << 18)) & (~(invalid_array[i] << 4));
+    curr_bucket->bitmap = curr_bucket->bitmap & (~(invalid_array[i] << 18)) &
+                          (~(invalid_array[i] << 4));
     uint32_t count = __builtin_popcount(invalid_array[i]);
     curr_bucket->bitmap = curr_bucket->bitmap - count;
   }
