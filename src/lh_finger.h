@@ -70,30 +70,22 @@ const uint64_t high32Mask = ~low32Mask;
 const uint8_t low2Mask = (1 << 2) - 1;
 const uint32_t low4Mask = (1 << 4) - 1;
 constexpr uint32_t shiftBits = (31 - __builtin_clz(kNumBucket)) + kFingerBits;
-const uint32_t partitionNum = 1;
-constexpr uint64_t partitionMask =
-    ((1 << (31 - __builtin_clz(partitionNum))) - 1);
-constexpr uint32_t partitionShifBits =
-    shiftBits + (31 - __builtin_clz(partitionNum));
 constexpr uint32_t expandShiftBits = fixedExpandBits + baseShifBits;
 const uint64_t recoverBit = 1UL << 63;
 const uint64_t lockBit = 1UL << 62;
 const uint64_t recoverLockBit = recoverBit | lockBit;
 
-#define PARTITION_INDEX(hash) \
-  (((hash) >> (64 - partitionShifBits)) & partitionMask)
 #define BUCKET_INDEX(hash) (((hash) >> (64 - shiftBits)) & bucketMask)
 #define META_HASH(hash) ((uint8_t)((hash) >> (64 - kFingerBits)))
 #define GET_COUNT(var) ((var)&countMask)
-#define GET_BITMAP(var) (((var) >> 4) & allocMask)
-#define PARTITION 1
+#define GET_MEMBER(var) (((var) >> 4) & allocMask)
+#define GET_INVERSE_MEMBER(var) ((~((var) >> 4)) & allocMask)
+#define GET_BITMAP(var) ((var) >> 18)
 
 inline bool var_compare(char *str1, char *str2, int len1, int len2) {
   if (len1 != len2) return false;
   return !memcmp(str1, str2, len1);
 }
-
-#define PARTITION 1
 
 inline uint32_t pow2(int shift_index) { return (1 << shift_index); }
 
@@ -234,16 +226,21 @@ struct overflowBucket {
 
   inline void set_hash(int index, uint8_t meta_hash) {
     finger_array[index] = meta_hash;
-    bitmap = bitmap | (1 << (index + 4));
-    assert(GET_COUNT(bitmap) < kNumPairPerBucket);
-    bitmap++;
+    uint32_t new_bitmap = bitmap | (1 << (index + 18));
+    new_bitmap++; 
+    bitmap = new_bitmap;
   }
 
   inline void unset_hash(int index) {
-    bitmap = bitmap & (~(1 << (index + 4)));
+    uint32_t new_bitmap = bitmap & (~(1 << (index + 18)));
+    new_bitmap--;
+    bitmap = new_bitmap;
+    /*
+    bitmap = bitmap & (~(1 << (index + 18)));
     assert(GET_COUNT(bitmap) <= kNumPairPerBucket);
     assert(GET_COUNT(bitmap) > 0);
     bitmap--;
+    */
   }
 
   inline void get_lock() {
@@ -387,7 +384,7 @@ struct overflowBucket {
   inline void resetLock() { version_lock = version_lock & initialSet; }
 
   uint32_t version_lock;
-  int bitmap;
+  uint32_t bitmap;
   uint8_t finger_array[kNumPairPerBucket + 2];
   overflowBucket *next;
   _Pair<T> _[kNumPairPerBucket];
@@ -651,9 +648,10 @@ struct Bucket {
 
   inline void set_hash(int index, uint8_t meta_hash, bool probe) {
     finger_array[index] = meta_hash;
-    bitmap = bitmap | (1 << (index + 4));
+    uint32_t new_bitmap = bitmap | (1 << (index + 18));
     assert(GET_COUNT(bitmap) < kNumPairPerBucket);
-    bitmap++;
+    new_bitmap++;
+    bitmap = new_bitmap;
     if (probe) {
       *((int *)membership) = (1 << index) | *((int *)membership);
     }
@@ -662,10 +660,11 @@ struct Bucket {
   inline uint8_t get_hash(int index) { return finger_array[index]; }
 
   inline void unset_hash(int index) {
-    bitmap = bitmap & (~(1 << (index + 4)));
+    uint32_t new_bitmap = bitmap & (~(1 << (index + 18)));
     assert(GET_COUNT(bitmap) <= kNumPairPerBucket);
     assert(GET_COUNT(bitmap) > 0);
-    bitmap--;
+    new_bitmap--;
+    bitmap = new_bitmap;
     *((int *)membership) =
         (~(1 << index)) &
         (*((int *)membership)); /*since they are in the same cacheline,
@@ -898,7 +897,7 @@ struct Bucket {
   }
 
   uint32_t version_lock;
-  int bitmap;               // allocation bitmap + pointer bitmao + counter
+  uint32_t bitmap;               // allocation bitmap + pointer bitmao + counter
   uint8_t finger_array[20]; /*only use the first 14 bytes, can be accelerated by
                                SSE instruction,0-13 for finger, 14-17 for
                                overflowed, 18 as the bitmap, 19 as the btimap
@@ -1365,13 +1364,13 @@ void Table<T>::Split(Table<T> *org_table, uint64_t base_level, int org_idx,
   org_table->state = 1;
   Allocator::Persist(&org_table->state, sizeof(state));
 
-  int invalid_array[kNumBucket + stashBucket];
+  uint32_t invalid_array[kNumBucket + stashBucket];
   /*rehashing of kv objects*/
   size_t key_hash;
   for (int i = 0; i < kNumBucket; ++i) {
     curr_bucket = org_table->bucket + i;
     auto mask = GET_BITMAP(curr_bucket->bitmap);
-    int invalid_mask = 0;
+    uint32_t invalid_mask = 0;
     for (int j = 0; j < kNumPairPerBucket; ++j) {
       if (CHECK_BIT(mask, j)) {
         if constexpr (std::is_pointer_v<T>) {
@@ -1382,7 +1381,7 @@ void Table<T>::Split(Table<T> *org_table, uint64_t base_level, int org_idx,
         }
         auto x = key_hash % (2 * base_level);
         if (x >= base_level) {
-          invalid_mask = invalid_mask | (1 << (j + 4));
+          invalid_mask = invalid_mask | (1 << (j + 18));
           Insert4split(curr_bucket->_[j].key, curr_bucket->_[j].value, key_hash,
                        curr_bucket->finger_array[j]);
 #ifdef COUNTING
@@ -1397,7 +1396,7 @@ void Table<T>::Split(Table<T> *org_table, uint64_t base_level, int org_idx,
   for (int i = 0; i < stashBucket; ++i) {
     overflowBucket<T> *curr_bucket = org_table->stash + i;
     auto mask = GET_BITMAP(curr_bucket->bitmap);
-    int invalid_mask = 0;
+    uint32_t invalid_mask = 0;
     for (int j = 0; j < kNumPairPerBucket; ++j) {
       if (CHECK_BIT(mask, j)) {
         if constexpr (std::is_pointer_v<T>) {
@@ -1409,7 +1408,7 @@ void Table<T>::Split(Table<T> *org_table, uint64_t base_level, int org_idx,
 
         auto x = key_hash % (2 * base_level);
         if (x >= base_level) {
-          invalid_mask = invalid_mask | (1 << (j + 4));
+          invalid_mask = invalid_mask | (1 << (j + 18));
           Insert4split(curr_bucket->_[j].key, curr_bucket->_[j].value, key_hash,
                        curr_bucket->finger_array[j]);
           auto bucket_ix = BUCKET_INDEX(key_hash);
@@ -1456,18 +1455,18 @@ void Table<T>::Split(Table<T> *org_table, uint64_t base_level, int org_idx,
   for (int i = 0; i < kNumBucket; ++i) {
     auto curr_bucket = org_table->bucket + i;
     curr_bucket->bitmap = curr_bucket->bitmap & (~invalid_array[i]);
-    auto count = __builtin_popcount(invalid_array[i]);
+    uint32_t count = __builtin_popcount(invalid_array[i]);
     curr_bucket->bitmap = curr_bucket->bitmap - count;
 
     *((int *)curr_bucket->membership) =
-        (~(invalid_array[i] >> 4)) & (*((int *)curr_bucket->membership));
+        (~(invalid_array[i] >> 18)) & (*((int *)curr_bucket->membership));
   }
 
   for (int i = 0; i < stashBucket; ++i) {
     auto curr_bucket = org_table->stash + i;
     curr_bucket->bitmap =
         curr_bucket->bitmap & (~invalid_array[kNumBucket + i]);
-    auto count = __builtin_popcount(invalid_array[kNumBucket + i]);
+    uint32_t count = __builtin_popcount(invalid_array[kNumBucket + i]);
     curr_bucket->bitmap = curr_bucket->bitmap - count;
   }
 
