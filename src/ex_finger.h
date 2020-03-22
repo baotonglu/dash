@@ -74,7 +74,8 @@ const uint64_t headerMask = ((1UL << 8) - 1)
 
 #define BUCKET_INDEX(hash) ((hash >> kFingerBits) & bucketMask)
 #define GET_COUNT(var) ((var)&countMask)
-#define GET_BITMAP(var) (((var) >> 4) & allocMask)
+#define GET_MEMBER(var) (((var) >> 4) & allocMask)
+#define GET_BITMAP(var) ((var) >> 18)
 
 inline bool var_compare(char *str1, char *str2, int len1, int len2) {
   if (len1 != len2) return false;
@@ -299,7 +300,7 @@ struct Bucket {
 
   inline void set_hash(int index, uint8_t meta_hash, bool probe) {
     finger_array[index] = meta_hash;
-    auto new_bitmap = bitmap | (1 << (index + 4));
+    uint32_t new_bitmap = bitmap | (1 << (index + 18));
     assert(GET_COUNT(bitmap) < kNumPairPerBucket);
     new_bitmap += 1;
     bitmap = new_bitmap;
@@ -311,7 +312,7 @@ struct Bucket {
   inline uint8_t get_hash(int index) { return finger_array[index]; }
 
   inline void unset_hash(int index, bool nt_flush = false) {
-    auto new_bitmap = bitmap & (~(1 << (index + 4)));
+    uint32_t new_bitmap = bitmap & (~(1 << (index + 18)));
     assert(GET_COUNT(bitmap) <= kNumPairPerBucket);
     assert(GET_COUNT(bitmap) > 0);
     new_bitmap -= 1;
@@ -586,7 +587,7 @@ struct Bucket {
   }
 
   uint32_t version_lock;
-  int bitmap;               // allocation bitmap + pointer bitmao + counter
+  uint32_t bitmap;               // allocation bitmap + pointer bitmao + counter
   uint8_t finger_array[20]; /*only use the first 14 bytes, can be accelerated by
                                SSE instruction,0-13 for finger, 14-17 for
                                overflowed, 18 as the bitmap, 19 as the overflow
@@ -1249,11 +1250,11 @@ void Table<T>::HelpSplit(Table<T> *next_table) {
   size_t old_pattern = pattern << 1;
 
   size_t key_hash;
-  int invalid_array[kNumBucket + stashBucket];
+  uint32_t invalid_array[kNumBucket + stashBucket];
   for (int i = 0; i < kNumBucket; ++i) {
     auto *curr_bucket = bucket + i;
     auto mask = GET_BITMAP(curr_bucket->bitmap);
-    int invalid_mask = 0;
+    uint32_t invalid_mask = 0;
     for (int j = 0; j < kNumPairPerBucket; ++j) {
       if (CHECK_BIT(mask, j)) {
         if constexpr (std::is_pointer_v<T>) {
@@ -1264,7 +1265,7 @@ void Table<T>::HelpSplit(Table<T> *next_table) {
         }
 
         if ((key_hash >> (64 - local_depth - 1)) == new_pattern) {
-          invalid_mask = invalid_mask | (1 << (j + 4));
+          invalid_mask = invalid_mask | (1 << (j + 18));
           next_table->Insert4splitWithCheck(
               curr_bucket->_[j].key, curr_bucket->_[j].value, key_hash,
               curr_bucket->finger_array[j]); /*this shceme may destory the
@@ -1282,7 +1283,7 @@ void Table<T>::HelpSplit(Table<T> *next_table) {
   for (int i = 0; i < stashBucket; ++i) {
     auto *curr_bucket = bucket + kNumBucket + i;
     auto mask = GET_BITMAP(curr_bucket->bitmap);
-    int invalid_mask = 0;
+    uint32_t invalid_mask = 0;
     for (int j = 0; j < kNumPairPerBucket; ++j) {
       if (CHECK_BIT(mask, j)) {
         if constexpr (std::is_pointer_v<T>) {
@@ -1292,7 +1293,7 @@ void Table<T>::HelpSplit(Table<T> *next_table) {
           key_hash = h(&(curr_bucket->_[j].key), sizeof(Key_t));
         }
         if ((key_hash >> (64 - local_depth - 1)) == new_pattern) {
-          invalid_mask = invalid_mask | (1 << (j + 4));
+          invalid_mask = invalid_mask | (1 << (j + 18));
           next_table->Insert4splitWithCheck(
               curr_bucket->_[j].key, curr_bucket->_[j].value, key_hash,
               curr_bucket->finger_array[j]); /*this shceme may destory the
@@ -1322,11 +1323,11 @@ void Table<T>::HelpSplit(Table<T> *next_table) {
   for (int i = 0; i < sumBucket; ++i) {
     auto curr_bucket = bucket + i;
     curr_bucket->bitmap = curr_bucket->bitmap & (~invalid_array[i]);
-    auto count = __builtin_popcount(invalid_array[i]);
+    uint32_t count = __builtin_popcount(invalid_array[i]);
     curr_bucket->bitmap = curr_bucket->bitmap - count;
 
     *((int *)curr_bucket->membership) =
-        (~(invalid_array[i] >> 4)) &
+        (~(invalid_array[i] >> 18)) &
         (*((int *)
                curr_bucket->membership)); /*since they are in the same
                                 cacheline, therefore no performance influence?*/
@@ -1355,11 +1356,11 @@ Table<T> *Table<T>::Split(size_t _key_hash) {
       ->get_lock(); /* get the first lock of the new bucket to avoid it
                  is operated(split or merge) by other threads*/
   size_t key_hash;
-  int invalid_array[kNumBucket + stashBucket];
+  uint32_t invalid_array[kNumBucket + stashBucket];
   for (int i = 0; i < kNumBucket; ++i) {
     auto *curr_bucket = bucket + i;
     auto mask = GET_BITMAP(curr_bucket->bitmap);
-    int invalid_mask = 0;
+    uint32_t invalid_mask = 0;
     for (int j = 0; j < kNumPairPerBucket; ++j) {
       if (CHECK_BIT(mask, j)) {
         if constexpr (std::is_pointer_v<T>) {
@@ -1370,7 +1371,7 @@ Table<T> *Table<T>::Split(size_t _key_hash) {
         }
 
         if ((key_hash >> (64 - local_depth - 1)) == new_pattern) {
-          invalid_mask = invalid_mask | (1 << (j + 4));
+          invalid_mask = invalid_mask | (1 << (j + 18));
           next_table->Insert4split(
               curr_bucket->_[j].key, curr_bucket->_[j].value, key_hash,
               curr_bucket->finger_array[j]); /*this shceme may destory the
@@ -1388,7 +1389,7 @@ Table<T> *Table<T>::Split(size_t _key_hash) {
   for (int i = 0; i < stashBucket; ++i) {
     auto *curr_bucket = bucket + kNumBucket + i;
     auto mask = GET_BITMAP(curr_bucket->bitmap);
-    int invalid_mask = 0;
+    uint32_t invalid_mask = 0;
     for (int j = 0; j < kNumPairPerBucket; ++j) {
       if (CHECK_BIT(mask, j)) {
         if constexpr (std::is_pointer_v<T>) {
@@ -1398,7 +1399,7 @@ Table<T> *Table<T>::Split(size_t _key_hash) {
           key_hash = h(&(curr_bucket->_[j].key), sizeof(Key_t));
         }
         if ((key_hash >> (64 - local_depth - 1)) == new_pattern) {
-          invalid_mask = invalid_mask | (1 << (j + 4));
+          invalid_mask = invalid_mask | (1 << (j + 18));
           next_table->Insert4split(
               curr_bucket->_[j].key, curr_bucket->_[j].value, key_hash,
               curr_bucket->finger_array[j]); /*this shceme may destory the
@@ -1428,11 +1429,11 @@ Table<T> *Table<T>::Split(size_t _key_hash) {
   for (int i = 0; i < sumBucket; ++i) {
     auto curr_bucket = bucket + i;
     curr_bucket->bitmap = curr_bucket->bitmap & (~invalid_array[i]);
-    auto count = __builtin_popcount(invalid_array[i]);
+    uint32_t count = __builtin_popcount(invalid_array[i]);
     curr_bucket->bitmap = curr_bucket->bitmap - count;
 
     *((int *)curr_bucket->membership) =
-        (~(invalid_array[i] >> 4)) &
+        (~(invalid_array[i] >> 18)) &
         (*((int *)
                curr_bucket->membership)); /*since they are in the same
                                 cacheline, therefore no performance influence?*/
@@ -1582,11 +1583,13 @@ class Finger_EH : public Hash<T> {
     }
     std::cout << "seg_count = " << seg_count << std::endl;
     std::cout << "verify_seg_count = " << verify_seg_count << std::endl;
+#ifdef COUNTING
     printf("#items: %lld\n", _count);
     printf("load_factor: %f\n",
            (double)_count / (seg_count * kNumPairPerBucket * (kNumBucket + 2)));
     printf("Raw_Space: %f\n",
            (double)(_count * 16) / (seg_count * sizeof(Table<T>)));
+#endif
   }
 
   void recoverTable(Table<T> **target_table, size_t, size_t, Directory<T> *);

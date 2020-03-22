@@ -3,9 +3,9 @@
 
 thread_num=(0 1 2 4 8 16 24 48)
 #benckmark workload
-workload=(0 190000000)
+workload=(0 10000000)
 #warm-up workload
-base=(0 10000000)
+base=(0 1000000)
 key_type=(0 fixed variab1e)
 index_type=(0 dash-ex dash-lh cceh level)
 epoch=(0 1 1 1 0)
@@ -18,11 +18,11 @@ epoch=(0 1 1 1 0)
 # j spec1fy the number of threads
 #for q in 0.5 0.6 0.7 0.8 0.9 0.99
 #do
-for k in 1 2
+for k in 1 
 do
 	for i in 1
 	do 
-		for j in {1..6}
+		for j in 1
 		do
 			echo "Begin: ${base[1]} ${workload[${i}]} ${thread_num[${j}]}"
 			numaarg=""
@@ -50,7 +50,7 @@ do
       -index ${index_type[$k]} \
       -e ${epoch[$k]} \
       -ed 1000 \
-      -op "insert" \
+      -op "full" \
       -r 0.8 \
       -s 0.2 \
       -ms 100 \

@@ -841,7 +841,7 @@ void GeneralBench(range *rarray, Hash<T> *index, int thread_num,
     if (shortest > interval) shortest = interval;
     if (longest < interval) longest = interval;
   }
-  std::cout << "The time difference is " << longest - shortest << std::endl;
+  //std::cout << "The time difference is " << longest - shortest << std::endl;
   duration = duration / thread_num;
   printf(
       "%d threads, Time = %f s, throughput = %f "
