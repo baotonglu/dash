@@ -30,7 +30,6 @@
 #endif
 
 uint64_t merge_time;
-PMEMmutex cmp;
 
 namespace extendible {
 
@@ -63,8 +62,6 @@ constexpr int allocMask = (1 << kNumPairPerBucket) - 1;
 constexpr size_t bucketMask = ((1 << (int)log2(kNumBucket)) - 1);
 constexpr size_t stashMask = (1 << (int)log2(stashBucket)) - 1;
 constexpr uint8_t stashHighMask = ~((uint8_t)stashMask);
-constexpr uint8_t preNeighborSet = 1 << 7;
-constexpr uint8_t nextNeighborSet = 1 << 6;
 const uint64_t recoverBit = 1UL << 63;
 const uint64_t lockBit = 1UL << 62;
 const uint64_t tailMask =
@@ -75,6 +72,7 @@ const uint64_t headerMask = ((1UL << 8) - 1)
 #define BUCKET_INDEX(hash) ((hash >> kFingerBits) & bucketMask)
 #define GET_COUNT(var) ((var)&countMask)
 #define GET_MEMBER(var) (((var) >> 4) & allocMask)
+#define GET_INVERSE_MEMBER(var) ((~((var) >> 4)) & allocMask)
 #define GET_BITMAP(var) ((var) >> 18)
 
 inline bool var_compare(char *str1, char *str2, int len1, int len2) {
@@ -237,7 +235,7 @@ struct Bucket {
   }
 
   inline int get_current_mask() {
-    int mask = GET_BITMAP(bitmap) & ((~(*(int *)membership)) & allocMask);
+    int mask = GET_BITMAP(bitmap) & GET_INVERSE_MEMBER(bitmap);
     return mask;
   }
 
@@ -245,9 +243,9 @@ struct Bucket {
     int mask = 0;
     SSE_CMP8(finger_array, meta_hash);
     if (!probe) {
-      mask = mask & GET_BITMAP(bitmap) & ((~(*(int *)membership)) & allocMask);
+      mask = mask & GET_BITMAP(bitmap) & (~GET_MEMBER(bitmap));
     } else {
-      mask = mask & GET_BITMAP(bitmap) & ((*(int *)membership) & allocMask);
+      mask = mask & GET_BITMAP(bitmap) & GET_MEMBER(bitmap);
     }
 
     if (mask == 0) {
@@ -301,18 +299,17 @@ struct Bucket {
   inline void set_hash(int index, uint8_t meta_hash, bool probe) {
     finger_array[index] = meta_hash;
     uint32_t new_bitmap = bitmap | (1 << (index + 18));
-    assert(GET_COUNT(bitmap) < kNumPairPerBucket);
+    if(probe){
+      new_bitmap = new_bitmap | (1 << (index + 4));
+    }
     new_bitmap += 1;
     bitmap = new_bitmap;
-    if (probe) {
-      *((int *)membership) = (1 << index) | *((int *)membership);
-    }
   }
 
   inline uint8_t get_hash(int index) { return finger_array[index]; }
 
   inline void unset_hash(int index, bool nt_flush = false) {
-    uint32_t new_bitmap = bitmap & (~(1 << (index + 18)));
+    uint32_t new_bitmap = bitmap & (~(1 << (index + 18))) & (~(1 << (index + 4)));
     assert(GET_COUNT(bitmap) <= kNumPairPerBucket);
     assert(GET_COUNT(bitmap) > 0);
     new_bitmap -= 1;
@@ -325,11 +322,6 @@ struct Bucket {
 #else
     bitmap = new_bitmap;
 #endif
-
-    *((int *)membership) =
-        (~(1 << index)) &
-        (*((int *)membership)); /*since they are in the same cacheline,
-                                   therefore no performance influence?*/
   }
 
   inline void get_lock() {
@@ -397,10 +389,11 @@ struct Bucket {
     int mask = 0;
     SSE_CMP8(finger_array, meta_hash);
     if (!probe) {
-      mask = mask & GET_BITMAP(bitmap) & ((~(*(int *)membership)) & allocMask);
+      mask = mask & GET_BITMAP(bitmap) & (~GET_MEMBER(bitmap));
     } else {
-      mask = mask & GET_BITMAP(bitmap) & ((*(int *)membership) & allocMask);
+      mask = mask & GET_BITMAP(bitmap) & GET_MEMBER(bitmap);
     }
+
     /*loop unrolling*/
     if constexpr (std::is_pointer_v<T>) {
       string_key *_key = reinterpret_cast<string_key *>(key);
@@ -534,7 +527,7 @@ struct Bucket {
 
   /* Find the displacment element in this bucket*/
   inline int Find_org_displacement() {
-    int mask = (~(*((int *)membership))) & allocMask;
+    uint32_t mask = GET_INVERSE_MEMBER(bitmap);
     if (mask == 0) {
       return -1;
     }
@@ -543,37 +536,11 @@ struct Bucket {
 
   /*find element that it is in the probe*/
   inline int Find_probe_displacement() {
-    int mask = (*((int *)membership)) & allocMask;
+    uint32_t mask = GET_MEMBER(bitmap);
     if (mask == 0) {
       return -1;
     }
     return __builtin_ctz(mask);
-  }
-
-  /*suite of function to set/unset the flush state of the node*/
-  inline void setPreNonFlush() {
-    overflowMember = overflowMember | preNeighborSet;
-  }
-
-  inline void unsetPreNonFlush() {
-    overflowMember = overflowMember & (~preNeighborSet);
-  }
-
-  /* If the non-flush is set, return true*/
-  inline bool testPreNonFlush() {
-    return ((overflowMember & preNeighborSet) != 0);
-  }
-
-  inline void setNextNonFlush() {
-    overflowMember = overflowMember | nextNeighborSet;
-  }
-
-  inline void unsetNextNonFlush() {
-    overflowMember = overflowMember & (~nextNeighborSet);
-  }
-
-  inline bool testNextNonFlush() {
-    return ((overflowMember & nextNeighborSet) != 0);
   }
 
   inline void resetLock() { version_lock = 0; }
@@ -1322,15 +1289,9 @@ void Table<T>::HelpSplit(Table<T> *next_table) {
   size_t sumBucket = kNumBucket + stashBucket;
   for (int i = 0; i < sumBucket; ++i) {
     auto curr_bucket = bucket + i;
-    curr_bucket->bitmap = curr_bucket->bitmap & (~invalid_array[i]);
+    curr_bucket->bitmap = curr_bucket->bitmap & (~invalid_array[i]) & (~(invalid_array[i] >> kNumPairPerBucket));
     uint32_t count = __builtin_popcount(invalid_array[i]);
     curr_bucket->bitmap = curr_bucket->bitmap - count;
-
-    *((int *)curr_bucket->membership) =
-        (~(invalid_array[i] >> 18)) &
-        (*((int *)
-               curr_bucket->membership)); /*since they are in the same
-                                cacheline, therefore no performance influence?*/
   }
 
   Allocator::Persist(this, sizeof(Table));
@@ -1428,15 +1389,10 @@ Table<T> *Table<T>::Split(size_t _key_hash) {
   size_t sumBucket = kNumBucket + stashBucket;
   for (int i = 0; i < sumBucket; ++i) {
     auto curr_bucket = bucket + i;
-    curr_bucket->bitmap = curr_bucket->bitmap & (~invalid_array[i]);
+    curr_bucket->bitmap = curr_bucket->bitmap & (~invalid_array[i]) & (~(invalid_array[i] >> kNumPairPerBucket));
     uint32_t count = __builtin_popcount(invalid_array[i]);
     curr_bucket->bitmap = curr_bucket->bitmap - count;
 
-    *((int *)curr_bucket->membership) =
-        (~(invalid_array[i] >> 18)) &
-        (*((int *)
-               curr_bucket->membership)); /*since they are in the same
-                                cacheline, therefore no performance influence?*/
   }
 
   Allocator::Persist(this, sizeof(Table));
@@ -2665,4 +2621,6 @@ int Finger_EH<T>::FindAnyway(T key) {
 #undef BUCKET_INDEX
 #undef GET_COUNT
 #undef GET_BITMAP
+#undef GET_MEMBER
+#undef GET_INVERSE_MEMBER
 }  // namespace extendible

@@ -5,7 +5,7 @@ thread_num=(0 1 2 4 8 16 24 48)
 #benckmark workload
 workload=(0 10000000)
 #warm-up workload
-base=(0 1000000)
+base=(0 10000000)
 key_type=(0 fixed variab1e)
 index_type=(0 dash-ex dash-lh cceh level)
 epoch=(0 1 1 1 0)
