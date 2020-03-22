@@ -40,7 +40,7 @@ namespace extendible {
 
 const uint32_t lockSet = ((uint32_t)1 << 31);      /*locking information*/
 const uint32_t lockMask = ((uint32_t)1 << 31) - 1; /*locking mask*/
-const int overflowSet = 1 << 15;
+const int overflowSet = 1 << 4;
 const int countMask = (1 << 4) - 1;
 
 template <class T>
@@ -96,13 +96,11 @@ struct Bucket {
   inline bool test_overflow() { return overflowCount; }
 
   inline bool test_stash_check() {
-    int mask = *((int *)membership);
-    return (mask & overflowSet);
+   return (overflowBitmap & overflowSet);
   }
 
   inline void clear_stash_check() {
-    int mask = *((int *)membership);
-    *((int *)membership) = (*((int *)membership)) & (~overflowSet);
+    overflowBitmap = overflowBitmap & (~overflowSet);
   }
 
   inline void set_indicator(uint8_t meta_hash, Bucket<T> *neighbor,
@@ -134,7 +132,7 @@ struct Bucket {
         overflowCount++;
       }
     }
-    *((int *)membership) = (*((int *)membership)) | overflowSet;
+    overflowBitmap = overflowBitmap | overflowSet;
   }
 
   /*both clear this bucket and its neighbor bucket*/
@@ -561,11 +559,10 @@ struct Bucket {
                                overflowed*/
   uint8_t overflowBitmap;
   uint8_t overflowIndex;                   
-  uint8_t membership[2];    /*Used to test whether the key originally belongs to
-                               this bucket*/
   uint8_t overflowMember; /*overflowmember indicates membership of the overflow
                              fingerprint*/
   uint8_t overflowCount;
+  uint8_t unused[2];
 
   _Pair<T> _[kNumPairPerBucket];
 };
