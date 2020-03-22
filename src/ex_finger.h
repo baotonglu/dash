@@ -1232,7 +1232,7 @@ void Table<T>::HelpSplit(Table<T> *next_table) {
         }
 
         if ((key_hash >> (64 - local_depth - 1)) == new_pattern) {
-          invalid_mask = invalid_mask | (1 << (j + 18));
+          invalid_mask = invalid_mask | (1 << j);
           next_table->Insert4splitWithCheck(
               curr_bucket->_[j].key, curr_bucket->_[j].value, key_hash,
               curr_bucket->finger_array[j]); /*this shceme may destory the
@@ -1260,7 +1260,7 @@ void Table<T>::HelpSplit(Table<T> *next_table) {
           key_hash = h(&(curr_bucket->_[j].key), sizeof(Key_t));
         }
         if ((key_hash >> (64 - local_depth - 1)) == new_pattern) {
-          invalid_mask = invalid_mask | (1 << (j + 18));
+          invalid_mask = invalid_mask | (1 << j);
           next_table->Insert4splitWithCheck(
               curr_bucket->_[j].key, curr_bucket->_[j].value, key_hash,
               curr_bucket->finger_array[j]); /*this shceme may destory the
@@ -1289,7 +1289,7 @@ void Table<T>::HelpSplit(Table<T> *next_table) {
   size_t sumBucket = kNumBucket + stashBucket;
   for (int i = 0; i < sumBucket; ++i) {
     auto curr_bucket = bucket + i;
-    curr_bucket->bitmap = curr_bucket->bitmap & (~invalid_array[i]) & (~(invalid_array[i] >> kNumPairPerBucket));
+    curr_bucket->bitmap = curr_bucket->bitmap & (~(invalid_array[i] << 18)) & (~(invalid_array[i] << 4));
     uint32_t count = __builtin_popcount(invalid_array[i]);
     curr_bucket->bitmap = curr_bucket->bitmap - count;
   }
@@ -1332,7 +1332,7 @@ Table<T> *Table<T>::Split(size_t _key_hash) {
         }
 
         if ((key_hash >> (64 - local_depth - 1)) == new_pattern) {
-          invalid_mask = invalid_mask | (1 << (j + 18));
+          invalid_mask = invalid_mask | (1 << j);
           next_table->Insert4split(
               curr_bucket->_[j].key, curr_bucket->_[j].value, key_hash,
               curr_bucket->finger_array[j]); /*this shceme may destory the
@@ -1360,7 +1360,7 @@ Table<T> *Table<T>::Split(size_t _key_hash) {
           key_hash = h(&(curr_bucket->_[j].key), sizeof(Key_t));
         }
         if ((key_hash >> (64 - local_depth - 1)) == new_pattern) {
-          invalid_mask = invalid_mask | (1 << (j + 18));
+          invalid_mask = invalid_mask | (1 << j);
           next_table->Insert4split(
               curr_bucket->_[j].key, curr_bucket->_[j].value, key_hash,
               curr_bucket->finger_array[j]); /*this shceme may destory the
@@ -1389,10 +1389,9 @@ Table<T> *Table<T>::Split(size_t _key_hash) {
   size_t sumBucket = kNumBucket + stashBucket;
   for (int i = 0; i < sumBucket; ++i) {
     auto curr_bucket = bucket + i;
-    curr_bucket->bitmap = curr_bucket->bitmap & (~invalid_array[i]) & (~(invalid_array[i] >> kNumPairPerBucket));
+    curr_bucket->bitmap = curr_bucket->bitmap & (~(invalid_array[i] << 18)) & (~(invalid_array[i] << 4));
     uint32_t count = __builtin_popcount(invalid_array[i]);
     curr_bucket->bitmap = curr_bucket->bitmap - count;
-
   }
 
   Allocator::Persist(this, sizeof(Table));
