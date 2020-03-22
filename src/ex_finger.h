@@ -106,28 +106,28 @@ struct Bucket {
 
   inline void set_indicator(uint8_t meta_hash, Bucket<T> *neighbor,
                             uint8_t pos) {
-    int mask = finger_array[18];
+    int mask = overflowBitmap;
     mask = ~mask;
     auto index = __builtin_ctz(mask);
 
     if (index < 4) {
       finger_array[14 + index] = meta_hash;
-      finger_array[18] =
-          ((uint8_t)(1 << index) | finger_array[18]); /*may be optimized*/
-      finger_array[19] =
-          (finger_array[19] & (~(3 << (index * 2)))) | (pos << (index * 2));
+      overflowBitmap =
+          ((uint8_t)(1 << index) | overflowBitmap); /*may be optimized*/
+      overflowIndex =
+          (overflowIndex & (~(3 << (index * 2)))) | (pos << (index * 2));
     } else {
-      mask = neighbor->finger_array[18];
+      mask = neighbor->overflowBitmap;
       mask = ~mask;
       index = __builtin_ctz(mask);
       if (index < 4) {
         neighbor->finger_array[14 + index] = meta_hash;
-        neighbor->finger_array[18] =
-            ((uint8_t)(1 << index) | neighbor->finger_array[18]);
+        neighbor->overflowBitmap =
+            ((uint8_t)(1 << index) | neighbor->overflowBitmap);
         neighbor->overflowMember =
             ((uint8_t)(1 << index) | neighbor->overflowMember);
-        neighbor->finger_array[19] =
-            (neighbor->finger_array[19] & (~(3 << (index * 2)))) |
+        neighbor->overflowIndex =
+            (neighbor->overflowIndex & (~(3 << (index * 2)))) |
             (pos << (index * 2));
       } else { /*overflow, increase count*/
         overflowCount++;
@@ -141,33 +141,33 @@ struct Bucket {
                               uint64_t pos) {
     /*also needs to ensure that this meta_hash must belongs to other bucket*/
     bool clear_success = false;
-    int mask1 = finger_array[18];
+    int mask1 = overflowBitmap;
     for (int i = 0; i < 4; ++i) {
       if (CHECK_BIT(mask1, i) && (finger_array[14 + i] == meta_hash) &&
           (((1 << i) & overflowMember) == 0) &&
-          (((finger_array[19] >> (2 * i)) & stashMask) == pos)) {
-        finger_array[18] = finger_array[18] & ((uint8_t)(~(1 << i)));
-        finger_array[19] = finger_array[19] & (~(3 << (i * 2)));
-        assert(((finger_array[19] >> (i * 2)) & stashMask) == 0);
+          (((overflowIndex >> (2 * i)) & stashMask) == pos)) {
+        overflowBitmap = overflowBitmap & ((uint8_t)(~(1 << i)));
+        overflowIndex = overflowIndex & (~(3 << (i * 2)));
+        assert(((overflowIndex >> (i * 2)) & stashMask) == 0);
         clear_success = true;
         break;
       }
     }
 
-    int mask2 = neighbor->finger_array[18];
+    int mask2 = neighbor->overflowBitmap;
     if (!clear_success) {
       for (int i = 0; i < 4; ++i) {
         if (CHECK_BIT(mask2, i) &&
             (neighbor->finger_array[14 + i] == meta_hash) &&
             (((1 << i) & neighbor->overflowMember) != 0) &&
-            (((neighbor->finger_array[19] >> (2 * i)) & stashMask) == pos)) {
-          neighbor->finger_array[18] =
-              neighbor->finger_array[18] & ((uint8_t)(~(1 << i)));
+            (((neighbor->overflowIndex >> (2 * i)) & stashMask) == pos)) {
+          neighbor->overflowBitmap =
+              neighbor->overflowBitmap & ((uint8_t)(~(1 << i)));
           neighbor->overflowMember =
               neighbor->overflowMember & ((uint8_t)(~(1 << i)));
-          neighbor->finger_array[19] =
-              neighbor->finger_array[19] & (~(3 << (i * 2)));
-          assert(((neighbor->finger_array[19] >> (i * 2)) & stashMask) == 0);
+          neighbor->overflowIndex =
+              neighbor->overflowIndex & (~(3 << (i * 2)));
+          assert(((neighbor->overflowIndex >> (i * 2)) & stashMask) == 0);
           clear_success = true;
           break;
         }
@@ -178,8 +178,8 @@ struct Bucket {
       overflowCount--;
     }
 
-    mask1 = finger_array[18];
-    mask2 = neighbor->finger_array[18];
+    mask1 = overflowBitmap;
+    mask2 = neighbor->overflowBitmap;
     if (((mask1 & (~overflowMember)) == 0) && (overflowCount == 0) &&
         ((mask2 & neighbor->overflowMember) == 0)) {
       clear_stash_check();
@@ -198,8 +198,8 @@ struct Bucket {
       if (test_overflow()) {
         test_stash = true;
       } else {
-        int mask = finger_array[18];
-        if (finger_array[18] != 0) {
+        int mask = overflowBitmap;
+        if (overflowBitmap != 0) {
           for (int i = 0; i < 4; ++i) {
             if (CHECK_BIT(mask, i) && (finger_array[14 + i] == meta_hash) &&
                 (((1 << i) & overflowMember) == 0)) {
@@ -209,8 +209,8 @@ struct Bucket {
           }
         }
 
-        if (neighbor->finger_array[18] != 0) {
-          mask = neighbor->finger_array[18];
+        if (neighbor->overflowBitmap != 0) {
+          mask = neighbor->overflowBitmap;
           for (int i = 0; i < 4; ++i) {
             if (CHECK_BIT(mask, i) &&
                 (neighbor->finger_array[14 + i] == meta_hash) &&
@@ -546,19 +546,20 @@ struct Bucket {
   inline void resetLock() { version_lock = 0; }
 
   inline void resetOverflowFP() {
-    finger_array[18] = 0;
-    finger_array[19] = 0;
+    overflowBitmap = 0;
+    overflowIndex = 0;
     overflowMember = 0;
     overflowCount = 0;
     clear_stash_check();
   }
 
   uint32_t version_lock;
-  uint32_t bitmap;               // allocation bitmap + pointer bitmao + counter
-  uint8_t finger_array[20]; /*only use the first 14 bytes, can be accelerated by
+  uint32_t bitmap;               // allocation bitmap + pointer bitmap + counter
+  uint8_t finger_array[18]; /*only use the first 14 bytes, can be accelerated by
                                SSE instruction,0-13 for finger, 14-17 for
-                               overflowed, 18 as the bitmap, 19 as the overflow
-                               bucket index indicator*/
+                               overflowed*/
+  uint8_t overflowBitmap;
+  uint8_t overflowIndex;                   
   uint8_t membership[2];    /*Used to test whether the key originally belongs to
                                this bucket*/
   uint8_t overflowMember; /*overflowmember indicates membership of the overflow
@@ -2059,7 +2060,7 @@ RETRY:
       test_stash = true;
     } else {
       /*search in the original bucket*/
-      int mask = target_bucket->finger_array[18];
+      int mask = target_bucket->overflowBitmap;
       if (mask != 0) {
         for (int i = 0; i < 4; ++i) {
           if (CHECK_BIT(mask, i) &&
@@ -2067,7 +2068,7 @@ RETRY:
               (((1 << i) & target_bucket->overflowMember) == 0)) {
             Bucket<T> *stash =
                 target->bucket + kNumBucket +
-                ((target_bucket->finger_array[19] >> (i * 2)) & stashMask);
+                ((target_bucket->overflowIndex >> (i * 2)) & stashMask);
             auto ret = stash->check_and_get(meta_hash, key, false);
             if (ret != NONE) {
               if (target_bucket->test_lock_version_change(old_version)) {
@@ -2079,7 +2080,7 @@ RETRY:
         }
       }
 
-      mask = neighbor_bucket->finger_array[18];
+      mask = neighbor_bucket->overflowBitmap;
       if (mask != 0) {
         for (int i = 0; i < 4; ++i) {
           if (CHECK_BIT(mask, i) &&
@@ -2087,7 +2088,7 @@ RETRY:
               (((1 << i) & neighbor_bucket->overflowMember) != 0)) {
             Bucket<T> *stash =
                 target->bucket + kNumBucket +
-                ((neighbor_bucket->finger_array[19] >> (i * 2)) & stashMask);
+                ((neighbor_bucket->overflowIndex >> (i * 2)) & stashMask);
             auto ret = stash->check_and_get(meta_hash, key, false);
             if (ret != NONE) {
               if (target_bucket->test_lock_version_change(old_version)) {
@@ -2188,7 +2189,7 @@ RETRY:
       test_stash = true;
     } else {
       /*search in the original bucket*/
-      int mask = target_bucket->finger_array[18];
+      int mask = target_bucket->overflowBitmap;
       if (mask != 0) {
         for (int i = 0; i < 4; ++i) {
           if (CHECK_BIT(mask, i) &&
@@ -2196,7 +2197,7 @@ RETRY:
               (((1 << i) & target_bucket->overflowMember) == 0)) {
             Bucket<T> *stash =
                 target->bucket + kNumBucket +
-                ((target_bucket->finger_array[19] >> (i * 2)) & stashMask);
+                ((target_bucket->overflowIndex >> (i * 2)) & stashMask);
             auto ret = stash->check_and_get(meta_hash, key, false);
             if (ret != NONE) {
               if (target_bucket->test_lock_version_change(old_version)) {
@@ -2208,7 +2209,7 @@ RETRY:
         }
       }
 
-      mask = neighbor_bucket->finger_array[18];
+      mask = neighbor_bucket->overflowBitmap;
       if (mask != 0) {
         for (int i = 0; i < 4; ++i) {
           if (CHECK_BIT(mask, i) &&
@@ -2216,7 +2217,7 @@ RETRY:
               (((1 << i) & neighbor_bucket->overflowMember) != 0)) {
             Bucket<T> *stash =
                 target->bucket + kNumBucket +
-                ((neighbor_bucket->finger_array[19] >> (i * 2)) & stashMask);
+                ((neighbor_bucket->overflowIndex >> (i * 2)) & stashMask);
             auto ret = stash->check_and_get(meta_hash, key, false);
             if (ret != NONE) {
               if (target_bucket->test_lock_version_change(old_version)) {
@@ -2455,7 +2456,7 @@ RETRY:
       test_stash = true;
     } else {
       /*search in the original bucket*/
-      int mask = target->finger_array[18];
+      int mask = target->overflowBitmap;
       if (mask != 0) {
         for (int i = 0; i < 4; ++i) {
           if (CHECK_BIT(mask, i) &&
@@ -2467,7 +2468,7 @@ RETRY:
         }
       }
 
-      mask = neighbor->finger_array[18];
+      mask = neighbor->overflowBitmap;
       if (mask != 0) {
         for (int i = 0; i < 4; ++i) {
           if (CHECK_BIT(mask, i) &&
@@ -2578,28 +2579,28 @@ int Finger_EH<T>::FindAnyway(T key) {
         printf("the segment number is %d, the bucket_ix is %d\n", x, bucket_ix);
 
         printf("the image of org_bucket\n");
-        int mask = org_bucket->finger_array[18];
+        int mask = org_bucket->overflowBitmap;
         for (int j = 0; j < 4; ++j) {
           printf(
               "the hash is %d, the pos bit is %d, the alloc bit is %d, the "
               "stash bucket info is %d, the real stash bucket info is %d\n",
               org_bucket->finger_array[14 + j],
               (org_bucket->overflowMember >> (j)) & 1,
-              (org_bucket->finger_array[18] >> j) & 1,
-              (org_bucket->finger_array[19] >> (j * 2)) & stashMask, i);
+              (org_bucket->overflowBitmap >> j) & 1,
+              (org_bucket->overflowIndex >> (j * 2)) & stashMask, i);
         }
 
         printf("the image of the neighbor bucket\n");
         printf("the stash check is %d\n", neighbor_bucket->test_stash_check());
-        mask = neighbor_bucket->finger_array[18];
+        mask = neighbor_bucket->overflowBitmap;
         for (int j = 0; j < 4; ++j) {
           printf(
               "the hash is %d, the pos bit is %d, the alloc bit is %d, the "
               "stash bucket info is %d, the real stash bucket info is %d\n",
               neighbor_bucket->finger_array[14 + j],
               (neighbor_bucket->overflowMember >> (j)) & 1,
-              (neighbor_bucket->finger_array[18] >> j) & 1,
-              (neighbor_bucket->finger_array[19] >> (j * 2)) & stashMask, i);
+              (neighbor_bucket->overflowBitmap >> j) & 1,
+              (neighbor_bucket->overflowIndex >> (j * 2)) & stashMask, i);
         }
 
         if (org_bucket->test_overflow()) {
