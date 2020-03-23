@@ -2,6 +2,10 @@
 
 /*
  * Dash Extendible Hashing
+ * Authors: 
+ * Baotong Lu <btlu@cse.cuhk.edu.hk>
+ * Xiangpeng Hao <xiangpeng_hao@sfu.ca>
+ * Tianzheng Wang <tzwang@sfu.ca>
  */
 
 #include <immintrin.h>
