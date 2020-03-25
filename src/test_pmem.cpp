@@ -9,6 +9,8 @@
 #include <cstring>
 #include <mutex>
 #include <thread>
+#include <chrono>
+#include <functional>
 
 #include "../util/System.hpp"
 #include "../util/key_generator.hpp"
@@ -46,6 +48,7 @@ DEFINE_uint32(ms, 100, "#miliseconds to sample the operations");
 DEFINE_uint32(vl, 16, "the length of the variable length key");
 DEFINE_uint64(ps, 30ul, "The size of the memory pool (GB)");
 DEFINE_uint64(ed, 1000, "The frequency to enroll into the epoch");
+DEFINE_double(latency_sampling, 0.01, "The probability of the time of individual requests being measured: 0.0~0.1");
 
 uint64_t initCap, thread_num, load_num, operation_num;
 std::string operation;
@@ -65,16 +68,19 @@ size_t pool_size = 1024ul * 1024ul * 1024ul * 30ul;
 key_generator_t *uniform_generator;
 uint64_t EPOCH_DURATION;
 uint64_t load_type = 0;
+double latency_sampling = 0;
 
-struct operation_record_t {
+/* Used to collect the status infromations*/
+struct alignas(64) operation_record_t {
   uint64_t number;
-  uint64_t dummy[7]; /*patch to a cacheline size, avoid false sharing*/
+  /// Vector to store both start and end time of requests.
+  std::vector<std::chrono::high_resolution_clock::time_point> times;
 };
 
 operation_record_t operation_record[1024];
 
 struct range {
-  int index;
+  int index; /* the index-nd thread*/
   uint64_t begin;
   uint64_t end;
   int length; /*if this is the variable length key, use this parameter to
@@ -93,6 +99,33 @@ void set_affinity(uint32_t idx) {
     CPU_SET(idx + 24, &my_set);
   }
   sched_setaffinity(0, sizeof(cpu_set_t), &my_set);
+}
+
+void clear_stats(){
+  for(int i = 0; i < 1024; ++i){
+    operation_record[i].number = 0;
+    operation_record[i].times.clear();
+  }
+}
+
+void report_stats(){
+  /*Collect and report the latency statistics*/
+  std::vector<uint64_t> global_latencies;
+  for(int j = 0; j < thread_num; ++j)
+      for(unsigned int i=0; i<operation_record[j].times.size(); i=i+2)
+          global_latencies.push_back(std::chrono::nanoseconds(operation_record[j].times[i+1]-operation_record[j].times[i]).count());
+
+  std::sort(global_latencies.begin(), global_latencies.end());
+  auto observed = global_latencies.size();
+  std::cout << "Latencies (" << observed << " operations observed):\n"
+            << "\tmin: " << global_latencies[0] << '\n'
+            << "\t50%: " << global_latencies[0.5*observed] << '\n'
+            << "\t90%: " << global_latencies[0.9*observed] << '\n'
+            << "\t99%: " << global_latencies[0.99*observed] << '\n'
+            << "\t99.9%: " << global_latencies[0.999*observed] << '\n'
+            << "\t99.99%: " << global_latencies[0.9999*observed] << '\n'
+            << "\t99.999%: " << global_latencies[0.99999*observed] << '\n'
+            << "\tmax: " << global_latencies[observed-1] << std::endl;
 }
 
 template <class T>
@@ -257,50 +290,41 @@ inline void end_notify(struct range *rg) {
 inline void end_sub() { SUB(&bar_c, 1); }
 
 template <class T>
-void concurr_insert_with_crash(struct range *_range, Hash<T> *index) {
-  set_affinity(_range->index);
-  int begin = _range->begin;
-  int end = _range->end;
-  char *workload = reinterpret_cast<char *>(_range->workload);
-  T key;
-
-  spin_wait();
-  if constexpr (!std::is_pointer_v<T>) {
-    T *key_array = reinterpret_cast<T *>(workload);
-    for (uint64_t i = begin; i < end; ++i) {
-      index->Insert(key_array[i], DEFAULT, 1);
-    }
-  } else {
-    T var_key;
-    uint64_t string_key_size = sizeof(string_key) + _range->length;
-    for (uint64_t i = begin; i < end; ++i) {
-      var_key = reinterpret_cast<T>(workload + string_key_size * i);
-      index->Insert(var_key, DEFAULT, 1);
-    }
-  }
-  end_notify(_range);
-}
-
-template <class T>
 void concurr_insert_without_epoch(struct range *_range, Hash<T> *index) {
   set_affinity(_range->index);
   int begin = _range->begin;
   int end = _range->end;
   char *workload = reinterpret_cast<char *>(_range->workload);
   T key;
+  auto random_bool = std::bind(std::bernoulli_distribution(latency_sampling), std::knuth_b());
+  auto id = _range->index;
 
   spin_wait();
   if constexpr (!std::is_pointer_v<T>) {
     T *key_array = reinterpret_cast<T *>(workload);
     for (uint64_t i = begin; i < end; ++i) {
+      auto measure_latency = random_bool();
+      if (measure_latency){
+        operation_record[id].times.push_back(std::chrono::high_resolution_clock::now());
+      }
       index->Insert(key_array[i], DEFAULT);
+      if (measure_latency){
+        operation_record[id].times.push_back(std::chrono::high_resolution_clock::now());
+      }
     }
   } else {
     T var_key;
     uint64_t string_key_size = sizeof(string_key) + _range->length;
     for (uint64_t i = begin; i < end; ++i) {
       var_key = reinterpret_cast<T>(workload + string_key_size * i);
+      auto measure_latency = random_bool();
+      if (measure_latency){
+        operation_record[id].times.push_back(std::chrono::high_resolution_clock::now());
+      }
       index->Insert(var_key, DEFAULT);
+      if (measure_latency){
+        operation_record[id].times.push_back(std::chrono::high_resolution_clock::now());
+      }
     }
   }
 
@@ -314,7 +338,8 @@ void concurr_insert(struct range *_range, Hash<T> *index) {
   int end = _range->end;
   char *workload = reinterpret_cast<char *>(_range->workload);
   T key;
-  uint64_t repeat_key = 0;
+  auto random_bool = std::bind(std::bernoulli_distribution(latency_sampling), std::knuth_b());
+  auto id = _range->index;
 
   if constexpr (!std::is_pointer_v<T>) {
     T *key_array = reinterpret_cast<T *>(workload);
@@ -326,7 +351,14 @@ void concurr_insert(struct range *_range, Hash<T> *index) {
       auto epoch_guard = Allocator::AquireEpochGuard();
       uint64_t _end = begin + (i + 1) * EPOCH_DURATION;
       for (uint64_t j = begin + i * EPOCH_DURATION; j < _end; ++j) {
+        auto measure_latency = random_bool();
+        if (measure_latency){
+          operation_record[id].times.push_back(std::chrono::high_resolution_clock::now());
+        }
         index->Insert(key_array[j], DEFAULT);
+        if (measure_latency){
+          operation_record[id].times.push_back(std::chrono::high_resolution_clock::now());
+        }
       }
       ++i;
     }
@@ -334,7 +366,14 @@ void concurr_insert(struct range *_range, Hash<T> *index) {
     {
       auto epoch_guard = Allocator::AquireEpochGuard();
       for (i = begin + EPOCH_DURATION * round; i < end; ++i) {
+        auto measure_latency = random_bool();
+        if (measure_latency){
+          operation_record[id].times.push_back(std::chrono::high_resolution_clock::now());
+        }
         index->Insert(key_array[i], DEFAULT);
+        if (measure_latency){
+          operation_record[id].times.push_back(std::chrono::high_resolution_clock::now());
+        }
       }
     }
   } else {
@@ -349,7 +388,14 @@ void concurr_insert(struct range *_range, Hash<T> *index) {
       uint64_t _end = begin + (i + 1) * EPOCH_DURATION;
       for (uint64_t j = begin + i * EPOCH_DURATION; j < _end; ++j) {
         var_key = reinterpret_cast<T>(workload + string_key_size * j);
+        auto measure_latency = random_bool();
+        if (measure_latency){
+          operation_record[id].times.push_back(std::chrono::high_resolution_clock::now());
+        } 
         index->Insert(var_key, DEFAULT, true);
+        if (measure_latency){
+          operation_record[id].times.push_back(std::chrono::high_resolution_clock::now());
+        }
       }
       ++i;
     }
@@ -358,7 +404,14 @@ void concurr_insert(struct range *_range, Hash<T> *index) {
       auto epoch_guard = Allocator::AquireEpochGuard();
       for (i = begin + EPOCH_DURATION * round; i < end; ++i) {
         var_key = reinterpret_cast<T>(workload + string_key_size * i);
+        auto measure_latency = random_bool();
+        if (measure_latency){
+          operation_record[id].times.push_back(std::chrono::high_resolution_clock::now());
+        }
         index->Insert(var_key, DEFAULT, true);
+        if (measure_latency){
+          operation_record[id].times.push_back(std::chrono::high_resolution_clock::now());
+        }
       }
     }
   }
@@ -433,71 +486,6 @@ void concurr_search_sample(struct range *_range, Hash<T> *index) {
 }
 
 template <class T>
-void concurr_insert_sample(struct range *_range, Hash<T> *index) {
-  uint64_t curr_index = _range->index;
-  set_affinity(curr_index);
-  operation_record[curr_index].number = 0;
-  uint64_t begin = _range->begin;
-  uint64_t end = _range->end;
-  char *workload = reinterpret_cast<char *>(_range->workload);
-  T key;
-  uint64_t not_found = 0;
-
-  if constexpr (!std::is_pointer_v<T>) {
-    T *key_array = reinterpret_cast<T *>(workload);
-    uint64_t round = (end - begin) / EPOCH_DURATION;
-    uint64_t i = 0;
-    spin_wait();
-
-    while (i < round) {
-      auto epoch_guard = Allocator::AquireEpochGuard();
-      uint64_t _end = begin + (i + 1) * EPOCH_DURATION;
-      for (uint64_t j = begin + i * EPOCH_DURATION; j < _end; ++j) {
-        index->Insert(key_array[j], DEFAULT, true);
-        operation_record[curr_index].number++;
-      }
-      ++i;
-    }
-
-    {
-      auto epoch_guard = Allocator::AquireEpochGuard();
-      for (i = begin + EPOCH_DURATION * round; i < end; ++i) {
-        index->Insert(key_array[i], DEFAULT, true);
-        operation_record[curr_index].number++;
-      }
-    }
-  } else {
-    T var_key;
-    uint64_t round = (end - begin) / EPOCH_DURATION;
-    uint64_t i = 0;
-    uint64_t string_key_size = sizeof(string_key) + _range->length;
-
-    spin_wait();
-    while (i < round) {
-      auto epoch_guard = Allocator::AquireEpochGuard();
-      uint64_t _end = begin + (i + 1) * EPOCH_DURATION;
-      for (uint64_t j = begin + i * EPOCH_DURATION; j < _end; ++j) {
-        var_key = reinterpret_cast<T>(workload + string_key_size * j);
-        index->Insert(var_key, DEFAULT, true);
-        operation_record[curr_index].number++;
-      }
-      ++i;
-    }
-
-    {
-      auto epoch_guard = Allocator::AquireEpochGuard();
-      for (i = begin + EPOCH_DURATION * round; i < end; ++i) {
-        var_key = reinterpret_cast<T>(workload + string_key_size * i);
-        index->Insert(var_key, DEFAULT, true);
-        operation_record[curr_index].number++;
-      }
-    }
-  }
-  // std::cout << "not_found = " << not_found << std::endl;
-  end_sub();
-}
-
-template <class T>
 void concurr_search(struct range *_range, Hash<T> *index) {
   set_affinity(_range->index);
   uint64_t begin = _range->begin;
@@ -505,6 +493,8 @@ void concurr_search(struct range *_range, Hash<T> *index) {
   char *workload = reinterpret_cast<char *>(_range->workload);
   T key;
   uint64_t not_found = 0;
+  auto random_bool = std::bind(std::bernoulli_distribution(latency_sampling), std::knuth_b());
+  auto id = _range->index;
 
   if constexpr (!std::is_pointer_v<T>) {
     T *key_array = reinterpret_cast<T *>(workload);
@@ -516,7 +506,14 @@ void concurr_search(struct range *_range, Hash<T> *index) {
       auto epoch_guard = Allocator::AquireEpochGuard();
       uint64_t _end = begin + (i + 1) * EPOCH_DURATION;
       for (uint64_t j = begin + i * EPOCH_DURATION; j < _end; ++j) {
+        auto measure_latency = random_bool();
+        if (measure_latency){
+          operation_record[id].times.push_back(std::chrono::high_resolution_clock::now());
+        }
         if (index->Get(key_array[j], true) == NONE) not_found++;
+        if (measure_latency){
+          operation_record[id].times.push_back(std::chrono::high_resolution_clock::now());
+        }
       }
       ++i;
     }
@@ -524,7 +521,14 @@ void concurr_search(struct range *_range, Hash<T> *index) {
     {
       auto epoch_guard = Allocator::AquireEpochGuard();
       for (i = begin + EPOCH_DURATION * round; i < end; ++i) {
+        auto measure_latency = random_bool();
+        if (measure_latency){
+          operation_record[id].times.push_back(std::chrono::high_resolution_clock::now());
+        }
         if (index->Get(key_array[i], true) == NONE) not_found++;
+        if (measure_latency){
+          operation_record[id].times.push_back(std::chrono::high_resolution_clock::now());
+        }
       }
     }
   } else {
@@ -539,7 +543,14 @@ void concurr_search(struct range *_range, Hash<T> *index) {
       uint64_t _end = begin + (i + 1) * EPOCH_DURATION;
       for (uint64_t j = begin + i * EPOCH_DURATION; j < _end; ++j) {
         var_key = reinterpret_cast<T>(workload + string_key_size * j);
+        auto measure_latency = random_bool();
+        if (measure_latency){
+          operation_record[id].times.push_back(std::chrono::high_resolution_clock::now());
+        }
         if (index->Get(var_key, true) == NONE) not_found++;
+        if (measure_latency){
+          operation_record[id].times.push_back(std::chrono::high_resolution_clock::now());
+        }
       }
       ++i;
     }
@@ -548,7 +559,14 @@ void concurr_search(struct range *_range, Hash<T> *index) {
       auto epoch_guard = Allocator::AquireEpochGuard();
       for (i = begin + EPOCH_DURATION * round; i < end; ++i) {
         var_key = reinterpret_cast<T>(workload + string_key_size * i);
+        auto measure_latency = random_bool();
+        if (measure_latency){
+          operation_record[id].times.push_back(std::chrono::high_resolution_clock::now());
+        }
         if (index->Get(var_key, true) == NONE) not_found++;
+        if (measure_latency){
+          operation_record[id].times.push_back(std::chrono::high_resolution_clock::now());
+        }
       }
     }
   }
@@ -564,14 +582,23 @@ void concurr_search_without_epoch(struct range *_range, Hash<T> *index) {
   char *workload = reinterpret_cast<char *>(_range->workload);
   T key;
   uint64_t not_found = 0;
+  auto random_bool = std::bind(std::bernoulli_distribution(latency_sampling), std::knuth_b());
+  auto id = _range->index;
 
   spin_wait();
 
   if constexpr (!std::is_pointer_v<T>) {
     T *key_array = reinterpret_cast<T *>(workload);
     for (uint64_t i = begin; i < end; ++i) {
+      auto measure_latency = random_bool();
+      if (measure_latency){
+        operation_record[id].times.push_back(std::chrono::high_resolution_clock::now());
+      }
       if (index->Get(key_array[i]) == NONE) {
         not_found++;
+      }
+      if (measure_latency){
+        operation_record[id].times.push_back(std::chrono::high_resolution_clock::now());
       }
     }
   } else {
@@ -579,8 +606,15 @@ void concurr_search_without_epoch(struct range *_range, Hash<T> *index) {
     uint64_t string_key_size = sizeof(string_key) + _range->length;
     for (uint64_t i = begin; i < end; ++i) {
       var_key = reinterpret_cast<T>(workload + string_key_size * i);
+      auto measure_latency = random_bool();
+      if (measure_latency){
+        operation_record[id].times.push_back(std::chrono::high_resolution_clock::now());
+      }
       if (index->Get(var_key) == NONE) {
         not_found++;
+      }
+      if (measure_latency){
+        operation_record[id].times.push_back(std::chrono::high_resolution_clock::now());
       }
     }
   }
@@ -596,13 +630,22 @@ void concurr_delete_without_epoch(struct range *_range, Hash<T> *index) {
   char *workload = reinterpret_cast<char *>(_range->workload);
   T key;
   uint64_t not_found = 0;
+  auto random_bool = std::bind(std::bernoulli_distribution(latency_sampling), std::knuth_b());
+  auto id = _range->index;
 
   spin_wait();
   if constexpr (!std::is_pointer_v<T>) {
     T *key_array = reinterpret_cast<T *>(workload);
     for (uint64_t i = begin; i < end; ++i) {
+      auto measure_latency = random_bool();
+      if (measure_latency){
+        operation_record[id].times.push_back(std::chrono::high_resolution_clock::now());
+      }
       if (index->Delete(key_array[i]) == false) {
         not_found++;
+      }
+      if (measure_latency){
+        operation_record[id].times.push_back(std::chrono::high_resolution_clock::now());
       }
     }
   } else {
@@ -610,8 +653,15 @@ void concurr_delete_without_epoch(struct range *_range, Hash<T> *index) {
     int string_key_size = sizeof(string_key) + _range->length;
     for (uint64_t i = begin; i < end; ++i) {
       var_key = reinterpret_cast<T>(workload + string_key_size * i);
+      auto measure_latency = random_bool();
+      if (measure_latency){
+        operation_record[id].times.push_back(std::chrono::high_resolution_clock::now());
+      }
       if (index->Delete(var_key) == false) {
         not_found++;
+      }
+      if (measure_latency){
+        operation_record[id].times.push_back(std::chrono::high_resolution_clock::now());
       }
     }
   }
@@ -627,6 +677,8 @@ void concurr_delete(struct range *_range, Hash<T> *index) {
   char *workload = reinterpret_cast<char *>(_range->workload);
   T key;
   uint64_t not_found = 0;
+  auto random_bool = std::bind(std::bernoulli_distribution(latency_sampling), std::knuth_b());
+  auto id = _range->index;
 
   if constexpr (!std::is_pointer_v<T>) {
     T *key_array = reinterpret_cast<T *>(workload);
@@ -638,7 +690,14 @@ void concurr_delete(struct range *_range, Hash<T> *index) {
       auto epoch_guard = Allocator::AquireEpochGuard();
       uint64_t _end = begin + (i + 1) * EPOCH_DURATION;
       for (uint64_t j = begin + i * EPOCH_DURATION; j < _end; ++j) {
+        auto measure_latency = random_bool();
+        if (measure_latency){
+          operation_record[id].times.push_back(std::chrono::high_resolution_clock::now());
+        }
         if (!index->Delete(key_array[j], true)) not_found++;
+        if (measure_latency){
+          operation_record[id].times.push_back(std::chrono::high_resolution_clock::now());
+        }
       }
       ++i;
     }
@@ -646,7 +705,14 @@ void concurr_delete(struct range *_range, Hash<T> *index) {
     {
       auto epoch_guard = Allocator::AquireEpochGuard();
       for (i = begin + EPOCH_DURATION * round; i < end; ++i) {
+        auto measure_latency = random_bool();
+        if (measure_latency){
+          operation_record[id].times.push_back(std::chrono::high_resolution_clock::now());
+        }
         if (!index->Delete(key_array[i], true)) not_found++;
+        if (measure_latency){
+          operation_record[id].times.push_back(std::chrono::high_resolution_clock::now());
+        }
       }
     }
   } else {
@@ -661,7 +727,14 @@ void concurr_delete(struct range *_range, Hash<T> *index) {
       uint64_t _end = begin + (i + 1) * EPOCH_DURATION;
       for (uint64_t j = begin + i * EPOCH_DURATION; j < _end; ++j) {
         var_key = reinterpret_cast<T>(workload + string_key_size * j);
+        auto measure_latency = random_bool();
+        if (measure_latency){
+          operation_record[id].times.push_back(std::chrono::high_resolution_clock::now());
+        }
         if (!index->Delete(var_key, true)) not_found++;
+        if (measure_latency){
+          operation_record[id].times.push_back(std::chrono::high_resolution_clock::now());
+        }
       }
       ++i;
     }
@@ -670,7 +743,14 @@ void concurr_delete(struct range *_range, Hash<T> *index) {
       auto epoch_guard = Allocator::AquireEpochGuard();
       for (i = begin + EPOCH_DURATION * round; i < end; ++i) {
         var_key = reinterpret_cast<T>(workload + string_key_size * i);
+        auto measure_latency = random_bool();
+        if (measure_latency){
+          operation_record[id].times.push_back(std::chrono::high_resolution_clock::now());
+        }
         if (!index->Delete(var_key, true)) not_found++;
+        if (measure_latency){
+          operation_record[id].times.push_back(std::chrono::high_resolution_clock::now());
+        }
       }
     }
   }
@@ -697,6 +777,9 @@ void mixed_without_epoch(struct range *_range, Hash<T> *index) {
   uint32_t read_sign = (uint32_t)(read_ratio * 100) + insert_sign;
   uint32_t delete_sign = (uint32_t)(delete_ratio * 100) + read_sign;
 
+  auto random_bool = std::bind(std::bernoulli_distribution(latency_sampling), std::knuth_b());
+  auto id = _range->index;
+
   spin_wait();
 
   for (uint64_t i = begin; i < end; ++i) {
@@ -705,8 +788,13 @@ void mixed_without_epoch(struct range *_range, Hash<T> *index) {
     } else {
       key = key_array[i];
     }
-
     random = rng.next_uint32() % 100;
+
+    auto measure_latency = random_bool();
+    if (measure_latency){
+      operation_record[id].times.push_back(std::chrono::high_resolution_clock::now());
+    }
+
     if (random < insert_sign) { /*insert*/
       index->Insert(key, DEFAULT);
     } else if (random < read_sign) { /*get*/
@@ -715,6 +803,10 @@ void mixed_without_epoch(struct range *_range, Hash<T> *index) {
       }
     } else { /*delete*/
       index->Delete(key);
+    }
+
+    if (measure_latency){
+      operation_record[id].times.push_back(std::chrono::high_resolution_clock::now());
     }
   }
   std::cout << "not_found = " << not_found << std::endl;
@@ -742,6 +834,10 @@ void mixed(struct range *_range, Hash<T> *index) {
 
   uint64_t round = (end - begin) / EPOCH_DURATION;
   uint64_t i = 0;
+
+  auto random_bool = std::bind(std::bernoulli_distribution(latency_sampling), std::knuth_b());
+  auto id = _range->index;
+
   spin_wait();
 
   while (i < round) {
@@ -755,6 +851,12 @@ void mixed(struct range *_range, Hash<T> *index) {
       }
 
       random = rng.next_uint32() % 100;
+
+      auto measure_latency = random_bool();
+      if (measure_latency){
+        operation_record[id].times.push_back(std::chrono::high_resolution_clock::now());
+      }
+
       if (random < insert_sign) { /*insert*/
         index->Insert(key, DEFAULT, true);
       } else if (random < read_sign) { /*get*/
@@ -763,6 +865,10 @@ void mixed(struct range *_range, Hash<T> *index) {
         }
       } else { /*delete*/
         index->Delete(key, true);
+      }
+
+      if (measure_latency){
+        operation_record[id].times.push_back(std::chrono::high_resolution_clock::now());
       }
     }
     ++i;
@@ -778,6 +884,12 @@ void mixed(struct range *_range, Hash<T> *index) {
       }
 
       random = rng.next_uint32() % 100;
+
+      auto measure_latency = random_bool();
+      if (measure_latency){
+        operation_record[id].times.push_back(std::chrono::high_resolution_clock::now());
+      }
+
       if (random < insert_sign) { /*insert*/
         index->Insert(key, DEFAULT, true);
       } else if (random < read_sign) { /*get*/
@@ -786,6 +898,10 @@ void mixed(struct range *_range, Hash<T> *index) {
         }
       } else { /*delete*/
         index->Delete(key, true);
+      }
+
+      if (measure_latency){
+        operation_record[id].times.push_back(std::chrono::high_resolution_clock::now());
       }
     }
   }
@@ -808,6 +924,7 @@ void GeneralBench(range *rarray, Hash<T> *index, int thread_num,
   bar_c = thread_num;
 
   std::cout << profile_name << " Begin" << std::endl;
+  clear_stats();
   //  System::profile(profile_name, [&]() {
   for (uint64_t i = 0; i < thread_num; ++i) {
     thread_array[i] = new std::thread(*test_func, &rarray[i], index);
@@ -841,7 +958,6 @@ void GeneralBench(range *rarray, Hash<T> *index, int thread_num,
     if (shortest > interval) shortest = interval;
     if (longest < interval) longest = interval;
   }
-  //std::cout << "The time difference is " << longest - shortest << std::endl;
   duration = duration / thread_num;
   printf(
       "%d threads, Time = %f s, throughput = %f "
@@ -849,6 +965,7 @@ void GeneralBench(range *rarray, Hash<T> *index, int thread_num,
       thread_num, duration, operation_num / duration, operation_num / shortest,
       operation_num / longest);
   //  });
+  report_stats();
   std::cout << profile_name << " End" << std::endl;
 }
 
@@ -1059,6 +1176,7 @@ void Run() {
   }
   rarray[thread_num - 1].end = operation_num;
 
+  /* FIXME: change to switch*/
   /* Benchmark Phase */
   if (operation == "insert") {
     std::cout << "Insert-only Benchmark" << std::endl;
@@ -1220,6 +1338,7 @@ int main(int argc, char *argv[]) {
   pool_size = FLAGS_ps * 1024ul * 1024ul * 1024ul; /*pool_size*/
   if (open_epoch == true)
     std::cout << "EPOCH registration in application level" << std::endl;
+  latency_sampling = FLAGS_latency_sampling;
 
   read_ratio = FLAGS_r;
   insert_ratio = FLAGS_s;

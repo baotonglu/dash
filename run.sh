@@ -18,7 +18,7 @@ epoch=(0 1 1 1 0)
 # j spec1fy the number of threads
 #for q in 0.5 0.6 0.7 0.8 0.9 0.99
 #do 
-for k in 2 3
+for k in 3
 do
 	for i in 1
 	do 
@@ -51,6 +51,7 @@ do
       -e ${epoch[$k]} \
       -ed 1000 \
       -op "full" \
+      -latency_sampling 0.01 \
       -r 0.8 \
       -s 0.2 \
       -ms 100 \
