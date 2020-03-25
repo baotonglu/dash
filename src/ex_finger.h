@@ -24,7 +24,6 @@
 
 #include "../util/hash.h"
 #include "../util/pair.h"
-#include "../util/persist.h"
 #include "Hash.h"
 #include "allocator.h"
 #include "utils.h"

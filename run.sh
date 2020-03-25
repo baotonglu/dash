@@ -17,10 +17,10 @@ epoch=(0 1 1 1 0)
 # i specify the key type, 1 means fixed-length key, 2 means variable-length key
 # j spec1fy the number of threads
 #for q in 0.5 0.6 0.7 0.8 0.9 0.99
-#do
-for k in 2
+#do 
+for k in 2 3
 do
-	for i in 1 2
+	for i in 1
 	do 
 		for j in 1 6
 		do

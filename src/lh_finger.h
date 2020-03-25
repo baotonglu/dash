@@ -21,7 +21,6 @@
 
 #include "../util/hash.h"
 #include "../util/pair.h"
-#include "../util/persist.h"
 #include "Hash.h"
 #include "allocator.h"
 #include "utils.h"
@@ -237,12 +236,6 @@ struct overflowBucket {
     uint32_t new_bitmap = bitmap & (~(1 << (index + 18)));
     new_bitmap--;
     bitmap = new_bitmap;
-    /*
-    bitmap = bitmap & (~(1 << (index + 18)));
-    assert(GET_COUNT(bitmap) <= kNumPairPerBucket);
-    assert(GET_COUNT(bitmap) > 0);
-    bitmap--;
-    */
   }
 
   inline void get_lock() {

@@ -1,8 +1,10 @@
 #pragma once
+
 #include <immintrin.h>
 #include <stdlib.h>
 #include <sys/stat.h>
 #include <time.h>
+#include <stdint.h>
 
 #include <cstdint>
 #include <iostream>
@@ -34,6 +36,10 @@ static bool FileExists(const char *pool_path) {
 
 #define LOG(msg) std::cout << msg << "\n"
 
+#define CAS(_p, _u, _v)                                             \
+  (__atomic_compare_exchange_n(_p, _u, _v, false, __ATOMIC_ACQUIRE, \
+                               __ATOMIC_ACQUIRE))
+
 // ADD and SUB return the value after add or sub
 #define ADD(_p, _v) (__atomic_add_fetch(_p, _v, __ATOMIC_SEQ_CST))
 #define SUB(_p, _v) (__atomic_sub_fetch(_p, _v, __ATOMIC_SEQ_CST))
@@ -60,6 +66,8 @@ static bool FileExists(const char *pool_path) {
   } while (0)
 
 #define CHECK_BIT(var, pos) ((((var) & (1 << pos)) > 0) ? (1) : (0))
+
+inline void mfence(void) { asm volatile("mfence" ::: "memory"); }
 
 int msleep(uint64_t msec) {
   struct timespec ts;

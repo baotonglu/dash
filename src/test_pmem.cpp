@@ -77,7 +77,7 @@ struct range {
   int index;
   uint64_t begin;
   uint64_t end;
-  int length; /*if this is the variable lenght key, use this parameter to
+  int length; /*if this is the variable length key, use this parameter to
                  indicate the length of the key*/
   void *workload;
   uint64_t random_num;
@@ -1065,7 +1065,6 @@ void Run() {
     for (int i = 0; i < thread_num; ++i) {
       rarray[i].workload = not_used_insert_workload;
     }
-    Allocator::clear_zero();
     if (open_epoch == true) {
       GeneralBench<T>(rarray, index, thread_num, operation_num, "Insert",
                       &concurr_insert);
@@ -1073,7 +1072,6 @@ void Run() {
       GeneralBench<T>(rarray, index, thread_num, operation_num, "Insert",
                       &concurr_insert_without_epoch);
     }
-    index->getNumber();
   } else if (operation == "pos") {
     if (!load_num) {
       std::cout << "Please first specify the # pre_load keys!" << std::endl;

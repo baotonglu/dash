@@ -28,7 +28,7 @@ support for variable-length key by storing the pointer to the key object.
 
 #include "../../util/hash.h"
 #include "../../util/pair.h"
-#include "../../util/persist.h"
+#include "../utils.h"
 #include "../Hash.h"
 #define ASSOC_NUM 7
 #define NODE_TYPE 1000
