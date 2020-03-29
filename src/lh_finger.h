@@ -2,7 +2,7 @@
 
 /*
  * Dash Linear Hashing
- * Authors: 
+ * Authors:
  * Baotong Lu <btlu@cse.cuhk.edu.hk>
  * Xiangpeng Hao <xiangpeng_hao@sfu.ca>
  * Tianzheng Wang <tzwang@sfu.ca>
@@ -25,21 +25,13 @@
 #include "allocator.h"
 #include "utils.h"
 #define DOUBLE_EXPANSION 1
-//#define PREALLOC 1
-//#define COUNTING 1
 
 #ifdef PMEM
 #include <libpmemobj.h>
 #endif
 namespace linear {
-const uint32_t lockSet = 1 << 31;
-const uint32_t lockMask = ((uint32_t)1 << 31) - 1;
-const int overflowSet = 1 << 4;
-const int countMask = (1 << 4) - 1;
-const uint32_t initialSet = 1 << 30;
-const uint32_t initialLockSet = lockSet | initialSet;
-const uint32_t versionMask = (1 << 30) - 1;
-uint64_t overflow_access;
+//#define PREALLOC 1
+//#define COUNTING 1
 
 template <class T>
 struct _Pair {
@@ -47,15 +39,27 @@ struct _Pair {
   Value_t value;
 };
 
-constexpr size_t k_PairSize = 16;
+const size_t k_PairSize = 16;
+const uint32_t lockSet = 1 << 31;
+const uint32_t lockMask = ((uint32_t)1 << 31) - 1;
+const int overflowSet = 1 << 4;
+const int countMask = (1 << 4) - 1;
+const uint32_t initialSet = 1 << 30;
+const uint32_t versionMask = (1 << 30) - 1;
 const size_t kNumPairPerBucket = 14;
 const size_t kFingerBits = 8;
-constexpr size_t kMask = (1 << kFingerBits) - 1;
 const uint32_t kNumBucket = 64;
 const uint32_t stashBucket = 2;
-const uint32_t fixedExpandNum = 8;
-const uint32_t fixedExpandBits = 31 - __builtin_clz(fixedExpandNum);
-const uint32_t fixedExpandMask = (1 << fixedExpandBits) - 1;
+const uint64_t recoverBit = 1UL << 63;
+const uint64_t lockBit = 1UL << 62;
+const uint8_t overflowBitmapMask = (1 << 4) - 1;
+const uint8_t low2Mask = (1 << 2) - 1;
+const uint32_t low4Mask = (1 << 4) - 1;
+const uint32_t fixedExpandNum = 8; /*stride*/
+constexpr uint32_t initialLockSet = lockSet | initialSet;
+constexpr uint32_t fixedExpandBits = 31 - __builtin_clz(fixedExpandNum);
+constexpr uint32_t fixedExpandMask = (1 << fixedExpandBits) - 1;
+constexpr size_t kMask = (1 << kFingerBits) - 1;
 constexpr int allocMask = (1 << kNumPairPerBucket) - 1;
 constexpr size_t bucketMask = ((1 << (31 - __builtin_clz(kNumBucket))) - 1);
 constexpr size_t stashMask = (1 << (31 - __builtin_clz(stashBucket))) - 1;
@@ -65,16 +69,11 @@ constexpr size_t baseShifBits =
     static_cast<uint64_t>(31 - __builtin_clz(segmentSize));
 constexpr uint32_t segmentMask = (1 << baseShifBits) - 1;
 constexpr size_t directorySize = 1024 * 4;
-const uint64_t low32Mask = ((uint64_t)1 << 32) - 1;
-const uint64_t high32Mask = ~low32Mask;
-const uint8_t low2Mask = (1 << 2) - 1;
-const uint32_t low4Mask = (1 << 4) - 1;
+constexpr uint64_t low32Mask = ((uint64_t)1 << 32) - 1;
+constexpr uint64_t high32Mask = ~low32Mask;
 constexpr uint32_t shiftBits = (31 - __builtin_clz(kNumBucket)) + kFingerBits;
 constexpr uint32_t expandShiftBits = fixedExpandBits + baseShifBits;
-const uint64_t recoverBit = 1UL << 63;
-const uint64_t lockBit = 1UL << 62;
-const uint64_t recoverLockBit = recoverBit | lockBit;
-const uint8_t overflowBitmapMask = (1 << 4) - 1;
+constexpr uint64_t recoverLockBit = recoverBit | lockBit;
 
 #define BUCKET_INDEX(hash) (((hash) >> (64 - shiftBits)) & bucketMask)
 #define META_HASH(hash) ((uint8_t)((hash) >> (64 - kFingerBits)))
@@ -131,7 +130,7 @@ inline uint32_t SEG_SIZE_BY_SEGARR_ID(uint32_t segarr_idx) {
   return segmentSize * pow2(segarr_idx / fixedExpandNum);
 }
 
-/*the size uses 8 byte as the uinit*/
+/* overflow Bucket*/
 template <class T>
 struct overflowBucket {
   overflowBucket() { memset(this, 0, sizeof(struct overflowBucket)); }
@@ -140,8 +139,7 @@ struct overflowBucket {
     if (GET_COUNT(bitmap) == kNumPairPerBucket) {
       return -1;
     }
-    auto mask = ~(GET_BITMAP(bitmap));  // Now the 1 bit should be the empty
-                                        // slot
+    auto mask = ~(GET_BITMAP(bitmap));
     return __builtin_ctz(mask);
   }
 
@@ -383,14 +381,14 @@ struct overflowBucket {
   _Pair<T> _[kNumPairPerBucket];
 };
 
+/* normal bucket*/
 template <class T>
 struct Bucket {
   inline int find_empty_slot() {
     if (GET_COUNT(bitmap) == kNumPairPerBucket) {
       return -1;
     }
-    auto mask = ~(GET_BITMAP(bitmap));  // Now the 1 bit should be the empty
-                                        // slot
+    auto mask = ~(GET_BITMAP(bitmap));
     return __builtin_ctz(mask);
   }
 
@@ -1273,8 +1271,8 @@ struct Table {
   Bucket<T> bucket[kNumBucket];
   overflowBucket<T> stash[stashBucket];
   int number;
-  int state; /*0: normal state; 1: split bucket; 2: expand bucket(in the right);
-                3 merge bucket; 4 shrunk bucket(in the right)*/
+  int state; /*0: normal state; 1: split bucket; 2: expand bucket(in the
+                right)*/
   uint64_t seg_version;
   char dummy[48];
   PMEMmutex lock_bit;
@@ -1452,7 +1450,7 @@ void Table<T>::Split(Table<T> *org_table, uint64_t base_level, int org_idx,
     curr_bucket->bitmap = curr_bucket->bitmap - count;
   }
 
-  /*traverse the overflow list, I also need to do the rehahsing to the original
+  /*traverse the overflow list, also need to do the rehahsing to the original
    * bucket*/
   prev_bucket = org_table->stash;
   next_bucket = org_table->stash->next;
@@ -2042,9 +2040,11 @@ class Linear : public Hash<T> {
     }
 
     std::cout << "The # directory entries is " << max_dir << std::endl;
-
-    std::cout << "occupied table is " << occupied_bucket << std::endl;
+    std::cout << "Occupied table is " << occupied_bucket << std::endl;
+    std::cout << "The size of overflow bucket is " << sizeof(overflowBucket<T>)
+              << " ;The size of bucket is " << sizeof(Bucket<T>) << std::endl;
     Bucket_num += SUM_BUCKET(occupied_bucket - 1) * (kNumBucket + stashBucket);
+    std::cout << "The size of table is that " << sizeof(Table<T>) << std::endl;
 #ifdef COUNTING
     std::cout << "The recount number is " << recount_num << std::endl;
 #endif
@@ -2056,72 +2056,6 @@ class Linear : public Hash<T> {
            (double)count / (Bucket_num * 16));
     printf("the prev_length = %lld\n", prev_length);
     printf("the after_length = %lld\n", after_length);
-  }
-
-  /**
-   * @brief Shrink operation, no parallel merge now
-   * @param numBuckets #buckets to shrink at a time, the numBucket can only be
-   * the power of 2
-   */
-  inline void Shrink(uint32_t numBuckets) {
-    /*Get the shrink lock*/
-    int unlock_state = 0;
-    while (!CAS(&lock, &unlock_state, 1)) {
-      unlock_state = 0;
-    }
-
-  RE_SHRINK:
-    uint64_t old_N_next = dir.N_next;
-    uint32_t old_N = old_N_next >> 32;
-    uint32_t old_next = (uint32_t)old_N_next;
-    if ((old_N == 6) && (old_next == 0)) return;
-
-    uint32_t dir_idx, offset;
-    /* Find the corresponding segment, set the mark and then shrink it*/
-    uint64_t new_N_next;
-    uint32_t new_N, new_next;
-    if (old_next == 0) {
-      new_N = old_N - 1;
-      new_next = pow2(new_N) - numBuckets;
-      new_N_next = ((uint64_t)new_N << 32) + new_next;
-    } else {
-      new_N = old_N;
-      new_next = old_next - 2;
-      new_N_next = (old_N_next & high32Mask) + (old_next - numBuckets);
-    }
-
-    /*the buckets that need to be shrunk*/
-    uint32_t x = pow2(new_N) + new_next;
-    SEG_IDX_OFFSET(x, dir_idx, offset);
-    Table<T> *target = dir._[dir_idx] + offset;
-
-    for (int i = numBuckets - 1; i >= 0; --i) {
-      Table<T> *curr_table = target + i;
-      curr_table->getAllLocks();
-      curr_table->state = 1;
-      uint64_t idx, base_diff;
-      Table<T> *org_table =
-          curr_table->get_org_table(x + i, &idx, &base_diff, &dir);
-      org_table->getAllLocks();
-      org_table->Merge(curr_table);
-      org_table->releaseAllLocks();
-    }
-
-    dir.N_next = new_N_next;
-    lock = 0;
-    /*deallocate the memory*/
-    if (offset == 0) {
-      Allocator::Free(target);
-    }
-
-    for (int i = numBuckets - 1; i >= 0; --i) {
-      Table<T> *curr_table = target + i;
-      curr_table->releaseAllLocks();
-    }
-
-    if (new_N != old_N) {
-      std::cout << "Shrink to new level " << new_N << std::endl;
-    }
   }
 
   /**
@@ -2336,6 +2270,7 @@ RETRY:
   }
   target->recoverMetadata();
 
+  /*FIXME: handle state = 1*/
   if (target->state == 2) {
     uint64_t idx, base_diff;
     Table<T> *org_table = target->get_org_table(index, &idx, &base_diff, &dir);
@@ -2523,7 +2458,6 @@ RETRY:
       }
     TEST_STASH:
       if (test_stash == true) {
-        // overflow_access++;
         for (int i = 0; i < stashBucket; ++i) {
           overflowBucket<T> *curr_bucket =
               target->stash + ((i + (y & stashMask)) & stashMask);
@@ -2751,7 +2685,8 @@ bool Linear<T>::Delete(T key, bool is_in_epoch) {
   return Delete(key);
 }
 
-/*the delete operation of the */
+/*Current version of Dash linear hashing does not support concurrent shrink
+ * operation*/
 template <class T>
 bool Linear<T>::Delete(T key) {
   uint64_t key_hash;
@@ -2841,11 +2776,6 @@ RETRY:
       Allocator::Persist(&target_bucket->bitmap, sizeof(target_bucket->bitmap));
 #endif
       neighbor_bucket->release_lock();
-#ifdef COUNTING
-      if (num == 0) {
-        Shrink(2);
-      }
-#endif
       return true;
     }
 
@@ -2862,11 +2792,6 @@ RETRY:
                          sizeof(neighbor_bucket->bitmap));
 #endif
       target_bucket->release_lock();
-#ifdef COUNTING
-      if (num == 0) {
-        Shrink(2);
-      }
-#endif
       return true;
     }
 
@@ -2924,11 +2849,6 @@ RETRY:
                                            index);
             target_bucket->release_lock();
             neighbor_bucket->release_lock();
-#ifdef COUNTING
-            if (num == 0) {
-              Shrink(2);
-            }
-#endif
             return true;
           }
         }
@@ -2949,11 +2869,6 @@ RETRY:
             target_bucket->unset_indicator(meta_hash, neighbor_bucket, key, 3);
             target_bucket->release_lock();
             neighbor_bucket->release_lock();
-#ifdef COUNTING
-            if (num == 0) {
-              Shrink(2);
-            }
-#endif
             return true;
           }
           prev_bucket = next_bucket;

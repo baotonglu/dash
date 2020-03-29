@@ -2,7 +2,7 @@
 
 /*
  * Dash Extendible Hashing
- * Authors: 
+ * Authors:
  * Baotong Lu <btlu@cse.cuhk.edu.hk>
  * Xiangpeng Hao <xiangpeng_hao@sfu.ca>
  * Tianzheng Wang <tzwang@sfu.ca>
@@ -44,16 +44,13 @@ struct _Pair {
   Value_t value;
 };
 
-const uint32_t lockSet = ((uint32_t)1 << 31);      
-const uint32_t lockMask = ((uint32_t)1 << 31) - 1; 
+const uint32_t lockSet = ((uint32_t)1 << 31);
+const uint32_t lockMask = ((uint32_t)1 << 31) - 1;
 const int overflowSet = 1 << 4;
 const int countMask = (1 << 4) - 1;
-const uint64_t tailMask =
-    (1UL << 56) - 1; 
-const uint64_t headerMask = ((1UL << 8) - 1)
-                            << 56; 
+const uint64_t tailMask = (1UL << 56) - 1;
+const uint64_t headerMask = ((1UL << 8) - 1) << 56;
 const uint8_t overflowBitmapMask = (1 << 4) - 1;
-
 
 constexpr size_t k_PairSize = 16;  // a k-v _Pair with a bit
 constexpr size_t kNumPairPerBucket =
@@ -86,7 +83,7 @@ struct Bucket {
     if (GET_COUNT(bitmap) == kNumPairPerBucket) {
       return -1;
     }
-    auto mask = ~(GET_BITMAP(bitmap));  
+    auto mask = ~(GET_BITMAP(bitmap));
     return __builtin_ctz(mask);
   }
 
@@ -107,8 +104,7 @@ struct Bucket {
 
     if (index < 4) {
       finger_array[14 + index] = meta_hash;
-      overflowBitmap =
-          ((uint8_t)(1 << index) | overflowBitmap); 
+      overflowBitmap = ((uint8_t)(1 << index) | overflowBitmap);
       overflowIndex =
           (overflowIndex & (~(3 << (index * 2)))) | (pos << (index * 2));
     } else {
@@ -874,7 +870,8 @@ struct Table {
   int number;
   PMEMoid next;
   int state; /*-1 means this bucket is merging, -2 means this bucket is
-                splitting (SPLITTING), 0 meanning normal bucket, -3 means new bucket (NEW)*/
+                splitting (SPLITTING), 0 meanning normal bucket, -3 means new
+                bucket (NEW)*/
   PMEMmutex
       lock_bit; /* for the synchronization of the lazy recovery in one segment*/
 };
@@ -964,10 +961,11 @@ RETRY:
     return ret;
   }
 
-  /* the fp+bitmap are persisted after releasing the lock of one bucket but still guarantee the correctness of 
-  * avoidance of "use-before-flush" since the search operation could only proceed only if both target 
-  * bucket and probe bucket are released
-  */
+  /* the fp+bitmap are persisted after releasing the lock of one bucket but
+   * still guarantee the correctness of avoidance of "use-before-flush" since
+   * the search operation could only proceed only if both target bucket and
+   * probe bucket are released
+   */
   if (GET_COUNT(target->bitmap) <= GET_COUNT(neighbor->bitmap)) {
     target->Insert(key, value, meta_hash, false);
     target->release_lock();
@@ -1230,9 +1228,9 @@ void Table<T>::HelpSplit(Table<T> *next_table) {
 
         if ((key_hash >> (64 - local_depth - 1)) == new_pattern) {
           invalid_mask = invalid_mask | (1 << j);
-          next_table->Insert4splitWithCheck(
-              curr_bucket->_[j].key, curr_bucket->_[j].value, key_hash,
-              curr_bucket->finger_array[j]); 
+          next_table->Insert4splitWithCheck(curr_bucket->_[j].key,
+                                            curr_bucket->_[j].value, key_hash,
+                                            curr_bucket->finger_array[j]);
 #ifdef COUNTING
           number--;
 #endif
@@ -1256,9 +1254,9 @@ void Table<T>::HelpSplit(Table<T> *next_table) {
         }
         if ((key_hash >> (64 - local_depth - 1)) == new_pattern) {
           invalid_mask = invalid_mask | (1 << j);
-          next_table->Insert4splitWithCheck(
-              curr_bucket->_[j].key, curr_bucket->_[j].value, key_hash,
-              curr_bucket->finger_array[j]); 
+          next_table->Insert4splitWithCheck(curr_bucket->_[j].key,
+                                            curr_bucket->_[j].value, key_hash,
+                                            curr_bucket->finger_array[j]);
           auto bucket_ix = BUCKET_INDEX(key_hash);
           auto org_bucket = bucket + bucket_ix;
           auto neighbor_bucket = bucket + ((bucket_ix + 1) & bucketMask);
@@ -1818,7 +1816,7 @@ void Finger_EH<T>::recoverTable(Table<T> **target_table, size_t key_hash,
     Allocator::Persist(&target->pattern, sizeof(target->pattern));
     Table<T> *next_table = (Table<T> *)pmemobj_direct(target->next);
     if (target->state == -2) {
-      if (next_table->state == -3){
+      if (next_table->state == -3) {
         /*Help finish the split operation*/
         next_table->recoverMetadata();
         target->HelpSplit(next_table);
@@ -1972,7 +1970,7 @@ RETRY:
     Allocator::Persist(&new_b->state, sizeof(int));
     target->state = 0;
     Allocator::Persist(&target->state, sizeof(int));
-    
+
     Bucket<T> *curr_bucket;
     for (int i = 0; i < kNumBucket; ++i) {
       curr_bucket = target->bucket + i;
@@ -2260,12 +2258,12 @@ void Finger_EH<T>::TryMerge(size_t key_hash) {
     auto left_seg = old_dir->_[left];
     auto right_seg = old_dir->_[right];
 
-    if((reinterpret_cast<uint64_t>(left_seg) & headerMask) != crash_version){
+    if ((reinterpret_cast<uint64_t>(left_seg) & headerMask) != crash_version) {
       recoverTable(&old_dir->_[left], key_hash, left, old_dir);
       continue;
     }
 
-    if((reinterpret_cast<uint64_t>(right_seg) & headerMask) != crash_version){
+    if ((reinterpret_cast<uint64_t>(right_seg) & headerMask) != crash_version) {
       recoverTable(&old_dir->_[right], key_hash, right, old_dir);
       continue;
     }
