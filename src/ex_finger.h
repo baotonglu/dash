@@ -35,22 +35,25 @@
 uint64_t merge_time;
 
 namespace extendible {
-
-#define _INVALID 0 /* we use 0 as the invalid key*/
-#define SINGLE 1
 //#define COUNTING 1
 //#define PREALLOC 1
-
-const uint32_t lockSet = ((uint32_t)1 << 31);      /*locking information*/
-const uint32_t lockMask = ((uint32_t)1 << 31) - 1; /*locking mask*/
-const int overflowSet = 1 << 4;
-const int countMask = (1 << 4) - 1;
 
 template <class T>
 struct _Pair {
   T key;
   Value_t value;
 };
+
+const uint32_t lockSet = ((uint32_t)1 << 31);      
+const uint32_t lockMask = ((uint32_t)1 << 31) - 1; 
+const int overflowSet = 1 << 4;
+const int countMask = (1 << 4) - 1;
+const uint64_t tailMask =
+    (1UL << 56) - 1; 
+const uint64_t headerMask = ((1UL << 8) - 1)
+                            << 56; 
+const uint8_t overflowBitmapMask = (1 << 4) - 1;
+
 
 constexpr size_t k_PairSize = 16;  // a k-v _Pair with a bit
 constexpr size_t kNumPairPerBucket =
@@ -65,13 +68,6 @@ constexpr int allocMask = (1 << kNumPairPerBucket) - 1;
 constexpr size_t bucketMask = ((1 << (int)log2(kNumBucket)) - 1);
 constexpr size_t stashMask = (1 << (int)log2(stashBucket)) - 1;
 constexpr uint8_t stashHighMask = ~((uint8_t)stashMask);
-const uint64_t recoverBit = 1UL << 63;
-const uint64_t lockBit = 1UL << 62;
-const uint64_t tailMask =
-    (1UL << 56) - 1; /*hide the highest 8 bits of the uint64_4*/
-const uint64_t headerMask = ((1UL << 8) - 1)
-                            << 56; /*hide the highest 8 bits of the uint64_4*/
-const uint8_t overflowBitmapMask = (1 << 4) - 1;
 
 #define BUCKET_INDEX(hash) ((hash >> kFingerBits) & bucketMask)
 #define GET_COUNT(var) ((var)&countMask)
@@ -90,8 +86,7 @@ struct Bucket {
     if (GET_COUNT(bitmap) == kNumPairPerBucket) {
       return -1;
     }
-    auto mask = ~(GET_BITMAP(bitmap));  // Now the 1 bit should be the empty
-                                        // slot
+    auto mask = ~(GET_BITMAP(bitmap));  
     return __builtin_ctz(mask);
   }
 
@@ -113,7 +108,7 @@ struct Bucket {
     if (index < 4) {
       finger_array[14 + index] = meta_hash;
       overflowBitmap =
-          ((uint8_t)(1 << index) | overflowBitmap); /*may be optimized*/
+          ((uint8_t)(1 << index) | overflowBitmap); 
       overflowIndex =
           (overflowIndex & (~(3 << (index * 2)))) | (pos << (index * 2));
     } else {
@@ -368,10 +363,8 @@ struct Bucket {
 
   int Insert(T key, Value_t value, uint8_t meta_hash, bool probe) {
     auto slot = find_empty_slot();
-    /* this branch can be optimized out*/
     assert(slot < kNumPairPerBucket);
     if (slot == -1) {
-      printf("cannot find the empty slot, for key %llu\n", key);
       return -1;
     }
     _[slot].value = value;
@@ -665,7 +658,7 @@ Table<T> *TlsTablePool<T>::all_tables = nullptr;
 template <class T>
 PMEMoid TlsTablePool<T>::p_all_tables = OID_NULL;
 
-/* the meta hash-table referenced by the directory*/
+/* the segment class*/
 template <class T>
 struct Table {
   static void New(PMEMoid *tbl, size_t depth, PMEMoid pp) {
@@ -682,6 +675,7 @@ struct Table {
       auto table_ptr = reinterpret_cast<Table<T> *>(ptr);
       table_ptr->local_depth = value_ptr->first;
       table_ptr->next = value_ptr->second;
+      table_ptr->state = -3; /*NEW*/
       memset(&table_ptr->lock_bit, 0, sizeof(PMEMmutex) * 2);
 
       int sumBucket = kNumBucket + stashBucket;
@@ -698,7 +692,7 @@ struct Table {
                         reinterpret_cast<void *>(&callback_para));
 #endif
 #else
-    Allocator::Allocate((void **)tbl, kCacheLineSize, sizeof(Table<T>));
+    Allocator::ZAllocate((void **)tbl, kCacheLineSize, sizeof(Table<T>));
     (*tbl)->local_depth = depth;
     (*tbl)->next = pp;
 #endif
@@ -733,13 +727,14 @@ struct Table {
              Directory<T> **);
   void Insert4split(T key, Value_t value, size_t key_hash, uint8_t meta_hash);
   void Insert4splitWithCheck(T key, Value_t value, size_t key_hash,
-                             uint8_t meta_hash);
+                             uint8_t meta_hash); /*with uniqueness check*/
   void Insert4merge(T key, Value_t value, size_t key_hash, uint8_t meta_hash,
                     bool flag = false);
   Table<T> *Split(size_t);
   void HelpSplit(Table<T> *);
   void Merge(Table<T> *, bool flag = false);
   int Delete(T key, size_t key_hash, uint8_t meta_hash, Directory<T> **_dir);
+
   int Next_displace(Bucket<T> *target, Bucket<T> *neighbor,
                     Bucket<T> *next_neighbor, T key, Value_t value,
                     uint8_t meta_hash) {
@@ -870,7 +865,6 @@ struct Table {
 #endif
     /* No need to flush these meta-data because persistent or not does not
      * influence the correctness*/
-    /*fix the duplicates between the neighbor buckets*/
   }
 
   char dummy[48];
@@ -880,8 +874,7 @@ struct Table {
   int number;
   PMEMoid next;
   int state; /*-1 means this bucket is merging, -2 means this bucket is
-                splitting, so we cannot count the depth_count on it during
-                scanning operation*/
+                splitting (SPLITTING), 0 meanning normal bucket, -3 means new bucket (NEW)*/
   PMEMmutex
       lock_bit; /* for the synchronization of the lazy recovery in one segment*/
 };
@@ -971,6 +964,10 @@ RETRY:
     return ret;
   }
 
+  /* the fp+bitmap are persisted after releasing the lock of one bucket but still guarantee the correctness of 
+  * avoidance of "use-before-flush" since the search operation could only proceed only if both target 
+  * bucket and probe bucket are released
+  */
   if (GET_COUNT(target->bitmap) <= GET_COUNT(neighbor->bitmap)) {
     target->Insert(key, value, meta_hash, false);
     target->release_lock();
@@ -1235,9 +1232,7 @@ void Table<T>::HelpSplit(Table<T> *next_table) {
           invalid_mask = invalid_mask | (1 << j);
           next_table->Insert4splitWithCheck(
               curr_bucket->_[j].key, curr_bucket->_[j].value, key_hash,
-              curr_bucket->finger_array[j]); /*this shceme may destory the
-                                                balanced segment*/
-                                             // curr_bucket->unset_hash(j);
+              curr_bucket->finger_array[j]); 
 #ifdef COUNTING
           number--;
 #endif
@@ -1263,8 +1258,7 @@ void Table<T>::HelpSplit(Table<T> *next_table) {
           invalid_mask = invalid_mask | (1 << j);
           next_table->Insert4splitWithCheck(
               curr_bucket->_[j].key, curr_bucket->_[j].value, key_hash,
-              curr_bucket->finger_array[j]); /*this shceme may destory the
-                                                balanced segment*/
+              curr_bucket->finger_array[j]); 
           auto bucket_ix = BUCKET_INDEX(key_hash);
           auto org_bucket = bucket + bucket_ix;
           auto neighbor_bucket = bucket + ((bucket_ix + 1) & bucketMask);
@@ -1307,7 +1301,7 @@ Table<T> *Table<T>::Split(size_t _key_hash) {
   for (int i = 1; i < kNumBucket; ++i) {
     (bucket + i)->get_lock();
   }
-  state = -2;
+  state = -2; /*means the start of the split process*/
   Allocator::Persist(&state, sizeof(state));
   Table<T>::New(&next, local_depth + 1, next);
   Table<T> *next_table = reinterpret_cast<Table<T> *>(pmemobj_direct(next));
@@ -1589,15 +1583,18 @@ Finger_EH<T>::Finger_EH(size_t initCap, PMEMobjpool *_pool) {
   crash_version = 0;
   clean = false;
   PMEMoid ptr;
+
+  /*FIXME: make the process of initialization crash consistent*/
   Table<T>::New(&ptr, dir->global_depth, OID_NULL);
   dir->_[initCap - 1] = (Table<T> *)pmemobj_direct(ptr);
-
   dir->_[initCap - 1]->pattern = initCap - 1;
+  dir->_[initCap - 1]->state = 0;
   /* Initilize the Directory*/
   for (int i = initCap - 2; i >= 0; --i) {
     Table<T>::New(&ptr, dir->global_depth, ptr);
     dir->_[i] = (Table<T> *)pmemobj_direct(ptr);
     dir->_[i]->pattern = i;
+    dir->_[i]->state = 0;
   }
   dir->depth_count = initCap;
 }
@@ -1665,7 +1662,6 @@ void Finger_EH<T>::Halve_Directory() {
                      sizeof(Directory<T>) + sizeof(uint64_t) * capacity);
   auto reserve_item = Allocator::ReserveItem();
   TX_BEGIN(pool_addr) {
-    // pmemobj_tx_add_range_direct(reserve_addr, sizeof(void *));
     pmemobj_tx_add_range_direct(reserve_item, sizeof(*reserve_item));
     pmemobj_tx_add_range_direct(&dir, sizeof(dir));
     pmemobj_tx_add_range_direct(&back_dir, sizeof(back_dir));
@@ -1761,7 +1757,9 @@ void Finger_EH<T>::Directory_Update(Directory<T> *_sa, int x, Table<T> *new_b,
       TX_ONABORT { std::cout << "Error for update txn" << std::endl; }
       TX_END
     }
+#ifdef COUNTING
     __sync_fetch_and_add(&_sa->depth_count, 2);
+#endif
   } else {
     int chunk_size = pow(2, global_depth - (new_b->local_depth - 1));
     x = x - (x % chunk_size);
@@ -1820,8 +1818,7 @@ void Finger_EH<T>::recoverTable(Table<T> **target_table, size_t key_hash,
     Allocator::Persist(&target->pattern, sizeof(target->pattern));
     Table<T> *next_table = (Table<T> *)pmemobj_direct(target->next);
     if (target->state == -2) {
-      if ((next_table->pattern == 0) ||
-          (next_table->pattern == ((target->pattern << 1) + 1))) {
+      if (next_table->state == -3){
         /*Help finish the split operation*/
         next_table->recoverMetadata();
         target->HelpSplit(next_table);
@@ -1971,10 +1968,11 @@ RETRY:
     }
 
     /*release the lock for the target bucket and the new bucket*/
-    target->state = 0;
     new_b->state = 0;
-    Allocator::Persist(&target->state, sizeof(int));
     Allocator::Persist(&new_b->state, sizeof(int));
+    target->state = 0;
+    Allocator::Persist(&target->state, sizeof(int));
+    
     Bucket<T> *curr_bucket;
     for (int i = 0; i < kNumBucket; ++i) {
       curr_bucket = target->bucket + i;
@@ -2171,8 +2169,6 @@ RETRY:
     return ret;
   }
 
-  /*no need for verification procedure, we use the version number of
-   * target_bucket to test whether the bucket has ben spliteted*/
   ret = neighbor_bucket->check_and_get(meta_hash, key, true);
   if (neighbor_bucket->test_lock_version_change(old_neighbor_version)) {
     goto RETRY;
@@ -2264,12 +2260,12 @@ void Finger_EH<T>::TryMerge(size_t key_hash) {
     auto left_seg = old_dir->_[left];
     auto right_seg = old_dir->_[right];
 
-    if (((uint64_t)left_seg & recoverBit)) {
+    if((reinterpret_cast<uint64_t>(left_seg) & headerMask) != crash_version){
       recoverTable(&old_dir->_[left], key_hash, left, old_dir);
       continue;
     }
 
-    if (((uint64_t)right_seg & recoverBit)) {
+    if((reinterpret_cast<uint64_t>(right_seg) & headerMask) != crash_version){
       recoverTable(&old_dir->_[right], key_hash, right, old_dir);
       continue;
     }
@@ -2369,7 +2365,7 @@ bool Finger_EH<T>::Delete(T key, bool is_in_epoch) {
   return Delete(key);
 }
 
-/*the delete operation of the */
+/*By default, the merge operation is disabled*/
 template <class T>
 bool Finger_EH<T>::Delete(T key) {
   /*Basic delete operation and merge operation*/

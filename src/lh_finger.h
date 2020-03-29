@@ -24,8 +24,6 @@
 #include "Hash.h"
 #include "allocator.h"
 #include "utils.h"
-#define _INVALID 0 /* we use 0 as the invalid key*/
-#define SINGLE 1
 #define DOUBLE_EXPANSION 1
 //#define PREALLOC 1
 //#define COUNTING 1

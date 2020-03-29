@@ -103,10 +103,8 @@ struct Segment {
       memset((void *)&seg_ptr->_[0], 255, sizeof(_Pair<T>) * kNumSlot);
       return 0;
     };
-    PMEMoid ptr;
-    Allocator::Allocate(&ptr, kCacheLineSize, sizeof(Segment), callback,
+    Allocator::Allocate((void**)seg, kCacheLineSize, sizeof(Segment), callback,
                         reinterpret_cast<void *>(&depth));
-    *seg = reinterpret_cast<Segment<T> *>(pmemobj_direct(ptr));
 #else
     Allocator::ZAllocate((void **)seg, kCacheLineSize, sizeof(Segment));
     new (*seg) Segment(depth);
