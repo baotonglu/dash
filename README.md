@@ -1,6 +1,6 @@
 # Dash: Scalable Hashing on Persistent Memory
 
-Persistent memory friendly hashing index that, to appear at VLDB 2020:
+Persistent memory friendly hashing index, to appear at VLDB 2020:
 
 ````
 Dash: Scalable Hashing on Persistent Memory.
