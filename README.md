@@ -24,7 +24,7 @@ Fully open-sourced under MIT license.
 
 ## Build using CMake
 
-We tested our build with Linux Kernel 5.5.3 and gcc 9.2.0 in a single NUMA node with 24 physical cores.
+We tested our build with Linux Kernel 5.5.3 and gcc 9.2.0.
 
 ```bash
 mkdir build && cd build
@@ -33,6 +33,8 @@ make -j
 ```
 
 ## Running
+
+As stated in our paper, we run the tests in a single NUMA node with 24 physical CPU cores.
 
 ```bash
 ./build/test_pmem --helpshort
