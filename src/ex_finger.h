@@ -1,12 +1,14 @@
-#pragma once
 
-/*
- * Dash Extendible Hashing
- * Authors:
- * Baotong Lu <btlu@cse.cuhk.edu.hk>
- * Xiangpeng Hao <xiangpeng_hao@sfu.ca>
- * Tianzheng Wang <tzwang@sfu.ca>
- */
+// Copyright (c) Simon Fraser University & The Chinese University of Hong Kong. All rights reserved.
+// Licensed under the MIT license.
+//
+// Dash Extendible Hashing
+// Authors:
+// Baotong Lu <btlu@cse.cuhk.edu.hk>
+// Xiangpeng Hao <xiangpeng_hao@sfu.ca>
+// Tianzheng Wang <tzwang@sfu.ca>
+
+#pragma once
 
 #include <immintrin.h>
 #include <omp.h>

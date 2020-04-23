@@ -1,3 +1,6 @@
+
+// Copyright (c) Simon Fraser University & The Chinese University of Hong Kong. All rights reserved.
+// Licensed under the MIT license.
 #pragma once
 
 #include <immintrin.h>

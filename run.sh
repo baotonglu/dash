@@ -18,7 +18,7 @@ epoch=(0 1 1 1 0)
 # j spec1fy the number of threads
 #for q in 0.5 0.6 0.7 0.8 0.9 0.99
 #do 
-for k in 2
+for k in 1
 do
 	for i in 1 2
 	do 

@@ -1,12 +1,14 @@
+// Copyright (c) Simon Fraser University & The Chinese University of Hong Kong. All rights reserved.
+// Licensed under the MIT license.
+//
+// Dash Linear Hashing
+// Authors:
+// Baotong Lu <btlu@cse.cuhk.edu.hk>
+// Xiangpeng Hao <xiangpeng_hao@sfu.ca>
+// Tianzheng Wang <tzwang@sfu.ca>
+
 #pragma once
 
-/*
- * Dash Linear Hashing
- * Authors:
- * Baotong Lu <btlu@cse.cuhk.edu.hk>
- * Xiangpeng Hao <xiangpeng_hao@sfu.ca>
- * Tianzheng Wang <tzwang@sfu.ca>
- */
 #include <immintrin.h>
 
 #include <bitset>
