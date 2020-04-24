@@ -60,7 +60,6 @@ double read_ratio, insert_ratio, delete_ratio, skew_factor;
 std::mutex mtx;
 std::condition_variable cv;
 bool finished = false;
-bool is_crash = false;
 bool open_epoch;
 uint32_t msec, var_length;
 struct timeval tv1, tv2, tv3;
@@ -258,31 +257,6 @@ inline void end_notify(struct range *rg) {
 }
 
 inline void end_sub() { SUB(&bar_c, 1); }
-
-template <class T>
-void concurr_insert_with_crash(struct range *_range, Hash<T> *index) {
-  set_affinity(_range->index);
-  int begin = _range->begin;
-  int end = _range->end;
-  char *workload = reinterpret_cast<char *>(_range->workload);
-  T key;
-
-  spin_wait();
-  if constexpr (!std::is_pointer_v<T>) {
-    T *key_array = reinterpret_cast<T *>(workload);
-    for (uint64_t i = begin; i < end; ++i) {
-      index->Insert(key_array[i], DEFAULT, 1);
-    }
-  } else {
-    T var_key;
-    uint64_t string_key_size = sizeof(string_key) + _range->length;
-    for (uint64_t i = begin; i < end; ++i) {
-      var_key = reinterpret_cast<T>(workload + string_key_size * i);
-      index->Insert(var_key, DEFAULT, 1);
-    }
-  }
-  end_notify(_range);
-}
 
 template <class T>
 void concurr_insert_without_epoch(struct range *_range, Hash<T> *index) {
