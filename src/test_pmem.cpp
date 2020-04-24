@@ -970,8 +970,6 @@ void *GenerateSkewWorkload(uint64_t load_num, uint64_t exist_num,
   return workload;
 }
 
-void GenerateRange() {}
-
 template <class T>
 void Run() {
   /* Initialize Index for Finger_EH*/
