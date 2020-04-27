@@ -1,4 +1,3 @@
-
 // Copyright (c) Simon Fraser University & The Chinese University of Hong Kong. All rights reserved.
 // Licensed under the MIT license.
 #include <gflags/gflags.h>
@@ -303,7 +302,7 @@ void concurr_insert(struct range *_range, Hash<T> *index) {
       auto epoch_guard = Allocator::AquireEpochGuard();
       uint64_t _end = begin + (i + 1) * EPOCH_DURATION;
       for (uint64_t j = begin + i * EPOCH_DURATION; j < _end; ++j) {
-        index->Insert(key_array[j], DEFAULT);
+        index->Insert(key_array[j], DEFAULT, true);
       }
       ++i;
     }
@@ -311,7 +310,7 @@ void concurr_insert(struct range *_range, Hash<T> *index) {
     {
       auto epoch_guard = Allocator::AquireEpochGuard();
       for (i = begin + EPOCH_DURATION * round; i < end; ++i) {
-        index->Insert(key_array[i], DEFAULT);
+        index->Insert(key_array[i], DEFAULT, true);
       }
     }
   } else {
@@ -1208,6 +1207,7 @@ int main(int argc, char *argv[]) {
     std::cout << "Insert ratio = " << insert_ratio << std::endl;
     std::cout << "Delete ratio = " << delete_ratio << std::endl;
   }
+
   if (!check_ratio()) {
     std::cout << "The ratio is wrong!" << std::endl;
     return 0;
