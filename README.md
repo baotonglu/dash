@@ -28,7 +28,8 @@ We tested our build with Linux Kernel 5.5.3 and GCC 9.2. You must ensure that yo
 
 The external dependencies are our [customized PMDK](https://github.com/XiangpengHao/pmdk) and [epoch manager](https://github.com/XiangpengHao/VeryPM), which are also open-sourced. 
 
-### CMake
+### Compiling
+Assuming to compile under a `build` directory:
 ```bash
 git clone https://github.com/baotonglu/dash.git
 cd dash
@@ -39,7 +40,7 @@ make -j
 
 ## Running benchmark
 
-As stated in our paper, we run the tests in a single NUMA node with 24 physical CPU cores. The `test_pmem` executable in `build` directory is generated and supports the following arguments:
+As stated in our paper, we run the tests in a single NUMA node with 24 physical CPU cores. We pin threads to physical cores compactly assuming thread ID == core ID (e.g., for a dual-socket system, we assume cores 0-23 are located in socket 0, and cores 24-47 in socket 1).  To run benchmarks, use the `test_pmem` executable in the `build` directory. It supports the following arguments:
 
 ```bash
 ./build/test_pmem --helpshort
@@ -58,14 +59,13 @@ Usage:
 -k          the type of stored keys: fixed/variable (default: "fixed")
 -vl         the length of the variable length key (default: 16)
 ```
-Our benchmark program binds the threads to the physical cores.
-For easier usage, you could modify the script `run.sh` we provide to test the hash tables by changing the parameters. 
+Check out also the `run.sh` script for example benchmarks and easy testing of the hash tables. 
 
 ## Example program
 
-To know how to integrate the Dash into your application, you could check the `example.cpp` in the `src` directory.
-Also check the `CMakeLists.txt` to know how to link the dependencies (customized PMDK and epoch manager) for correct build. 
-The executable is `exampe` under `build` directory. 
+To know how to integrate the Dash into your application, check out `example.cpp` under `src`.
+The executable is `example` under your build directory. 
+Also check `CMakeLists.txt` to know how to link with dependencies (customized PMDK and epoch manager) for correct build. 
 
 ## Miscellaneous
 
