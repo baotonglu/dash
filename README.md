@@ -1,7 +1,7 @@
 # Dash: Scalable Hashing on Persistent Memory
 
 Persistent memory friendly hashing index, to appear at VLDB 2020. 
-More details are described in our [VLDB paper](http://www.vldb.org/pvldb/vol13/p1147-lu.pdf) below. 
+More details are described in our [VLDB paper](http://www.vldb.org/pvldb/vol13/p1147-lu.pdf) below. If you are interested in our work, please cite:
 
 ````
 Baotong Lu, Xiangpeng Hao, Tianzheng Wang, Eric Lo:
