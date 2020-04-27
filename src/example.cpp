@@ -28,7 +28,7 @@ int main() {
   Allocator::Initialize(pool_name, pool_size);
 
   // Step 2: Allocate the initial space for the hash table on PM and get the
-  // root
+  // root; we use Dash-EH in this case.
   Hash<uint64_t> *hash_table = reinterpret_cast<Hash<uint64_t> *>(
       Allocator::GetRoot(sizeof(extendible::Finger_EH<uint64_t>)));
 
