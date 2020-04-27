@@ -6,7 +6,8 @@ More details are described in our [VLDB paper](http://www.vldb.org/pvldb/vol13/p
 
 ````
 Baotong Lu, Xiangpeng Hao, Tianzheng Wang, Eric Lo:
-Dash: Scalable Hashing on Persistent Memory. PVLDB 13(8): 1147-1161 (2020)
+Dash: Scalable Hashing on Persistent Memory. 
+PVLDB 13(8): 1147-1161 (2020)
 ````
 
 ## What's included
