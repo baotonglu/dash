@@ -1,7 +1,8 @@
 # Dash: Scalable Hashing on Persistent Memory
 
 Persistent memory friendly hashing index, to appear at VLDB 2020. 
-More details are described in our [VLDB paper](http://www.vldb.org/pvldb/vol13/p1147-lu.pdf) below. 
+
+More details are described in our [VLDB paper](http://www.vldb.org/pvldb/vol13/p1147-lu.pdf) below. If you are interested in our work, please cite:
 
 ````
 Baotong Lu, Xiangpeng Hao, Tianzheng Wang, Eric Lo:
@@ -36,7 +37,7 @@ cmake -DCMAKE_BUILD_TYPE=Release -DUSE_PMEM=ON ..
 make -j
 ```
 
-## Running Benchmark
+## Running benchmark
 
 As stated in our paper, we run the tests in a single NUMA node with 24 physical CPU cores. The `test_pmem` executable in `build` directory is generated and supports the following arguments:
 
@@ -68,7 +69,7 @@ The executable is `exampe` under `build` directory.
 
 ## Miscellaneous
 
-We noticed a possible `mmap` bug on our testing environment: `MAP_SHARED_VALIDATE` is incompatible with `MAP_FIXED_NOREPLACE`.
+We noticed a possible `mmap` bug on our testing environment: `MAP_SHARED_VALIDATE` is incompatible with `MAP_FIXED_NOREPLACE` (since Linux 4.17).
 To ensure safe memory mapping, we modified the original PMDK to use `MAP_SHARED` rather than `MAP_SHARED_VALIDATE`, which has the same functionality as the former one except for extra flag validation.
 For a more detailed explanation and minimal reproducible code, please check out our [blog post](https://blog.haoxp.xyz/posts/mmap-bug/) about this issue.
 
