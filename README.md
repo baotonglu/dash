@@ -25,6 +25,8 @@ Fully open-sourced under MIT license.
 ### Dependencies
 We tested our build with Linux Kernel 5.5.3 and GCC 9.2. You must ensure that your Linux kernel version >= 4.17 since we use `MAP_FIXED_NOREPLACE` in our customized PMDK. 
 
+Our customized PMDK is avaiable at https://github.com/XiangpengHao/pmdk. The epoch implementation is at https://github.com/XiangpengHao/VeryPM.
+
 ### CMake
 ```bash
 git clone https://github.com/baotonglu/dash.git
