@@ -1,13 +1,11 @@
 # Dash: Scalable Hashing on Persistent Memory
 
-Persistent memory friendly hashing index, to appear at VLDB 2020:
+Persistent memory friendly hashing index, to appear at VLDB 2020. More details are described in our [VLDB paper](http://www.vldb.org/pvldb/vol13/p1147-lu.pdf) below. 
 
 ````
 Baotong Lu, Xiangpeng Hao, Tianzheng Wang, Eric Lo:
 Dash: Scalable Hashing on Persistent Memory. PVLDB 13(8): 1147-1161 (2020)
 ````
-Paper at http://www.vldb.org/pvldb/vol13/p1147-lu.pdf.
-
 
 ## What's included
 
@@ -16,7 +14,7 @@ Paper at http://www.vldb.org/pvldb/vol13/p1147-lu.pdf.
 - CCEH - PMDK patched CCEH variant used in our benchmark
 - Level Hashing - PMDK patched level hashing variant used in our benchmark
 - Mini benchmark framework
-- All benchmark results
+- Example program - how to integrate Dash to your application
 
 Fully open-sourced under MIT license.
 
