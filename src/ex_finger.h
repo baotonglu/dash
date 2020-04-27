@@ -487,10 +487,10 @@ struct Bucket {
 
   int Insert_with_noflush(T key, Value_t value, uint8_t meta_hash, bool probe) {
     auto slot = find_empty_slot();
-    /* this branch can be optimized out*/
+    /* this branch can be removed*/
     assert(slot < kNumPairPerBucket);
     if (slot == -1) {
-      printf("cannot find the empty slot, for key %llu\n", key);
+      std::cout << "Cannot find the empty slot, for key " << key << std::endl;
       return -1;
     }
     _[slot].value = value;
@@ -1507,7 +1507,7 @@ class Finger_EH : public Hash<T> {
     Allocator::Persist(&clean, sizeof(clean));
   }
   void getNumber() {
-    printf("the size of the bucket is %lld\n", sizeof(struct Bucket<T>));
+    std::cout << "The size of the bucket is " << sizeof(struct Bucket<T>) << std::endl;
     size_t _count = 0;
     size_t seg_count = 0;
     Directory<T> *seg = dir;
@@ -1535,11 +1535,11 @@ class Finger_EH : public Hash<T> {
     std::cout << "seg_count = " << seg_count << std::endl;
     std::cout << "verify_seg_count = " << verify_seg_count << std::endl;
 #ifdef COUNTING
-    printf("#items: %lld\n", _count);
-    printf("load_factor: %f\n",
-           (double)_count / (seg_count * kNumPairPerBucket * (kNumBucket + 2)));
-    printf("Raw_Space: %f\n",
-           (double)(_count * 16) / (seg_count * sizeof(Table<T>)));
+    std::cout << "#items = " << _count << std::endl;
+    std::cout << "load_factor = " <<
+           (double)_count / (seg_count * kNumPairPerBucket * (kNumBucket + 2)) << std::endl;
+    std::cout << "Raw_Space: ",
+           (double)(_count * 16) / (seg_count * sizeof(Table<T>)) << std::endl;
 #endif
   }
 
@@ -1625,7 +1625,7 @@ void Finger_EH<T>::Unlock_Directory() {
 
 template <class T>
 void Finger_EH<T>::Halve_Directory() {
-  printf("Begin::Directory_Halving towards %lld\n", dir->global_depth);
+  std::cout << "Begin::Directory_Halving towards " <<  dir->global_depth << std::endl;
   auto d = dir->_;
 
   Directory<T> *new_dir;
@@ -1676,14 +1676,14 @@ void Finger_EH<T>::Halve_Directory() {
 #else
   dir = new_dir;
 #endif
-  printf("End::Directory_Halving towards %lld\n", dir->global_depth);
+  std::cout << "End::Directory_Halving towards " << dir->global_depth << std::endl;
 }
 
 template <class T>
 void Finger_EH<T>::Directory_Doubling(int x, Table<T> *new_b, Table<T> *old_b) {
   Table<T> **d = dir->_;
   auto global_depth = dir->global_depth;
-  printf("Directory_Doubling towards %lld\n", global_depth + 1);
+  std::cout << "Directory_Doubling towards " << global_depth + 1 << std::endl;
 
   auto capacity = pow(2, global_depth);
   Directory<T>::New(&back_dir, 2 * capacity, dir->version + 1);

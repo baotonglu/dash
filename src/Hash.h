@@ -21,10 +21,7 @@ class Hash {
   ~Hash(void) = default;
   virtual void Insert(T, Value_t) = 0;
   virtual void Insert(T, Value_t, bool) = 0;
-  virtual void Insert(T, Value_t, int){
-
-  };
-
+ 
   virtual void bootRestore(){
 
   };

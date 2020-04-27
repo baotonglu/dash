@@ -1,4 +1,3 @@
-
 // Copyright (c) Simon Fraser University & The Chinese University of Hong Kong. All rights reserved.
 // Licensed under the MIT license.
 #include <gflags/gflags.h>
@@ -60,7 +59,6 @@ double read_ratio, insert_ratio, delete_ratio, skew_factor;
 std::mutex mtx;
 std::condition_variable cv;
 bool finished = false;
-bool is_crash = false;
 bool open_epoch;
 uint32_t msec, var_length;
 struct timeval tv1, tv2, tv3;
@@ -260,31 +258,6 @@ inline void end_notify(struct range *rg) {
 inline void end_sub() { SUB(&bar_c, 1); }
 
 template <class T>
-void concurr_insert_with_crash(struct range *_range, Hash<T> *index) {
-  set_affinity(_range->index);
-  int begin = _range->begin;
-  int end = _range->end;
-  char *workload = reinterpret_cast<char *>(_range->workload);
-  T key;
-
-  spin_wait();
-  if constexpr (!std::is_pointer_v<T>) {
-    T *key_array = reinterpret_cast<T *>(workload);
-    for (uint64_t i = begin; i < end; ++i) {
-      index->Insert(key_array[i], DEFAULT, 1);
-    }
-  } else {
-    T var_key;
-    uint64_t string_key_size = sizeof(string_key) + _range->length;
-    for (uint64_t i = begin; i < end; ++i) {
-      var_key = reinterpret_cast<T>(workload + string_key_size * i);
-      index->Insert(var_key, DEFAULT, 1);
-    }
-  }
-  end_notify(_range);
-}
-
-template <class T>
 void concurr_insert_without_epoch(struct range *_range, Hash<T> *index) {
   set_affinity(_range->index);
   int begin = _range->begin;
@@ -329,7 +302,7 @@ void concurr_insert(struct range *_range, Hash<T> *index) {
       auto epoch_guard = Allocator::AquireEpochGuard();
       uint64_t _end = begin + (i + 1) * EPOCH_DURATION;
       for (uint64_t j = begin + i * EPOCH_DURATION; j < _end; ++j) {
-        index->Insert(key_array[j], DEFAULT);
+        index->Insert(key_array[j], DEFAULT, true);
       }
       ++i;
     }
@@ -337,7 +310,7 @@ void concurr_insert(struct range *_range, Hash<T> *index) {
     {
       auto epoch_guard = Allocator::AquireEpochGuard();
       for (i = begin + EPOCH_DURATION * round; i < end; ++i) {
-        index->Insert(key_array[i], DEFAULT);
+        index->Insert(key_array[i], DEFAULT, true);
       }
     }
   } else {
@@ -996,8 +969,6 @@ void *GenerateSkewWorkload(uint64_t load_num, uint64_t exist_num,
   return workload;
 }
 
-void GenerateRange() {}
-
 template <class T>
 void Run() {
   /* Initialize Index for Finger_EH*/
@@ -1236,6 +1207,7 @@ int main(int argc, char *argv[]) {
     std::cout << "Insert ratio = " << insert_ratio << std::endl;
     std::cout << "Delete ratio = " << delete_ratio << std::endl;
   }
+
   if (!check_ratio()) {
     std::cout << "The ratio is wrong!" << std::endl;
     return 0;

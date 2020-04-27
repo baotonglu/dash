@@ -2050,14 +2050,12 @@ class Linear : public Hash<T> {
 #ifdef COUNTING
     std::cout << "The recount number is " << recount_num << std::endl;
 #endif
-    printf("the inserted num is %lld\n", count);
-    printf("the bucket number is %lld\n", Bucket_num);
-    printf("the local load factor = %lf\n",
-           (double)count / (Bucket_num * kNumPairPerBucket));
-    printf("the local raw sapce utilization = %lf\n",
-           (double)count / (Bucket_num * 16));
-    printf("the prev_length = %lld\n", prev_length);
-    printf("the after_length = %lld\n", after_length);
+    std::cout << "the inserted num is " << count << std::endl;
+    std::cout << "the bucket number is " << Bucket_num << std::endl;
+    std::cout << "the local load factor = " << (double)count / (Bucket_num * kNumPairPerBucket) << std::endl;
+    std::cout << "the local raw sapce utilization = " << (double)count / (Bucket_num * 16) << std::endl;
+    std::cout << "the prev_length = " << prev_length << std::endl;
+    std::cout << "the after_length = " << after_length << std::endl;
   }
 
   /**

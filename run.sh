@@ -1,5 +1,4 @@
 #!/bin/bash
-# For 100% read operation based 100 millions records inserted into the dataset
 
 thread_num=(0 1 2 4 8 16 24 48)
 #benckmark workload
@@ -17,11 +16,11 @@ epoch=(0 1 1 1 0)
 # i specify the key type, 1 means fixed-length key, 2 means variable-length key
 # j spec1fy the number of threads
 #for q in 0.5 0.6 0.7 0.8 0.9 0.99
-#do 
+#do
 for k in 1
 do
 	for i in 1 2
-	do 
+	do
 		for j in 6
 		do
 			echo "Begin: ${base[1]} ${workload[${i}]} ${thread_num[${j}]}"
@@ -36,7 +35,7 @@ do
 			echo $numaarg
 			rm -f /mnt/pmem0/pmem_ex.data
 			rm -f /mnt/pmem0/pmem_lh.data
-			rm -f /mnt/pmem0/pmem_cceh.data			
+			rm -f /mnt/pmem0/pmem_cceh.data
 			rm -f /mnt/pmem0/pmem_level.data
       LD_PRELOAD="./build/pmdk/src/PMDK/src/nondebug/libpmemobj.so.1 \
       ./build/pmdk/src/PMDK/src/nondebug/libpmem.so.1" \
