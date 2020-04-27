@@ -20,11 +20,15 @@ Dash: Scalable Hashing on Persistent Memory. PVLDB 13(8): 1147-1161 (2020)
 Fully open-sourced under MIT license.
 
 
-## Build using CMake
+## Building
 
-We tested our build with Linux Kernel 5.5.3 and gcc 9.2.0. You must ensure that your Linux kernel version >= 4.17 since we use `MAP_FIXED_NOREPLACE` in our customized PMDK. 
+### Dependencies
+We tested our build with Linux Kernel 5.5.3 and GCC 9.2. You must ensure that your Linux kernel version >= 4.17 since we use `MAP_FIXED_NOREPLACE` in our customized PMDK. 
 
+### CMake
 ```bash
+git clone https://github.com/baotonglu/dash.git
+cd dash
 mkdir build && cd build
 cmake -DCMAKE_BUILD_TYPE=Release -DUSE_PMEM=ON .. 
 make -j
