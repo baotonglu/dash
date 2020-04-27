@@ -37,7 +37,7 @@ cmake -DCMAKE_BUILD_TYPE=Release -DUSE_PMEM=ON ..
 make -j
 ```
 
-## Running Benchmark
+## Running benchmark
 
 As stated in our paper, we run the tests in a single NUMA node with 24 physical CPU cores. The `test_pmem` executable in `build` directory is generated and supports the following arguments:
 
