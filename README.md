@@ -3,11 +3,10 @@
 Persistent memory friendly hashing index, to appear at VLDB 2020:
 
 ````
-Dash: Scalable Hashing on Persistent Memory.
-Baotong Lu, Xiangpeng Hao, Tianzheng Wang and Eric Lo.
-VLDB 2020.
+Baotong Lu, Xiangpeng Hao, Tianzheng Wang, Eric Lo:
+Dash: Scalable Hashing on Persistent Memory. PVLDB 13(8): 1147-1161 (2020)
 ````
-Paper preprint at https://arxiv.org/pdf/2003.07302.pdf.
+Paper at http://www.vldb.org/pvldb/vol13/p1147-lu.pdf.
 
 
 ## What's included
@@ -24,7 +23,7 @@ Fully open-sourced under MIT license.
 
 ## Build using CMake
 
-We tested our build with Linux Kernel 5.5.3 and gcc 9.2.0.
+We tested our build with Linux Kernel 5.5.3 and gcc 9.2.0. You must ensure that your Linux kernel version >= 4.17 since we use `MAP_FIXED_NOREPLACE` in our customized PMDK. 
 
 ```bash
 mkdir build && cd build
