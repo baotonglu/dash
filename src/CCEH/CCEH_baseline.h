@@ -309,8 +309,8 @@ struct Directory {
       seg_num++;
       i += pow(2, depth_diff);
     }
-    printf("#items: %lld\n", count);
-    printf("load_factor: %f\n", (double)count / (seg_num * 256 * 4));
+    std::cout << "#items: " << count << std::endl;
+    std::cout << "load_factor: " << (double)count / (seg_num * 256 * 4) << std::endl;
   }
 
   bool Acquire(void) {
@@ -613,8 +613,6 @@ void CCEH<T>::Directory_Doubling(int x, Segment<T> *s0, PMEMoid *s1) {
     std::cout << "TXN fails during doubling directory" << std::endl;
   }
   TX_END
-
-  printf("Done!!Directory_Doubling towards %lld\n", global_depth);
 }
 
 template <class T>
