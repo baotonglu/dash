@@ -26,7 +26,7 @@ Fully open-sourced under MIT license.
 ### Dependencies
 We tested our build with Linux Kernel 5.5.3 and GCC 9.2. You must ensure that your Linux kernel version >= 4.17 since we use `MAP_FIXED_NOREPLACE` in our customized PMDK. 
 
-Our customized PMDK is available [here](https://github.com/XiangpengHao/pmdk). The epoch manager is available [here]( https://github.com/XiangpengHao/VeryPM).
+The external dependencies are our [customzied PMDK](https://github.com/XiangpengHao/pmdk) and [epoch manager](https://github.com/XiangpengHao/VeryPM), which are also open-sourced. 
 
 ### CMake
 ```bash
