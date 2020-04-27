@@ -47,7 +47,7 @@ int main() {
   // reclamation; To make it simple, this example program only use one thread
   // but we still show how to use epoch mechanism; We enter into the epoch for
   // every 1024 operations to reduce the overhead; The following example inserts
-  // 1024 * 1024 key-value pairs to the table, and then do the same search and
+  // 1024 * 1024 key-value pairs to the table, and then do the search and
   // delete operations
 
   // Insert
