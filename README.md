@@ -55,7 +55,7 @@ Usage:
 -k          the type of stored keys: fixed/variable (default: "fixed")
 -vl         the length of the variable length key (default: 16)
 ```
-
+Our benchmark program binds the threads to the physical cores.
 For easier usage, you could modify the script `run.sh` we provide to test the hash tables by changing the parameters. 
 
 ## Miscellaneous
