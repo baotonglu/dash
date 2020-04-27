@@ -38,6 +38,8 @@ int main() {
     size_t segment_number = 64;
     new (hash_table) extendible::Finger_EH<uint64_t>(
         segment_number, Allocator::Get()->pm_pool_);
+  }else{
+    new (hash_table) extendible::Finger_EH<uint64_t>();
   }
 
   // Step 4: Operate on the hash table
