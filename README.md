@@ -25,7 +25,7 @@ Fully open-sourced under MIT license.
 ### Dependencies
 We tested our build with Linux Kernel 5.5.3 and GCC 9.2. You must ensure that your Linux kernel version >= 4.17 since we use `MAP_FIXED_NOREPLACE` in our customized PMDK. 
 
-Our customized PMDK is available at https://github.com/XiangpengHao/pmdk. The epoch implementation is available at https://github.com/XiangpengHao/VeryPM.
+Our customized PMDK is available at https://github.com/XiangpengHao/pmdk. The epoch manager is available at https://github.com/XiangpengHao/VeryPM.
 
 ### CMake
 ```bash
@@ -59,6 +59,12 @@ Usage:
 ```
 Our benchmark program binds the threads to the physical cores.
 For easier usage, you could modify the script `run.sh` we provide to test the hash tables by changing the parameters. 
+
+## Example program
+
+To know how to integrate the Dash into your application, you could check the `example.cpp` in the `src` directory.
+Also check the `CMakeLists.txt` to know how to link the dependencies (customized PMDK and epoch manager) for correct build. 
+The executable is `exampe` under `build` directory. 
 
 ## Miscellaneous
 
