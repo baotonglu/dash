@@ -34,9 +34,9 @@ cmake -DCMAKE_BUILD_TYPE=Release -DUSE_PMEM=ON ..
 make -j
 ```
 
-## Running
+## Running Benchmark
 
-As stated in our paper, we run the tests in a single NUMA node with 24 physical CPU cores.
+As stated in our paper, we run the tests in a single NUMA node with 24 physical CPU cores. The `test_pmem` executable in `build` directory is generated and supports the following arguments:
 
 ```bash
 ./build/test_pmem --helpshort
@@ -55,6 +55,8 @@ Usage:
 -k          the type of stored keys: fixed/variable (default: "fixed")
 -vl         the length of the variable length key (default: 16)
 ```
+
+For easier usage, you could modify the script `run.sh` we provide to test the hash tables by changing the parameters. 
 
 ## Miscellaneous
 
