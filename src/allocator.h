@@ -5,7 +5,7 @@
 #include <garbage_list.h>
 #include <sys/mman.h>
 
-#include "utils.h"
+#include "../util/utils.h"
 #include "x86intrin.h"
 
 static const char* layout_name = "hashtable";

@@ -14,7 +14,6 @@
 #include "Hash.h"
 #include "allocator.h"
 #include "ex_finger.h"
-#include "utils.h"
 
 // pool path and name
 static const char *pool_name = "/mnt/pmem0/pmem_hash.data";

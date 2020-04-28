@@ -25,7 +25,6 @@
 #include "../util/pair.h"
 #include "Hash.h"
 #include "allocator.h"
-#include "utils.h"
 #define DOUBLE_EXPANSION 1
 
 #ifdef PMEM

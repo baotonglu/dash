@@ -22,7 +22,6 @@
 #include "ex_finger.h"
 #include "lh_finger.h"
 #include "libpmemobj.h"
-#include "utils.h"
 
 std::string pool_name = "/mnt/pmem0/";
 DEFINE_string(index, "dash-ex",

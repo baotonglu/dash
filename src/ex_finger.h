@@ -28,7 +28,6 @@
 #include "../util/pair.h"
 #include "Hash.h"
 #include "allocator.h"
-#include "utils.h"
 
 #ifdef PMEM
 #include <libpmemobj.h>
