@@ -26,11 +26,6 @@ static bool FileExists(const char *pool_path) {
 
 #ifdef PMEM
 #define CREATE_MODE_RW (S_IWUSR | S_IRUSR)
-//#ifndef POBJ_LAYOUT_TOID(allocator, char)
-// POBJ_LAYOUT_BEGIN(allocator);
-// POBJ_LAYOUT_TOID(allocator, char);
-// POBJ_LAYOUT_END(allocator);
-//#endif
 #endif
 
 #define LOG_FATAL(msg)      \
