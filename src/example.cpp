@@ -4,8 +4,7 @@
 // This is an example program about how to use Dash hash table in your
 // application. We take Dash-EH as an exmaple. This example emphasizes the
 // following aspects: (1) Which header files to include (2) How/where to set up
-// pools (3) Which shared libraries to be linked: customized PMDK
-// (https://github.com/HaoPatrick/pmdk.git); pthread; pmemobj; pmem (4) How to
+// pools (3) Which shared libraries to be linked: pthread; (4) How to
 // use the basic operations supported by Dash
 
 // Please check the CMakeLists.txt to know the details how to link the
