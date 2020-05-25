@@ -19,8 +19,9 @@ class Hash {
  public:
   Hash(void) = default;
   ~Hash(void) = default;
-  virtual void Insert(T, Value_t) = 0;
-  virtual void Insert(T, Value_t, bool) = 0;
+  /*0 means success insert, -1 means this key already exist, directory return*/
+  virtual int Insert(T, Value_t) = 0;
+  virtual int Insert(T, Value_t, bool) = 0;
  
   virtual void bootRestore(){
 

@@ -18,10 +18,7 @@
 #include "Hash.h"
 #include "allocator.h"
 #include "ex_finger.h"
-#include "lh_finger.h"
-#include "libpmemobj.h"
 
-std::string pool_name = "/mnt/pmem0/";
 DEFINE_string(index, "dash-ex",
               "the index to evaluate:dash-ex/dash-lh/cceh/level");
 DEFINE_string(k, "fixed", "the type of stored keys: fixed/variable");
@@ -100,10 +97,6 @@ Hash<T> *InitializeIndex(int seg_num) {
     std::cout << "Initialize Dash-EH" << std::endl;
     Allocator::Initialize();
     eh = new extendible::Finger_EH<T>(seg_num);
-  } else if (index_type == "dash-lh") {
-    std::cout << "Initialize Dash-LH" << std::endl;
-    Allocator::Initialize();
-    eh = new linear::Linear<T>();
   }
   std::cout << "end up the initialization" << std::endl;
 
