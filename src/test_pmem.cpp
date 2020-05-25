@@ -855,7 +855,6 @@ void Run() {
   if (key_type != "fixed") {
     Allocator::Allocate(&insert_workload, kCacheLineSize,
                         (sizeof(string_key) + var_length) * generate_num);
-    std::cout << "allocate finish for pm" << std::endl;
     memcpy(insert_workload, workload,
            (sizeof(string_key) + var_length) * generate_num);
   } else {
