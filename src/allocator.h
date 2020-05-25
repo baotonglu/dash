@@ -15,8 +15,9 @@ struct Allocator {
   static void Initialize() {
     instance_ = new Allocator();
     instance_->epoch_manager_.Initialize();
-    instance_->garbage_list_.Initialize(&instance_->epoch_manager_,
-                                        instance_->pm_pool_, 1024 * 8);
+    //instance_->garbage_list_.Initialize(&instance_->epoch_manager_,
+    //                                    instance_->pm_pool_, 1024 * 8);
+    instance_->garbage_list_.Initialize(&instance_->epoch_manager_, 1024 * 8);
   }
 
   static void Close_pool() {
