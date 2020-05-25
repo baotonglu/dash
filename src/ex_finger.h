@@ -835,7 +835,6 @@ struct Table {
      * influence the correctness*/
   }
 
-  char dummy[48];
   Bucket<T> bucket[kNumBucket + stashBucket];
   size_t local_depth;
   size_t pattern;
