@@ -1880,9 +1880,9 @@ class Linear : public Hash<T> {
       goto RE_EXPAND;
     }
 
-    if ((uint32_t)new_N_next == 0) {
-      printf("expand to level %lu\n", new_N_next >> 32);
-    }
+    //if ((uint32_t)new_N_next == 0) {
+    //  printf("expand to level %lu\n", new_N_next >> 32);
+    //}
   }
 
   Directory<T> dir;
@@ -1895,7 +1895,6 @@ Linear<T>::Linear() {
   lock = 0;
   clean = false;
   dir.N_next = baseShifBits << 32;
-  std::cout << "Table size is " << sizeof(Table<T>) << std::endl;
   memset(dir._, 0, directorySize * sizeof(uint64_t));
 
   Allocator::ZAllocate((void **)&dir._[0], kCacheLineSize,

@@ -1310,7 +1310,6 @@ void Finger_EH<T>::Unlock_Directory() {
 
 template <class T>
 void Finger_EH<T>::Halve_Directory() {
-  std::cout << "Begin::Directory_Halving towards " <<  dir->global_depth << std::endl;
   auto d = dir->_;
 
   Directory<T> *new_dir;
@@ -1338,15 +1337,12 @@ void Finger_EH<T>::Halve_Directory() {
   }
 
   dir = new_dir;
-  std::cout << "End::Directory_Halving towards " << dir->global_depth << std::endl;
 }
 
 template <class T>
 void Finger_EH<T>::Directory_Doubling(int x, Table<T> *new_b, Table<T> *old_b) {
   Table<T> **d = dir->_;
   auto global_depth = dir->global_depth;
-  std::cout << "Directory_Doubling towards " << global_depth + 1 << std::endl;
-
   auto capacity = pow(2, global_depth);
   Directory<T>::New(&back_dir, 2 * capacity, dir->version + 1);
   Directory<T> *new_sa = back_dir;
