@@ -4,6 +4,7 @@
 #pragma once
 #include <garbage_list.h>
 #include <sys/mman.h>
+#include <cstring>
 
 #include "../util/utils.h"
 #include "x86intrin.h"
