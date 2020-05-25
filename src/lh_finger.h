@@ -27,9 +27,6 @@
 #include "allocator.h"
 #define DOUBLE_EXPANSION 1
 
-#ifdef PMEM
-#include <libpmemobj.h>
-#endif
 namespace linear {
 //#define PREALLOC 1
 //#define COUNTING 1
@@ -1088,7 +1085,6 @@ struct Table {
                 right)*/
   uint64_t seg_version;
   char dummy[48];
-  PMEMmutex lock_bit;
 };
 
 template <class T>
@@ -1727,8 +1723,7 @@ void Table<T>::Insert4merge(T key, Value_t value, size_t key_hash,
 template <class T>
 class Linear : public Hash<T> {
  public:
-  Linear(void);
-  Linear(PMEMobjpool *_pool);
+  Linear();
   ~Linear(void);
   void Insert(T key, Value_t value);
   bool Delete(T);
@@ -1890,16 +1885,13 @@ class Linear : public Hash<T> {
     }
   }
 
-  PMEMobjpool *pool_addr;
   Directory<T> dir;
   int lock;
   bool clean;
 };
 
 template <class T>
-Linear<T>::Linear(PMEMobjpool *_pool) {
-  std::cout << "Start to initialize from scratch" << std::endl;
-  pool_addr = _pool;
+Linear<T>::Linear() {
   lock = 0;
   clean = false;
   dir.N_next = baseShifBits << 32;
@@ -1917,10 +1909,6 @@ Linear<T>::Linear(PMEMobjpool *_pool) {
   }
 }
 
-template <class T>
-Linear<T>::Linear(void) {
-  std::cout << "Reinitialize Up for linear hashing" << std::endl;
-}
 
 template <class T>
 Linear<T>::~Linear(void) {

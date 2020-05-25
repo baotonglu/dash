@@ -118,11 +118,7 @@ Hash<T> *InitializeIndex(int seg_num) {
 #endif
     eh = reinterpret_cast<Hash<T> *>(
         Allocator::GetRoot(sizeof(linear::Linear<T>)));
-    if (!file_exist) {
-      new (eh) linear::Linear<T>(Allocator::Get()->pm_pool_);
-    } else {
-      new (eh) linear::Linear<T>();
-    }
+    new (eh) linear::Linear<T>();
   }
   
   std::cout << "end up the initialization" << std::endl;
