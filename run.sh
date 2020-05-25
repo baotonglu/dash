@@ -20,7 +20,7 @@ for k in 1
 do
 	for i in 1
 	do
-		for j in 1
+		for j in 6
 		do
 			echo "Begin: ${base[1]} ${workload[${i}]} ${thread_num[${j}]}"
 			numaarg=""
@@ -32,12 +32,6 @@ do
 				numaarg="--cpunodebind=0,1 --membind=0"
 			fi
 			echo $numaarg
-			rm -f /mnt/pmem0/pmem_ex.data
-			rm -f /mnt/pmem0/pmem_lh.data
-			rm -f /mnt/pmem0/pmem_cceh.data
-			rm -f /mnt/pmem0/pmem_level.data
-      LD_PRELOAD="./build/pmdk/src/PMDK/src/nondebug/libpmemobj.so.1 \
-      ./build/pmdk/src/PMDK/src/nondebug/libpmem.so.1" \
       numactl $numaarg ./build/test_pmem \
       -n ${base[1]} \
       -loadType 0 \

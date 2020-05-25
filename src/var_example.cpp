@@ -32,7 +32,7 @@ int main() {
   workload = malloc(generate_num * (variable_length + sizeof(string_key)));
 
   int word_num = (variable_length / 8) + (((variable_length % 8) != 0) ? 1 : 0);
-  _key = reinterpret_cast<uint64_t *>(malloc(word_num * sizeof(uint64_t)));
+  uint64_t *_key = reinterpret_cast<uint64_t *>(malloc(word_num * sizeof(uint64_t)));
 
   for (uint64_t i = 0; i < generate_num; ++i) {
     string_key* var_key = reinterpret_cast<string_key *>(workload +
@@ -51,7 +51,6 @@ int main() {
   // every 1024 operations to reduce the overhead; The following example inserts
   // 1024 * 1024 key-value pairs to the table, and then do the search and
   // delete operations
-
  uint64_t string_key_size = sizeof(string_key) + variable_length;
 
   // Insert
