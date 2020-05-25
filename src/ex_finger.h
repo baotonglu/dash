@@ -305,15 +305,7 @@ struct Bucket {
     assert(GET_COUNT(bitmap) <= kNumPairPerBucket);
     assert(GET_COUNT(bitmap) > 0);
     new_bitmap -= 1;
-#ifdef PMEM
-    if (nt_flush) {
-      Allocator::NTWrite32(reinterpret_cast<uint32_t *>(&bitmap), new_bitmap);
-    } else {
-      bitmap = new_bitmap;
-    }
-#else
     bitmap = new_bitmap;
-#endif
   }
 
   inline void get_lock() {
@@ -366,9 +358,6 @@ struct Bucket {
     }
     _[slot].value = value;
     _[slot].key = key;
-#ifdef PMEM
-    Allocator::Persist(&_[slot], sizeof(_[slot]));
-#endif
     set_hash(slot, meta_hash, probe);
     return 0;
   }
@@ -502,9 +491,6 @@ struct Bucket {
                        bool probe) {
     _[slot].value = value;
     _[slot].key = key;
-#ifdef PMEM
-    Allocator::Persist(&_[slot], sizeof(_Pair<T>));
-#endif
     set_hash(slot, meta_hash, probe);
   }
 
@@ -742,15 +728,9 @@ struct Table {
                             neighbor->_[displace_index].value,
                             neighbor->finger_array[displace_index], true);
       next_neighbor->release_lock();
-#ifdef PMEM
-      Allocator::Persist(&next_neighbor->bitmap, sizeof(next_neighbor->bitmap));
-#endif
       neighbor->unset_hash(displace_index);
       neighbor->Insert_displace(key, value, meta_hash, displace_index, true);
       neighbor->release_lock();
-#ifdef PMEM
-      Allocator::Persist(&neighbor->bitmap, sizeof(neighbor->bitmap));
-#endif
       target->release_lock();
 #ifdef COUNTING
       __sync_fetch_and_add(&number, 1);
@@ -770,15 +750,9 @@ struct Table {
                             target->_[displace_index].value,
                             target->finger_array[displace_index], false);
       prev_neighbor->release_lock();
-#ifdef PMEM
-      Allocator::Persist(&prev_neighbor->bitmap, sizeof(prev_neighbor->bitmap));
-#endif
       target->unset_hash(displace_index);
       target->Insert_displace(key, value, meta_hash, displace_index, false);
       target->release_lock();
-#ifdef PMEM
-      Allocator::Persist(&target->bitmap, sizeof(target->bitmap));
-#endif
       neighbor->release_lock();
 #ifdef COUNTING
       __sync_fetch_and_add(&number, 1);
@@ -795,9 +769,6 @@ struct Table {
           bucket + kNumBucket + ((stash_pos + i) & stashMask);
       if (GET_COUNT(curr_bucket->bitmap) < kNumPairPerBucket) {
         curr_bucket->Insert(key, value, meta_hash, false);
-#ifdef PMEM
-        Allocator::Persist(&curr_bucket->bitmap, sizeof(curr_bucket->bitmap));
-#endif
         target->set_indicator(meta_hash, neighbor, (stash_pos + i) & stashMask);
 #ifdef COUNTING
         __sync_fetch_and_add(&number, 1);
@@ -970,16 +941,10 @@ RETRY:
   if (GET_COUNT(target->bitmap) <= GET_COUNT(neighbor->bitmap)) {
     target->Insert(key, value, meta_hash, false);
     target->release_lock();
-#ifdef PMEM
-    Allocator::Persist(&target->bitmap, sizeof(target->bitmap));
-#endif
     neighbor->release_lock();
   } else {
     neighbor->Insert(key, value, meta_hash, true);
     neighbor->release_lock();
-#ifdef PMEM
-    Allocator::Persist(&neighbor->bitmap, sizeof(neighbor->bitmap));
-#endif
     target->release_lock();
   }
 #ifdef COUNTING
@@ -1273,12 +1238,9 @@ void Table<T>::HelpSplit(Table<T> *next_table) {
     invalid_array[kNumBucket + i] = invalid_mask;
   }
   next_table->pattern = new_pattern;
-  Allocator::Persist(&next_table->pattern, sizeof(next_table->pattern));
   pattern = old_pattern;
-  Allocator::Persist(&pattern, sizeof(pattern));
 
 #ifdef PMEM
-  Allocator::Persist(next_table, sizeof(Table));
   size_t sumBucket = kNumBucket + stashBucket;
   for (int i = 0; i < sumBucket; ++i) {
     auto curr_bucket = bucket + i;
@@ -1287,8 +1249,6 @@ void Table<T>::HelpSplit(Table<T> *next_table) {
     uint32_t count = __builtin_popcount(invalid_array[i]);
     curr_bucket->bitmap = curr_bucket->bitmap - count;
   }
-
-  Allocator::Persist(this, sizeof(Table));
 #endif
 }
 
@@ -1301,12 +1261,10 @@ Table<T> *Table<T>::Split(size_t _key_hash) {
     (bucket + i)->get_lock();
   }
   state = -2; /*means the start of the split process*/
-  Allocator::Persist(&state, sizeof(state));
   Table<T>::New(&next, local_depth + 1, next);
   Table<T> *next_table = reinterpret_cast<Table<T> *>(pmemobj_direct(next));
 
   next_table->state = -2;
-  Allocator::Persist(&next_table->state, sizeof(next_table->state));
   next_table->bucket
       ->get_lock(); /* get the first lock of the new bucket to avoid it
                  is operated(split or merge) by other threads*/
@@ -1374,12 +1332,9 @@ Table<T> *Table<T>::Split(size_t _key_hash) {
     invalid_array[kNumBucket + i] = invalid_mask;
   }
   next_table->pattern = new_pattern;
-  Allocator::Persist(&next_table->pattern, sizeof(next_table->pattern));
   pattern = old_pattern;
-  Allocator::Persist(&pattern, sizeof(pattern));
 
 #ifdef PMEM
-  Allocator::Persist(next_table, sizeof(Table));
   size_t sumBucket = kNumBucket + stashBucket;
   for (int i = 0; i < sumBucket; ++i) {
     auto curr_bucket = bucket + i;
@@ -1388,8 +1343,6 @@ Table<T> *Table<T>::Split(size_t _key_hash) {
     uint32_t count = __builtin_popcount(invalid_array[i]);
     curr_bucket->bitmap = curr_bucket->bitmap - count;
   }
-
-  Allocator::Persist(this, sizeof(Table));
 #endif
   return next_table;
 }
@@ -1503,7 +1456,6 @@ class Finger_EH : public Hash<T> {
   int FindAnyway(T key);
   void ShutDown() {
     clean = true;
-    Allocator::Persist(&clean, sizeof(clean));
   }
   void getNumber() {
     std::cout << "The size of the bucket is " << sizeof(struct Bucket<T>) << std::endl;
@@ -1657,8 +1609,6 @@ void Finger_EH<T>::Halve_Directory() {
   }
 
 #ifdef PMEM
-  Allocator::Persist(new_dir,
-                     sizeof(Directory<T>) + sizeof(uint64_t) * capacity);
   auto reserve_item = Allocator::ReserveItem();
   TX_BEGIN(pool_addr) {
     pmemobj_tx_add_range_direct(reserve_item, sizeof(*reserve_item));
@@ -1699,8 +1649,6 @@ void Finger_EH<T>::Directory_Doubling(int x, Table<T> *new_b, Table<T> *old_b) {
   new_sa->depth_count = 2;
 
 #ifdef PMEM
-  Allocator::Persist(new_sa,
-                     sizeof(Directory<T>) + sizeof(uint64_t) * 2 * capacity);
   auto reserve_item = Allocator::ReserveItem();
   ++merge_time;
   auto old_dir = dir;
@@ -1792,7 +1740,6 @@ void Finger_EH<T>::Directory_Merge_Update(Directory<T> *_sa, uint64_t key_hash,
 
   for (int i = right; i < right + chunk_size / 2; ++i) {
     dir_entry[i] = left_seg;
-    Allocator::Persist(&dir_entry[i], sizeof(uint64_t));
   }
 
   if ((left_seg->local_depth + 1) == global_depth) {
@@ -1814,7 +1761,6 @@ void Finger_EH<T>::recoverTable(Table<T> **target_table, size_t key_hash,
   target->recoverMetadata();
   if (target->state != 0) {
     target->pattern = key_hash >> (8 * sizeof(key_hash) - target->local_depth);
-    Allocator::Persist(&target->pattern, sizeof(target->pattern));
     Table<T> *next_table = (Table<T> *)pmemobj_direct(target->next);
     if (target->state == -2) {
       if (next_table->state == -3) {
@@ -1831,18 +1777,14 @@ void Finger_EH<T>::recoverTable(Table<T> **target_table, size_t key_hash,
         Unlock_Directory();
         /*release the lock for the target bucket and the new bucket*/
         next_table->state = 0;
-        Allocator::Persist(&next_table->state, sizeof(int));
       }
     } else if (target->state == -1) {
       if (next_table->pattern == ((target->pattern << 1) + 1)) {
         target->Merge(next_table, true);
-        Allocator::Persist(target, sizeof(Table<T>));
         target->next = next_table->next;
-        Allocator::Free(next_table);
       }
     }
     target->state = 0;
-    Allocator::Persist(&target->state, sizeof(int));
   }
 
   /*Compute for all entries and clear the dirty bit*/
@@ -1882,7 +1824,6 @@ void Finger_EH<T>::Recovery() {
       dir_entry[i] =
           reinterpret_cast<Table<T> *>((snapshot & tailMask) | set_one);
     }
-    Allocator::Persist(dir_entry, sizeof(uint64_t) * length);
   }
 }
 
@@ -1968,9 +1909,7 @@ RETRY:
 
     /*release the lock for the target bucket and the new bucket*/
     new_b->state = 0;
-    Allocator::Persist(&new_b->state, sizeof(int));
     target->state = 0;
-    Allocator::Persist(&target->state, sizeof(int));
 
     Bucket<T> *curr_bucket;
     for (int i = 0; i < kNumBucket; ++i) {
@@ -2294,11 +2233,8 @@ void Finger_EH<T>::TryMerge(size_t key_hash) {
 
         /*First improve the local depth, */
         left_seg->local_depth = left_seg->local_depth - 1;
-        Allocator::Persist(&left_seg->local_depth, sizeof(uint64_t));
         left_seg->state = -1;
-        Allocator::Persist(&left_seg->state, sizeof(int));
         right_seg->state = -1;
-        Allocator::Persist(&right_seg->state, sizeof(int));
       REINSERT:
         old_dir = dir;
         /*Update the directory from left to right*/
@@ -2326,9 +2262,7 @@ void Finger_EH<T>::TryMerge(size_t key_hash) {
         TX_END
 
         left_seg->pattern = left_seg->pattern >> 1;
-        Allocator::Persist(&left_seg->pattern, sizeof(uint64_t));
         left_seg->state = 0;
-        Allocator::Persist(&left_seg->state, sizeof(int));
         right_seg->Release_all_locks();
         left_seg->Release_all_locks();
         /*Try to halve directory?*/
@@ -2413,9 +2347,6 @@ RETRY:
     auto num = SUB(&target_table->number, 1);
 #endif
     target->release_lock();
-#ifdef PMEM
-    Allocator::Persist(&target->bitmap, sizeof(target->bitmap));
-#endif
     neighbor->release_lock();
 #ifdef COUNTING
     if (num == 0) {
@@ -2431,9 +2362,6 @@ RETRY:
     auto num = SUB(&target_table->number, 1);
 #endif
     neighbor->release_lock();
-#ifdef PMEM
-    Allocator::Persist(&neighbor->bitmap, sizeof(neighbor->bitmap));
-#endif
     target->release_lock();
 #ifdef COUNTING
     if (num == 0) {
@@ -2488,9 +2416,6 @@ RETRY:
         if (ret == 0) {
           /*need to unset indicator in original bucket*/
           stash->release_lock();
-#ifdef PMEM
-          Allocator::Persist(&curr_stash->bitmap, sizeof(curr_stash->bitmap));
-#endif
           auto bucket_ix = BUCKET_INDEX(key_hash);
           auto org_bucket = target_table->bucket + bucket_ix;
           assert(org_bucket == target);
