@@ -40,7 +40,7 @@ struct Allocator {
     if (!FileExists(pool_name)) {
       LOG("creating a new pool");
       pm_pool_ = pmemobj_create(pool_name, layout_name, pool_size,
-                                     CREATE_MODE_RW;
+                                     CREATE_MODE_RW);
       if (pm_pool_ == nullptr) {
         LOG_FATAL("failed to create a pool;");
       }
