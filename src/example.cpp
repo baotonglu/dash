@@ -22,6 +22,7 @@ int main() {
   // During initialization phase, allocate 64 segments for Dash-EH
   size_t segment_number = 64;
   Hash<uint64_t> *hash_table = new extendible::Finger_EH<uint64_t>(segment_number);
+  //Hash<uint64_t> *hash_table = new new linear::Linear<T>();
 
   // Step 3: Operate on the hash table
   // If using multi-threads, we need to use epoch for correct memory
