@@ -112,17 +112,8 @@ struct Allocator {
 
   /*Must ensure that this pointer is in persistent memory*/
   static void ZAllocate(void** ptr, uint32_t alignment, size_t size) {
-#ifdef PMEM
-    TX_BEGIN(instance_->pm_pool_) {
-      pmemobj_tx_add_range_direct(ptr, sizeof(*ptr));
-      *ptr = pmemobj_direct(pmemobj_tx_zalloc(size, TOID_TYPE_NUM(char)));
-    }
-    TX_ONABORT { LOG_FATAL("ZAllocate: TXN Allocation Error"); }
-    TX_END
-#else
     posix_memalign(ptr, alignment, size);
     memset(*ptr, 0, size);
-#endif
   }
 
   static void ZAllocate(PMEMoid* pm_ptr, uint32_t alignment, size_t size) {
