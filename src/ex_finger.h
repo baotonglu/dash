@@ -29,10 +29,6 @@
 #include "Hash.h"
 #include "allocator.h"
 
-#ifdef PMEM
-#include <libpmemobj.h>
-#endif
-
 uint64_t merge_time;
 
 namespace extendible {
@@ -1192,7 +1188,7 @@ template <class T>
 class Finger_EH : public Hash<T> {
  public:
   Finger_EH(void);
-  Finger_EH(size_t, PMEMobjpool *_pool);
+  Finger_EH(size_t);
   ~Finger_EH(void);
   inline void Insert(T key, Value_t value);
   void Insert(T key, Value_t value, bool);
@@ -1271,16 +1267,11 @@ class Finger_EH : public Hash<T> {
       crash_version; /*when the crash version equals to 0Xff => set the crash
                         version as 0, set the version of all entries as 1*/
   bool clean;
-  PMEMobjpool *pool_addr;
-  /* directory allocation will write to here first,
-   * in oder to perform safe directory allocation
-   * */
   Directory<T> *back_dir;
 };
 
 template <class T>
-Finger_EH<T>::Finger_EH(size_t initCap, PMEMobjpool *_pool) {
-  pool_addr = _pool;
+Finger_EH<T>::Finger_EH(size_t initCap) {
   Directory<T>::New(&dir, initCap, 0);
   lock = 0;
   crash_version = 0;

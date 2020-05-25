@@ -104,13 +104,10 @@ Hash<T> *InitializeIndex(int seg_num) {
     std::string index_pool_name = pool_name + "pmem_ex.data";
     if (FileExists(index_pool_name.c_str())) file_exist = true;
     Allocator::Initialize(index_pool_name.c_str(), pool_size);
-#ifdef PREALLOC
-    extendible::TlsTablePool<Key_t>::Initialize();
-#endif
     eh = reinterpret_cast<Hash<T> *>(
         Allocator::GetRoot(sizeof(extendible::Finger_EH<T>)));
     if (!file_exist) {
-      new (eh) extendible::Finger_EH<T>(seg_num, Allocator::Get()->pm_pool_);
+      new (eh) extendible::Finger_EH<T>(seg_num);
     } else {
       new (eh) extendible::Finger_EH<T>();
     }
