@@ -557,127 +557,25 @@ struct Directory {
   table_p _[0];
 
   Directory(size_t capacity, size_t _version) {
-    version = _version;
     global_depth = static_cast<size_t>(log2(capacity));
     depth_count = 0;
+    version = _version;
   }
 
-  static void New(PMEMoid *dir, size_t capacity, size_t version) {
-#ifdef PMEM
-    auto callback = [](PMEMobjpool *pool, void *ptr, void *arg) {
-      auto value_ptr = reinterpret_cast<std::tuple<size_t, size_t> *>(arg);
-      auto dir_ptr = reinterpret_cast<Directory *>(ptr);
-      dir_ptr->counter = 0;
-      dir_ptr->version = std::get<1>(*value_ptr);
-      dir_ptr->global_depth =
-          static_cast<size_t>(log2(std::get<0>(*value_ptr)));
-      size_t cap = std::get<0>(*value_ptr);
-      pmemobj_persist(pool, dir_ptr,
-                      sizeof(Directory<T>) + sizeof(uint64_t) * cap);
-      return 0;
-    };
-    std::tuple callback_args = {capacity, version};
-    Allocator::Allocate(dir, kCacheLineSize,
-                        sizeof(Directory<T>) + sizeof(table_p) * capacity,
-                        callback, reinterpret_cast<void *>(&callback_args));
-#else
-    Allocator::Allocate((void **)dir, kCacheLineSize, sizeof(Directory<T>));
-    new (*dir) Directory(capacity, version, tables);
-#endif
+  static void New(Directory **dir, size_t capacity, size_t _version){
+    Allocator::ZAllocate((void **)dir, kCacheLineSize, sizeof(Directory<T>));
+    new (*dir) Directory(capacity, _version);
   }
 };
-
-/*thread local table allcoation pool*/
-template <class T>
-struct TlsTablePool {
-  static Table<T> *all_tables;
-  static PMEMoid p_all_tables;
-  static std::atomic<uint32_t> all_allocated;
-  static const uint32_t kAllTables = 327680;
-
-  static void AllocateMore() {
-    auto callback = [](PMEMobjpool *pool, void *ptr, void *arg) { return 0; };
-    std::pair callback_para(0, nullptr);
-    Allocator::Allocate(&p_all_tables, kCacheLineSize,
-                        sizeof(Table<T>) * kAllTables, callback,
-                        reinterpret_cast<void *>(&callback_para));
-    all_tables = reinterpret_cast<Table<T> *>(pmemobj_direct(p_all_tables));
-    memset((void *)all_tables, 0, sizeof(Table<T>) * kAllTables);
-    all_allocated = 0;
-    printf("MORE ");
-  }
-
-  TlsTablePool() {}
-  static void Initialize() { AllocateMore(); }
-
-  Table<T> *tables = nullptr;
-  static const uint32_t kTables = 128;
-  uint32_t allocated = kTables;
-
-  void TlsPrepare() {
-  retry:
-    uint32_t n = all_allocated.fetch_add(kTables);
-    if (n == kAllTables) {
-      AllocateMore();
-      abort();
-      goto retry;
-    }
-    tables = all_tables + n;
-    allocated = 0;
-  }
-
-  Table<T> *Get() {
-    if (allocated == kTables) {
-      TlsPrepare();
-    }
-    return &tables[allocated++];
-  }
-};
-
-template <class T>
-std::atomic<uint32_t> TlsTablePool<T>::all_allocated(0);
-template <class T>
-Table<T> *TlsTablePool<T>::all_tables = nullptr;
-template <class T>
-PMEMoid TlsTablePool<T>::p_all_tables = OID_NULL;
 
 /* the segment class*/
 template <class T>
 struct Table {
-  static void New(PMEMoid *tbl, size_t depth, PMEMoid pp) {
-#ifdef PMEM
-#ifdef PREALLOC
-    thread_local TlsTablePool<T> tls_pool;
-    auto ptr = tls_pool.Get();
-    ptr->local_depth = depth;
-    ptr->next = pp;
-    *tbl = pmemobj_oid(ptr);
-#else
-    auto callback = [](PMEMobjpool *pool, void *ptr, void *arg) {
-      auto value_ptr = reinterpret_cast<std::pair<size_t, PMEMoid> *>(arg);
-      auto table_ptr = reinterpret_cast<Table<T> *>(ptr);
-      table_ptr->local_depth = value_ptr->first;
-      table_ptr->next = value_ptr->second;
-      table_ptr->state = -3; /*NEW*/
-
-      int sumBucket = kNumBucket + stashBucket;
-      for (int i = 0; i < sumBucket; ++i) {
-        auto curr_bucket = table_ptr->bucket + i;
-        memset(curr_bucket, 0, 64);
-      }
-
-      pmemobj_persist(pool, table_ptr, sizeof(Table<T>));
-      return 0;
-    };
-    std::pair callback_para(depth, pp);
-    Allocator::Allocate(tbl, kCacheLineSize, sizeof(Table<T>), callback,
-                        reinterpret_cast<void *>(&callback_para));
-#endif
-#else
+  static void New(Table<T> *tbl, size_t depth, Table<T>* pp) {
     Allocator::ZAllocate((void **)tbl, kCacheLineSize, sizeof(Table<T>));
     (*tbl)->local_depth = depth;
+    (*tbl)->state = -3;
     (*tbl)->next = pp;
-#endif
   };
   ~Table(void) {}
 
@@ -781,7 +679,7 @@ struct Table {
   size_t local_depth;
   size_t pattern;
   int number;
-  PMEMoid next;
+  Table<T> *next;
   int state; /*-1 means this bucket is merging, -2 means this bucket is
                 splitting (SPLITTING), 0 meanning normal bucket, -3 means new
                 bucket (NEW)*/
@@ -1121,7 +1019,8 @@ Table<T> *Table<T>::Split(size_t _key_hash) {
   }
   state = -2; /*means the start of the split process*/
   Table<T>::New(&next, local_depth + 1, next);
-  Table<T> *next_table = reinterpret_cast<Table<T> *>(pmemobj_direct(next));
+  //Table<T> *next_table = reinterpret_cast<Table<T> *>(pmemobj_direct(next));
+  Table<T> *next_table = next;
 
   next_table->state = -2;
   next_table->bucket
@@ -1193,7 +1092,6 @@ Table<T> *Table<T>::Split(size_t _key_hash) {
   next_table->pattern = new_pattern;
   pattern = old_pattern;
 
-#ifdef PMEM
   size_t sumBucket = kNumBucket + stashBucket;
   for (int i = 0; i < sumBucket; ++i) {
     auto curr_bucket = bucket + i;
@@ -1202,7 +1100,6 @@ Table<T> *Table<T>::Split(size_t _key_hash) {
     uint32_t count = __builtin_popcount(invalid_array[i]);
     curr_bucket->bitmap = curr_bucket->bitmap - count;
   }
-#endif
   return next_table;
 }
 
@@ -1340,7 +1237,7 @@ class Finger_EH : public Hash<T> {
     uint64_t verify_seg_count = 1;
     while (!OID_IS_NULL(ss->next)) {
       verify_seg_count++;
-      ss = reinterpret_cast<Table<T> *>(pmemobj_direct(ss->next));
+      ss = ss->next;
     }
     std::cout << "seg_count = " << seg_count << std::endl;
     std::cout << "verify_seg_count = " << verify_seg_count << std::endl;
@@ -1378,29 +1275,24 @@ class Finger_EH : public Hash<T> {
   /* directory allocation will write to here first,
    * in oder to perform safe directory allocation
    * */
-  PMEMoid back_dir;
+  Directory<T> *back_dir;
 };
 
 template <class T>
 Finger_EH<T>::Finger_EH(size_t initCap, PMEMobjpool *_pool) {
   pool_addr = _pool;
-  Directory<T>::New(&back_dir, initCap, 0);
-  dir = reinterpret_cast<Directory<T> *>(pmemobj_direct(back_dir));
-  back_dir = OID_NULL;
+  Directory<T>::New(&dir, initCap, 0);
   lock = 0;
   crash_version = 0;
   clean = false;
-  PMEMoid ptr;
 
   /*FIXME: make the process of initialization crash consistent*/
-  Table<T>::New(&ptr, dir->global_depth, OID_NULL);
-  dir->_[initCap - 1] = (Table<T> *)pmemobj_direct(ptr);
+  Table<T>::New(&dir->_[initCap - 1], dir->global_depth, NULL);
   dir->_[initCap - 1]->pattern = initCap - 1;
   dir->_[initCap - 1]->state = 0;
   /* Initilize the Directory*/
   for (int i = initCap - 2; i >= 0; --i) {
-    Table<T>::New(&ptr, dir->global_depth, ptr);
-    dir->_[i] = (Table<T> *)pmemobj_direct(ptr);
+    Table<T>::New(&dir->_[i], dir->global_depth, dir->_[i+1]);
     dir->_[i]->pattern = i;
     dir->_[i]->state = 0;
   }
@@ -1437,12 +1329,7 @@ void Finger_EH<T>::Halve_Directory() {
   auto d = dir->_;
 
   Directory<T> *new_dir;
-#ifdef PMEM
-  Directory<T>::New(&back_dir, pow(2, dir->global_depth - 1), dir->version + 1);
-  new_dir = reinterpret_cast<Directory<T> *>(pmemobj_direct(back_dir));
-#else
   Directory<T>::New(&new_dir, pow(2, dir->global_depth - 1), dir->version + 1);
-#endif
 
   auto _dir = new_dir->_;
   new_dir->depth_count = 0;
@@ -1465,23 +1352,7 @@ void Finger_EH<T>::Halve_Directory() {
     }
   }
 
-#ifdef PMEM
-  auto reserve_item = Allocator::ReserveItem();
-  TX_BEGIN(pool_addr) {
-    pmemobj_tx_add_range_direct(reserve_item, sizeof(*reserve_item));
-    pmemobj_tx_add_range_direct(&dir, sizeof(dir));
-    pmemobj_tx_add_range_direct(&back_dir, sizeof(back_dir));
-    Allocator::Free(reserve_item, dir);
-    dir = new_dir;
-    back_dir = OID_NULL;
-  }
-  TX_ONABORT {
-    std::cout << "TXN fails during halvling directory" << std::endl;
-  }
-  TX_END
-#else
   dir = new_dir;
-#endif
   std::cout << "End::Directory_Halving towards " << dir->global_depth << std::endl;
 }
 
@@ -1493,8 +1364,7 @@ void Finger_EH<T>::Directory_Doubling(int x, Table<T> *new_b, Table<T> *old_b) {
 
   auto capacity = pow(2, global_depth);
   Directory<T>::New(&back_dir, 2 * capacity, dir->version + 1);
-  Directory<T> *new_sa =
-      reinterpret_cast<Directory<T> *>(pmemobj_direct(back_dir));
+  Directory<T> *new_sa = back_dir;
   auto dd = new_sa->_;
 
   for (unsigned i = 0; i < capacity; ++i) {
@@ -1505,30 +1375,10 @@ void Finger_EH<T>::Directory_Doubling(int x, Table<T> *new_b, Table<T> *old_b) {
       reinterpret_cast<uint64_t>(new_b) | crash_version);
   new_sa->depth_count = 2;
 
-#ifdef PMEM
   auto reserve_item = Allocator::ReserveItem();
-  ++merge_time;
-  auto old_dir = dir;
-  TX_BEGIN(pool_addr) {
-    pmemobj_tx_add_range_direct(reserve_item, sizeof(*reserve_item));
-    pmemobj_tx_add_range_direct(&dir, sizeof(dir));
-    pmemobj_tx_add_range_direct(&back_dir, sizeof(back_dir));
-    pmemobj_tx_add_range_direct(&old_b->local_depth,
-                                sizeof(old_b->local_depth));
-    old_b->local_depth += 1;
-    Allocator::Free(reserve_item, dir);
-    /*Swap the memory addr between new directory and old directory*/
-    dir = new_sa;
-    back_dir = OID_NULL;
-  }
-  TX_ONABORT {
-    std::cout << "TXN fails during doubling directory" << std::endl;
-  }
-  TX_END
-
-#else
+  Allocator::Free(reserve_item, dir);
+  old_b->local_depth += 1;
   dir = new_sa;
-#endif
 }
 
 template <class T>
@@ -1539,27 +1389,13 @@ void Finger_EH<T>::Directory_Update(Directory<T> *_sa, int x, Table<T> *new_b,
   unsigned depth_diff = global_depth - new_b->local_depth;
   if (depth_diff == 0) {
     if (x % 2 == 0) {
-      TX_BEGIN(pool_addr) {
-        pmemobj_tx_add_range_direct(&dir_entry[x + 1], sizeof(Table<T> *));
-        pmemobj_tx_add_range_direct(&old_b->local_depth,
-                                    sizeof(old_b->local_depth));
-        dir_entry[x + 1] = reinterpret_cast<Table<T> *>(
+      dir_entry[x + 1] = reinterpret_cast<Table<T> *>(
             reinterpret_cast<uint64_t>(new_b) | crash_version);
-        old_b->local_depth += 1;
-      }
-      TX_ONABORT { std::cout << "Error for update txn" << std::endl; }
-      TX_END
+      old_b->local_depth += 1;
     } else {
-      TX_BEGIN(pool_addr) {
-        pmemobj_tx_add_range_direct(&dir_entry[x], sizeof(Table<T> *));
-        pmemobj_tx_add_range_direct(&old_b->local_depth,
-                                    sizeof(old_b->local_depth));
-        dir_entry[x] = reinterpret_cast<Table<T> *>(
+      dir_entry[x] = reinterpret_cast<Table<T> *>(
             reinterpret_cast<uint64_t>(new_b) | crash_version);
-        old_b->local_depth += 1;
-      }
-      TX_ONABORT { std::cout << "Error for update txn" << std::endl; }
-      TX_END
+      old_b->local_depth += 1;
     }
 #ifdef COUNTING
     __sync_fetch_and_add(&_sa->depth_count, 2);
@@ -1568,19 +1404,11 @@ void Finger_EH<T>::Directory_Update(Directory<T> *_sa, int x, Table<T> *new_b,
     int chunk_size = pow(2, global_depth - (new_b->local_depth - 1));
     x = x - (x % chunk_size);
     int base = chunk_size / 2;
-    TX_BEGIN(pool_addr) {
-      pmemobj_tx_add_range_direct(&dir_entry[x + base],
-                                  sizeof(Table<T> *) * base);
-      pmemobj_tx_add_range_direct(&old_b->local_depth,
-                                  sizeof(old_b->local_depth));
-      for (int i = base - 1; i >= 0; --i) {
-        dir_entry[x + base + i] = reinterpret_cast<Table<T> *>(
-            reinterpret_cast<uint64_t>(new_b) | crash_version);
-      }
-      old_b->local_depth += 1;
+    for (int i = base - 1; i >= 0; --i) {
+      dir_entry[x + base + i] = reinterpret_cast<Table<T> *>(
+          reinterpret_cast<uint64_t>(new_b) | crash_version);
     }
-    TX_ONABORT { std::cout << "Error for update txn" << std::endl; }
-    TX_END
+    old_b->local_depth += 1;
   }
   // printf("Done!directory update for %d\n", x);
 }
@@ -2003,14 +1831,8 @@ void Finger_EH<T>::TryMerge(size_t key_hash) {
           left_seg->Merge(right_seg);
         }
         auto reserve_item = Allocator::ReserveItem();
-        TX_BEGIN(pool_addr) {
-          pmemobj_tx_add_range_direct(reserve_item, sizeof(*reserve_item));
-          pmemobj_tx_add_range_direct(&left_seg->next, sizeof(left_seg->next));
-          Allocator::Free(reserve_item, right_seg);
-          left_seg->next = right_seg->next;
-        }
-        TX_ONABORT { std::cout << "Error for merge txn" << std::endl; }
-        TX_END
+        Allocator::Free(reserve_item, right_seg);
+        left_seg->next = right_seg->next;
 
         left_seg->pattern = left_seg->pattern >> 1;
         left_seg->state = 0;
