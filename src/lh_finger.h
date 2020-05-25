@@ -898,86 +898,11 @@ struct Directory {
   uint64_t recover_counter[directorySize];
   uint64_t crash_version; /* it does not influence the correctness*/
 
-  static void New(PMEMoid *dir) {
-    auto callback = [](PMEMobjpool *pool, void *ptr, void *arg) {
-      auto dir_ptr = reinterpret_cast<Directory<T> *>(ptr);
-      dir_ptr->N_next = baseShifBits << 32;
-      dir_ptr->recovered_index = 0;
-      dir_ptr->crash_version = 0;
-      memset(&dir_ptr->_, 0, sizeof(table_p) * directorySize);
-      memset(&dir_ptr->recover_counter, 0, sizeof(uint64_t) * directorySize);
-      return 0;
-    };
-
-    Allocator::Allocate(dir, kCacheLineSize, sizeof(Directory<T>), callback,
-                        NULL);
+  static void New(Directory<T> **dir) {
+    Allocator::ZAllocate((void **)dir, kCacheLineSize, sizeof(uint64_t) * directorySize);
+    (*dir)->N_next = baseShifBits << 32;
   }
 };
-
-/*thread local table allcoation pool*/
-template <class T>
-struct TlsTablePool {
-  static Table<T> *all_tables;
-  static PMEMoid p_all_tables;
-  static std::atomic<uint32_t> all_allocated;
-  static const uint32_t kAllTables = 327680;
-
-  static void AllocateMore() {
-    auto callback = [](PMEMobjpool *pool, void *ptr, void *arg) { return 0; };
-    std::pair callback_para(0, nullptr);
-    Allocator::Allocate(&p_all_tables, kCacheLineSize,
-                        sizeof(Table<T>) * kAllTables, callback,
-                        reinterpret_cast<void *>(&callback_para));
-    all_tables = reinterpret_cast<Table<T> *>(pmemobj_direct(p_all_tables));
-    memset((void *)all_tables, 0, sizeof(Table<T>) * kAllTables);
-    all_allocated = 0;
-    printf("MORE ");
-  }
-
-  TlsTablePool() {}
-  static void Initialize() { AllocateMore(); }
-
-  Table<T> *tables = nullptr;
-  static const uint32_t kTables = 128;
-  uint32_t allocated = kTables;
-
-  void TlsPrepare() {
-  retry:
-    uint32_t n = all_allocated.fetch_add(kTables);
-    if (n == kAllTables) {
-      AllocateMore();
-      printf("NO MORE\n");
-      abort();
-      goto retry;
-    }
-    tables = all_tables + n;
-    allocated = 0;
-  }
-
-  Table<T> *Get() {
-    if (allocated == kTables) {
-      TlsPrepare();
-    }
-    return &tables[allocated++];
-  }
-
-  /*allocate a segment from preallocated memory*/
-  static Table<T> *Get(uint64_t seg_size) {
-    uint32_t n = all_allocated.fetch_add(seg_size);
-    if (n >= kAllTables) {
-      AllocateMore();
-      abort();
-    }
-    return &all_tables[n];
-  }
-};
-
-template <class T>
-std::atomic<uint32_t> TlsTablePool<T>::all_allocated(0);
-template <class T>
-Table<T> *TlsTablePool<T>::all_tables = nullptr;
-template <class T>
-PMEMoid TlsTablePool<T>::p_all_tables = OID_NULL;
 
 /* the meta hash-table referenced by the directory*/
 template <class T>
@@ -1938,14 +1863,9 @@ class Linear : public Hash<T> {
 #ifdef DOUBLE_EXPANSION
         uint32_t seg_size = SEG_SIZE(static_cast<uint32_t>(pow(2, old_N)) +
                                      old_next + numBuckets - 1);
-#ifdef PREALLOC
-        dir._[dir_idx] = TlsTablePool<T>::Get(seg_size);
-#else
         Allocator::ZAllocate(&back_seg, kCacheLineSize,
                              sizeof(Table<T>) * seg_size);
-        dir._[dir_idx] = reinterpret_cast<Table<T> *>(pmemobj_direct(back_seg));
-        back_seg = OID_NULL;
-#endif
+        dir._[dir_idx] = back_seg;
 #else
         Allocator::ZAllocate((void **)&dir._[dir_idx], kCacheLineSize,
                              sizeof(Table<T>) * segmentSize);
@@ -1971,10 +1891,8 @@ class Linear : public Hash<T> {
     }
   }
 
-#ifdef PMEM
   PMEMobjpool *pool_addr;
-  PMEMoid back_seg;
-#endif
+  Table<T> *back_seg;
   Directory<T> dir;
   int lock;
   bool clean;
