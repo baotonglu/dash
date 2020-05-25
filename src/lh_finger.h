@@ -1156,85 +1156,6 @@ struct Table {
     return org_table;
   }
 
-  void recoverMetadata() {
-    Bucket<T> *curr_bucket, *neighbor_bucket;
-    uint64_t knumber = 0;
-
-    for (int i = 0; i < kNumBucket; ++i) {
-      curr_bucket = bucket + i;
-      curr_bucket->resetLock();
-      curr_bucket->resetOverflowFP();
-      neighbor_bucket = bucket + ((i + 1) & bucketMask);
-      for (int j = 0; j < kNumPairPerBucket; ++j) {
-        int mask = curr_bucket->get_current_mask();
-        if (CHECK_BIT(mask, j) && (neighbor_bucket->check_and_get(
-                                       curr_bucket->finger_array[j],
-                                       curr_bucket->_[j].key, true) != NONE)) {
-          curr_bucket->unset_hash(j);
-        }
-      }
-
-#ifdef COUNTING
-      knumber += __builtin_popcount(GET_BITMAP(curr_bucket->bitmap));
-#endif
-    }
-
-    for (int i = 0; i < stashBucket; ++i) {
-      auto curr_bucket = stash + i;
-#ifdef COUNTING
-      knumber += __builtin_popcount(GET_BITMAP(curr_bucket->bitmap));
-#endif
-      uint64_t key_hash;
-      auto mask = GET_BITMAP(curr_bucket->bitmap);
-      for (int j = 0; j < kNumPairPerBucket; ++j) {
-        if (CHECK_BIT(mask, j)) {
-          if constexpr (std::is_pointer_v<T>) {
-            auto curr_key = curr_bucket->_[j].key;
-            key_hash = h(curr_key->key, curr_key->length);
-          } else {
-            key_hash = h(&(curr_bucket->_[j].key), sizeof(Key_t));
-          }
-          auto bucket_ix = BUCKET_INDEX(key_hash);
-          auto meta_hash = META_HASH(key_hash);
-          auto org_bucket = bucket + bucket_ix;
-          auto neighbor_bucket = bucket + ((bucket_ix + 1) & bucketMask);
-          org_bucket->set_indicator(meta_hash, neighbor_bucket, i);
-        }
-      }
-    }
-
-    overflowBucket<T> *prev_bucket = stash;
-    overflowBucket<T> *next_bucket = stash->next;
-    while (next_bucket != NULL) {
-#ifdef COUNTING
-      knumber += __builtin_popcount(GET_BITMAP(next_bucket->bitmap));
-#endif
-      uint64_t key_hash;
-      auto mask = GET_BITMAP(next_bucket->bitmap);
-      for (int j = 0; j < kNumPairPerBucket; ++j) {
-        if (CHECK_BIT(mask, j)) {
-          if constexpr (std::is_pointer_v<T>) {
-            auto curr_key = next_bucket->_[j].key;
-            key_hash = h(curr_key->key, curr_key->length);
-          } else {
-            key_hash = h(&(next_bucket->_[j].key), sizeof(Key_t));
-          }
-          auto bucket_ix = BUCKET_INDEX(key_hash);
-          auto meta_hash = META_HASH(key_hash);
-          auto org_bucket = bucket + bucket_ix;
-          auto neighbor_bucket = bucket + ((bucket_ix + 1) & bucketMask);
-          org_bucket->set_indicator(meta_hash, neighbor_bucket, 3);
-        }
-      }
-      prev_bucket = next_bucket;
-      next_bucket = next_bucket->next;
-    }
-
-#ifdef COUNTING
-    number = knumber;
-#endif
-  }
-
   Bucket<T> bucket[kNumBucket];
   overflowBucket<T> stash[stashBucket];
   int number;
@@ -1891,12 +1812,10 @@ class Linear : public Hash<T> {
   inline Value_t Get(T);
   Value_t Get(T key, bool is_in_epoch);
   void FindAnyway(T key);
-  void Recovery();
   void ShutDown() {
     clean = true;
   }
   bool TryMerge(uint64_t, Table<T> *);
-  void recoverSegment(Table<T> **seg_ptr, size_t, size_t, size_t);
   void getNumber() {
     uint64_t count = 0;
     uint64_t prev_length = 0;
@@ -2137,103 +2056,6 @@ bool Linear<T>::TryMerge(uint64_t x, Table<T> *shrunk_table) {
   return true;
 }
 
-template <class T>
-void Linear<T>::Recovery() {
-  if (clean) {
-    clean = false;
-    return;
-  }
-  Allocator::EpochRecovery();
-  uint64_t old_N_next = dir.N_next;
-  uint32_t N = old_N_next >> 32;
-  uint32_t next = (uint32_t)old_N_next;
-  uint32_t x = static_cast<uint32_t>(pow(2, N)) + next - 1;
-  dir.recovered_index =
-      x; /* for segments <= recovered_index, it needs to be recoverd*/
-  uint32_t dir_idx;
-  uint32_t offset;
-  SEG_IDX_OFFSET(x, dir_idx, offset);
-
-  for (int i = 0; i < dir_idx; ++i) {
-    dir.recover_counter[i] = SEG_SIZE_BY_SEGARR_ID(i);
-    dir._[i] = reinterpret_cast<Table<T> *>((uint64_t)dir._[i] | recoverBit);
-  }
-  std::cout << dir_idx << " segments array in the linear hashing" << std::endl;
-
-  dir.recover_counter[dir_idx] = offset + 1;
-  dir._[dir_idx] =
-      reinterpret_cast<Table<T> *>((uint64_t)dir._[dir_idx] | recoverBit);
-
-  dir.crash_version += 1;
-  if (dir.crash_version == 0) {
-    /* Scan all the segments to make it invalid*/
-    uint32_t occupied_bucket = pow2(N) + next;
-    uint64_t recount_num = 0;
-    for (int i = 0; i < occupied_bucket; ++i) {
-      uint32_t dir_idx;
-      uint32_t offset;
-      SEG_IDX_OFFSET(i, dir_idx, offset);
-      Table<T> *curr_table = dir._[dir_idx] + offset;
-      curr_table->seg_version = 1;
-    }
-  }
-}
-
-template <class T>
-void Linear<T>::recoverSegment(Table<T> **seg_ptr, size_t index, size_t dir_idx,
-                               size_t offset) {
-RETRY:
-  uint64_t snapshot = reinterpret_cast<uint64_t>(*seg_ptr);
-  Table<T> *target = (Table<T> *)(snapshot & (~recoverLockBit)) + offset;
-
-  /*No need for the recovery of this segment*/
-  if ((dir.crash_version == target->seg_version) ||
-      (index > dir.recovered_index)) {
-    return;
-  }
-
-  /*try to get the exclusive recovery lock*/
-  if (pmemobj_mutex_trylock(pool_addr, &target->lock_bit) != 0) {
-    goto RETRY;
-  }
-  target->recoverMetadata();
-
-  /*FIXME: handle state = 1*/
-  if (target->state == 2) {
-    uint64_t idx, base_diff;
-    Table<T> *org_table = target->get_org_table(index, &idx, &base_diff, &dir);
-    uint32_t buddy_dir_idx, buddy_offset;
-    SEG_IDX_OFFSET(idx, buddy_dir_idx, buddy_offset);
-    while (reinterpret_cast<uint64_t>(dir._[buddy_dir_idx]) & recoverLockBit) {
-      recoverSegment(&dir._[buddy_dir_idx], idx, buddy_dir_idx, buddy_offset);
-    }
-
-    for (int i = 0; i < kNumBucket; ++i) {
-      auto curr_bucket = org_table->bucket + i;
-      curr_bucket->get_lock();
-    }
-
-    org_table->Merge(target, true);
-    for (int i = 0; i, kNumBucket; ++i) {
-      auto curr_bucket = target->bucket + i;
-      curr_bucket->unset_initialize();
-    }
-
-    target->state = 0;
-    org_table->state = 0;
-
-    for (int i = 0; i < kNumBucket; ++i) {
-      auto curr_bucket = org_table->bucket + i;
-      curr_bucket->release_lock();
-    }
-  }
-
-  target->seg_version = dir.crash_version;
-  SUB(&dir.recover_counter[dir_idx], 1);
-  if (dir.recover_counter[dir_idx] <= 0) {
-    *seg_ptr = (Table<T> *)(snapshot & (~recoverLockBit));
-  }
-}
 
 template <class T>
 void Linear<T>::Insert(T key, Value_t value, bool is_in_epoch) {
@@ -2265,11 +2087,6 @@ RETRY:
   uint32_t offset;
   SEG_IDX_OFFSET(static_cast<uint32_t>(x), dir_idx, offset);
   Table<T> *target = dir._[dir_idx] + offset;
-  if (reinterpret_cast<uint64_t>(dir._[dir_idx]) & recoverLockBit) {
-    recoverSegment(&dir._[dir_idx], x, dir_idx, offset);
-    target =
-        (Table<T> *)((uint64_t)(dir._[dir_idx]) & (~recoverLockBit)) + offset;
-  }
 
   auto ret = target->Insert(key, value, key_hash, &dir, x, N, next);
 
@@ -2309,12 +2126,6 @@ RETRY:
   uint32_t offset;
   SEG_IDX_OFFSET(static_cast<uint32_t>(x), dir_idx, offset);
   Table<T> *target = dir._[dir_idx] + offset;
-
-  if (reinterpret_cast<uint64_t>(dir._[dir_idx]) & recoverLockBit) {
-    recoverSegment(&dir._[dir_idx], x, dir_idx, offset);
-    target =
-        (Table<T> *)((uint64_t)(dir._[dir_idx]) & (~recoverLockBit)) + offset;
-  }
 
   Bucket<T> *target_bucket = target->bucket + y;
   Bucket<T> *neighbor_bucket = target->bucket + ((y + 1) & bucketMask);
@@ -2466,12 +2277,6 @@ RETRY:
   uint32_t offset;
   SEG_IDX_OFFSET(static_cast<uint32_t>(x), dir_idx, offset);
   Table<T> *target = dir._[dir_idx] + offset;
-
-  if (reinterpret_cast<uint64_t>(dir._[dir_idx]) & recoverLockBit) {
-    recoverSegment(&dir._[dir_idx], x, dir_idx, offset);
-    target =
-        (Table<T> *)((uint64_t)(dir._[dir_idx]) & (~recoverLockBit)) + offset;
-  }
 
   Bucket<T> *target_bucket = target->bucket + y;
   Bucket<T> *neighbor_bucket = target->bucket + ((y + 1) & bucketMask);
@@ -2637,11 +2442,6 @@ RETRY:
   uint32_t offset;
   SEG_IDX_OFFSET(static_cast<uint32_t>(x), dir_idx, offset);
   Table<T> *target = dir._[dir_idx] + offset;
-  if (reinterpret_cast<uint64_t>(dir._[dir_idx]) & recoverLockBit) {
-    recoverSegment(&dir._[dir_idx], x, dir_idx, offset);
-    target =
-        (Table<T> *)((uint64_t)(dir._[dir_idx]) & (~recoverLockBit)) + offset;
-  }
 
   uint32_t old_version;
   Bucket<T> *target_bucket = target->bucket + y;
