@@ -106,11 +106,7 @@ Hash<T> *InitializeIndex(int seg_num) {
     Allocator::Initialize(index_pool_name.c_str(), pool_size);
     eh = reinterpret_cast<Hash<T> *>(
         Allocator::GetRoot(sizeof(extendible::Finger_EH<T>)));
-    if (!file_exist) {
-      new (eh) extendible::Finger_EH<T>(seg_num);
-    } else {
-      new (eh) extendible::Finger_EH<T>();
-    }
+    new (eh) extendible::Finger_EH<T>(seg_num);
   } else if (index_type == "dash-lh") {
     std::cout << "Initialize Dash-LH" << std::endl;
     std::string index_pool_name = pool_name + "pmem_lh.data";

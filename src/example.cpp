@@ -32,14 +32,10 @@ int main() {
       Allocator::GetRoot(sizeof(extendible::Finger_EH<uint64_t>)));
 
   // Step 3: Initialize the hash table
-  if (!file_exist) {
     // During initialization phase, allocate 64 segments for Dash-EH
-    size_t segment_number = 64;
-    new (hash_table) extendible::Finger_EH<uint64_t>(
-        segment_number, Allocator::Get()->pm_pool_);
-  }else{
-    new (hash_table) extendible::Finger_EH<uint64_t>();
-  }
+  size_t segment_number = 64;
+  new (hash_table) extendible::Finger_EH<uint64_t>(
+      segment_number);
 
   // Step 4: Operate on the hash table
   // If using multi-threads, we need to use epoch for correct memory
