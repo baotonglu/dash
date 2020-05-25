@@ -1235,7 +1235,7 @@ class Finger_EH : public Hash<T> {
     ss = reinterpret_cast<Table<T> *>(reinterpret_cast<uint64_t>(dir_entry[0]) &
                                       tailMask);
     uint64_t verify_seg_count = 1;
-    while (!OID_IS_NULL(ss->next)) {
+    while (ss->next != NULL) {
       verify_seg_count++;
       ss = ss->next;
     }
