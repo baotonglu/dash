@@ -28,8 +28,8 @@ int main() {
   // Step 3: Generate string_key workload
   uint64_t variable_length = 16;
   uint64_t generate_num = 1024*1024;
-  void* workload;
-  workload = malloc(generate_num * (variable_length + sizeof(string_key)));
+  char* workload;
+  workload = reinterpret_cast<char*>(malloc(generate_num * (variable_length + sizeof(string_key))));
 
   int word_num = (variable_length / 8) + (((variable_length % 8) != 0) ? 1 : 0);
   uint64_t *_key = reinterpret_cast<uint64_t *>(malloc(word_num * sizeof(uint64_t)));
