@@ -878,11 +878,8 @@ void Run() {
 
   void *insert_workload;
   if (key_type != "fixed") {
-    PMEMoid ptr;
-    Allocator::Allocate(&ptr, kCacheLineSize,
-                        (sizeof(string_key) + var_length) * generate_num, NULL,
-                        NULL);
-    insert_workload = pmemobj_direct(ptr);
+    Allocator::Allocate(&insert_workload, kCacheLineSize,
+                        (sizeof(string_key) + var_length) * generate_num);
     std::cout << "allocate finish for pm" << std::endl;
     memcpy(insert_workload, workload,
            (sizeof(string_key) + var_length) * generate_num);
