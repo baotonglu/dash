@@ -96,31 +96,15 @@ void set_affinity(uint32_t idx) {
 template <class T>
 Hash<T> *InitializeIndex(int seg_num) {
   Hash<T> *eh;
-  bool file_exist = false;
-  gettimeofday(&tv1, NULL);
-  std::cout << "start the initialization" << std::endl;
   if (index_type == "dash-ex") {
     std::cout << "Initialize Dash-EH" << std::endl;
-    std::string index_pool_name = pool_name + "pmem_ex.data";
-    if (FileExists(index_pool_name.c_str())) file_exist = true;
-    Allocator::Initialize(index_pool_name.c_str(), pool_size);
-    eh = reinterpret_cast<Hash<T> *>(
-        Allocator::GetRoot(sizeof(extendible::Finger_EH<T>)));
-    new (eh) extendible::Finger_EH<T>(seg_num);
+    Allocator::Initialize();
+    eh = new extendible::Finger_EH<T>(seg_num);
   } else if (index_type == "dash-lh") {
     std::cout << "Initialize Dash-LH" << std::endl;
-    std::string index_pool_name = pool_name + "pmem_lh.data";
-    if (FileExists(index_pool_name.c_str())) file_exist = true;
-    Allocator::Initialize(index_pool_name.c_str(), pool_size);
-    std::cout << "Start to initialize DASH-lh Hashing" << std::endl;
-#ifdef PREALLOC
-    linear::TlsTablePool<Key_t>::Initialize();
-#endif
-    eh = reinterpret_cast<Hash<T> *>(
-        Allocator::GetRoot(sizeof(linear::Linear<T>)));
-    new (eh) linear::Linear<T>();
+    Allocator::Initialize();
+    eh = new linear::Linear<T>();
   }
-  
   std::cout << "end up the initialization" << std::endl;
 
   return eh;
@@ -133,10 +117,6 @@ void generate_8B(void *memory_region, uint64_t generate_num, bool persist,
 
   for (uint64_t i = 0; i < generate_num; ++i) {
     array[i] = key_generator->next_uint64();
-  }
-
-  if (persist) {
-    Allocator::Persist(memory_region, generate_num * sizeof(uint64_t));
   }
 }
 
@@ -160,11 +140,6 @@ void generate_16B(void *memory_region, uint64_t generate_num, int length,
       _key[j] = random_num;
     }
     memcpy(var_key->key, _key, length);
-  }
-
-  if (persist) {
-    Allocator::Persist(memory_region,
-                       generate_num * (sizeof(string_key) + length));
   }
 }
 

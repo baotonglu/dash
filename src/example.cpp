@@ -15,29 +15,16 @@
 #include "allocator.h"
 #include "ex_finger.h"
 
-// pool path and name
-static const char *pool_name = "/mnt/pmem0/pmem_hash.data";
-// pool size
-static const size_t pool_size = 1024ul * 1024ul * 1024ul * 10ul;
-
 int main() {
-  // Step 1: create (if not exist) and open the pool
-  bool file_exist = false;
-  if (FileExists(pool_name)) file_exist = true;
-  Allocator::Initialize(pool_name, pool_size);
+  // Step 1: initialize the allocator
+  Allocator::Initialize();
 
-  // Step 2: Allocate the initial space for the hash table on PM and get the
-  // root; we use Dash-EH in this case.
-  Hash<uint64_t> *hash_table = reinterpret_cast<Hash<uint64_t> *>(
-      Allocator::GetRoot(sizeof(extendible::Finger_EH<uint64_t>)));
-
-  // Step 3: Initialize the hash table
-    // During initialization phase, allocate 64 segments for Dash-EH
+  // Step 2: Initialize the hash table
+  // During initialization phase, allocate 64 segments for Dash-EH
   size_t segment_number = 64;
-  new (hash_table) extendible::Finger_EH<uint64_t>(
-      segment_number);
+  Hash<uint64_t> *hash_table = new extendible::Finger_EH<uint64_t>(segment_number);
 
-  // Step 4: Operate on the hash table
+  // Step 3: Operate on the hash table
   // If using multi-threads, we need to use epoch for correct memory
   // reclamation; To make it simple, this example program only use one thread
   // but we still show how to use epoch mechanism; We enter into the epoch for
