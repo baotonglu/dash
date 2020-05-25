@@ -32,7 +32,6 @@ class Hash {
   virtual bool Delete(T, bool) = 0;
   virtual Value_t Get(T) = 0;
   virtual Value_t Get(T key, bool is_in_epoch) = 0;
-  virtual void Recovery() = 0;
   virtual void getNumber() = 0;
 };
 

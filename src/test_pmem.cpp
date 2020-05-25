@@ -159,18 +159,6 @@ Hash<T> *InitializeIndex(int seg_num) {
       new (eh) level::LevelHashing<T>();
     }
   }
-  if (operation == "recovery") {
-    gettimeofday(&tv3, NULL);  // test end
-    eh->Recovery();
-    gettimeofday(&tv2, NULL);  // test end
-    double duration = (double)(tv2.tv_usec - tv1.tv_usec) / 1000000 +
-                      (double)(tv2.tv_sec - tv1.tv_sec);
-    double scanning_time = (double)(tv2.tv_usec - tv3.tv_usec) / 1000000 +
-                           (double)(tv2.tv_sec - tv3.tv_sec);
-    std::cout << "The recovery algorithm time = " << scanning_time << std::endl;
-    std::cout << "Total recovery time (open pool + recovery algorithm) = "
-              << duration << std::endl;
-  }
 
   return eh;
 }
@@ -827,65 +815,6 @@ void GeneralBench(range *rarray, Hash<T> *index, int thread_num,
   std::cout << profile_name << " End" << std::endl;
 }
 
-template <class T>
-void RecoveryBench(range *rarray, Hash<T> *index, int thread_num,
-                   uint64_t operation_num, std::string profile_name) {
-  std::thread *thread_array[1024];
-  profile_name = profile_name + std::to_string(thread_num);
-  double duration;
-  finished = false;
-  bar_a = 1;
-  bar_b = thread_num;
-  bar_c = thread_num;
-  uint64_t *last_record = new uint64_t[thread_num];
-  uint64_t *curr_record = new uint64_t[thread_num];
-  memset(last_record, 0, sizeof(uint64_t) * thread_num);
-  memset(curr_record, 0, sizeof(uint64_t) * thread_num);
-  double seconds = (double)msec / 1000;
-
-  std::cout << profile_name << " Begin" << std::endl;
-  for (uint64_t i = 0; i < thread_num; ++i) {
-    thread_array[i] =
-        new std::thread(concurr_search_sample<T>, &rarray[i], index);
-  }
-
-  while (LOAD(&bar_b) != 0)
-    ;  // Spin
-  gettimeofday(&tv1, NULL);
-  STORE(&bar_a, 0);  // start test
-  /* Start to do the sampling and record in the file*/
-  while (bar_c != 0) {
-    msleep(msec);
-    for (int i = 0; i < thread_num; ++i) {
-      curr_record[i] = operation_record[i].number;
-    }
-    uint64_t operation_num = 0;
-    for (int i = 0; i < thread_num; ++i) {
-      operation_num += (curr_record[i] - last_record[i]);
-    }
-    double throughput = (double)operation_num / (double)1000000 / seconds;
-    std::cout << throughput << std::endl; /*Mops/s*/
-    memcpy(last_record, curr_record, sizeof(uint64_t) * thread_num);
-  }
-  gettimeofday(&tv2, NULL);  // test end
-
-  for (int i = 0; i < thread_num; ++i) {
-    thread_array[i]->join();
-    delete thread_array[i];
-  }
-  duration = (double)(tv2.tv_usec - tv1.tv_usec) / 1000000 +
-             (double)(tv2.tv_sec - tv1.tv_sec);
-  printf(
-      "%d threads, Time = %f s, Total throughput = %f "
-      "ops/s\n",
-      thread_num,
-      (double)(tv2.tv_usec - tv1.tv_usec) / 1000000 +
-          (double)(tv2.tv_sec - tv1.tv_sec),
-      operation_num / duration);
-  //});
-  std::cout << profile_name << " End" << std::endl;
-}
-
 void *GenerateWorkload(uint64_t generate_num, int length) {
   /*Since there are both positive search and negative search, it should generate
    * 2 * generate_num workload*/
@@ -1098,13 +1027,6 @@ void Run() {
       GeneralBench<T>(rarray, index, thread_num, operation_num, "Mixed",
                       &mixed_without_epoch);
     }
-  } else if (operation == "recovery") {
-    std::cout << "Start the Recovery Benchmark" << std::endl;
-    for (int i = 0; i < thread_num; ++i) {
-      rarray[i].workload = not_used_workload;
-    }
-    RecoveryBench<T>(rarray, index, thread_num, operation_num, "Pos_search");
-
   } else { /*do the benchmark for all single operations*/
     std::cout << "Comprehensive Benchmark" << std::endl;
     std::cout << "insertion start" << std::endl;
