@@ -264,9 +264,6 @@ struct overflowBucket {
     }
     _[slot].value = value;
     _[slot].key = key;
-#ifdef PMEM
-    Allocator::Persist(&_[slot], sizeof(_[slot]));
-#endif
     set_hash(slot, meta_hash);
     return 0;
   }
@@ -716,9 +713,6 @@ struct Bucket {
     }
     _[slot].value = value;
     _[slot].key = key;
-#ifdef PMEM
-    Allocator::Persist(&_[slot], sizeof(_[slot]));
-#endif
     set_hash(slot, meta_hash, probe);
     return 0;
   }
@@ -838,9 +832,6 @@ struct Bucket {
                        bool probe) {
     _[slot].value = value;
     _[slot].key = key;
-#ifdef PMEM
-    Allocator::Persist(&_[slot], sizeof(_Pair<T>));
-#endif
     set_hash(slot, meta_hash, probe);
   }
 
@@ -1045,15 +1036,9 @@ struct Table {
                             neighbor->_[displace_index].value,
                             neighbor->finger_array[displace_index], true);
       next_neighbor->release_lock();
-#ifdef PMEM
-      Allocator::Persist(&next_neighbor->bitmap, sizeof(next_neighbor->bitmap));
-#endif
       neighbor->unset_hash(displace_index);
       neighbor->Insert_displace(key, value, meta_hash, displace_index, true);
       neighbor->release_lock();
-#ifdef PMEM
-      Allocator::Persist(&neighbor->bitmap, sizeof(neighbor->bitmap));
-#endif
 #ifdef COUNTING
       __sync_fetch_and_add(&number, 1);
 #endif
@@ -1071,15 +1056,9 @@ struct Table {
                             target->_[displace_index].value,
                             target->finger_array[displace_index], false);
       prev_neighbor->release_lock();
-#ifdef PMEM
-      Allocator::Persist(&prev_neighbor->bitmap, sizeof(prev_neighbor->bitmap));
-#endif
       target->unset_hash(displace_index);
       target->Insert_displace(key, value, meta_hash, displace_index, false);
       target->release_lock();
-#ifdef PMEM
-      Allocator::Persist(&target->bitmap, sizeof(target->bitmap));
-#endif
 #ifdef COUNTING
       __sync_fetch_and_add(&number, 1);
 #endif
@@ -1095,9 +1074,6 @@ struct Table {
       overflowBucket<T> *curr_bucket = stash + ((stash_pos + i) & stashMask);
       if (GET_COUNT(curr_bucket->bitmap) < kNumPairPerBucket) {
         curr_bucket->Insert(key, value, meta_hash);
-#ifdef PMEM
-        Allocator::Persist(&curr_bucket->bitmap, sizeof(curr_bucket->bitmap));
-#endif
         target->set_indicator(meta_hash, neighbor, (stash_pos + i) & stashMask);
 #ifdef COUNTING
         __sync_fetch_and_add(&number, 1);
@@ -1112,9 +1088,6 @@ struct Table {
     while (next_bucket != NULL) {
       if (GET_COUNT(next_bucket->bitmap) < kNumPairPerBucket) {
         next_bucket->Insert(key, value, meta_hash);
-#ifdef PMEM
-        Allocator::Persist(&next_bucket->bitmap, sizeof(next_bucket->bitmap));
-#endif
         target->set_indicator(meta_hash, neighbor, 3);
 #ifdef COUNTING
         __sync_fetch_and_add(&number, 1);
@@ -1128,14 +1101,7 @@ struct Table {
     /*allocate new next bucket*/
     Allocator::ZAllocate((void **)&prev_bucket->next, kCacheLineSize,
                          sizeof(overflowBucket<T>));
-#ifdef PMEM
-    Allocator::Persist(&prev_bucket->next, sizeof(prev_bucket->next));
-#endif
     prev_bucket->next->Insert(key, value, meta_hash);
-#ifdef PMEM
-    Allocator::Persist(&prev_bucket->next->bitmap,
-                       sizeof(prev_bucket->next->bitmap));
-#endif
     target->set_indicator(meta_hash, neighbor, 3);
 #ifdef COUNTING
     __sync_fetch_and_add(&number, 1);
@@ -1295,9 +1261,6 @@ int Table<T>::Insert2Org(T key, Value_t value, size_t key_hash, size_t pos) {
           stash + ((i + (pos & stashMask)) & stashMask);
       if (GET_COUNT(curr_bucket->bitmap) < kNumPairPerBucket) {
         curr_bucket->Insert(key, value, meta_hash);
-#ifdef PMEM
-        Allocator::Persist(&curr_bucket->bitmap, sizeof(curr_bucket->bitmap));
-#endif
         target_bucket->set_indicator(meta_hash, neighbor_bucket,
                                      ((i + (pos & stashMask)) & stashMask));
         return 0;
@@ -1308,15 +1271,8 @@ int Table<T>::Insert2Org(T key, Value_t value, size_t key_hash, size_t pos) {
 
   if (target_num <= neighbor_num) {
     target_bucket->Insert(key, value, meta_hash, false);
-#ifdef PMEM
-    Allocator::Persist(&target_bucket->bitmap, sizeof(target_bucket->bitmap));
-#endif
   } else {
     neighbor_bucket->Insert(key, value, meta_hash, true);
-#ifdef PMEM
-    Allocator::Persist(&neighbor_bucket->bitmap,
-                       sizeof(neighbor_bucket->bitmap));
-#endif
   }
 
   return 0;
@@ -1343,9 +1299,7 @@ void Table<T>::Split(Table<T> *org_table, uint64_t base_level, int org_idx,
   }
 
   state = 2;
-  Allocator::Persist(&state, sizeof(state));
   org_table->state = 1;
-  Allocator::Persist(&org_table->state, sizeof(state));
 
   uint32_t invalid_array[kNumBucket + stashBucket];
   /*rehashing of kv objects*/
@@ -1423,16 +1377,9 @@ void Table<T>::Split(Table<T> *org_table, uint64_t base_level, int org_idx,
   overflowBucket<T> *next_bucket = prev_bucket->next;
 
   while (next_bucket != NULL) {
-#ifdef PMEM
-    Allocator::Persist(next_bucket, sizeof(struct overflowBucket<T>));
-#endif
     prev_bucket = next_bucket;
     next_bucket = next_bucket->next;
   }
-
-#ifdef PMEM
-  Allocator::Persist(this, sizeof(Table));
-#endif
 
   /*clear the bitmap in original table*/
   for (int i = 0; i < kNumBucket; ++i) {
@@ -1515,18 +1462,13 @@ void Table<T>::Split(Table<T> *org_table, uint64_t base_level, int org_idx,
   next_bucket = prev_bucket->next;
 
   while (next_bucket != NULL) {
-    Allocator::Persist(next_bucket, sizeof(struct overflowBucket<T>));
     prev_bucket = next_bucket;
     next_bucket = next_bucket->next;
   }
-
-  Allocator::Persist(org_table, sizeof(Table));
 #endif
 
   org_table->state = 0;
-  Allocator::Persist(&org_table->state, sizeof(org_table->state));
   state = 0;
-  Allocator::Persist(&state, sizeof(state));
   for (int i = 0; i < kNumBucket; ++i) {
     curr_bucket = org_table->bucket + i;
     curr_bucket->release_lock();
@@ -1779,16 +1721,10 @@ int Table<T>::Insert(T key, Value_t value, size_t key_hash, Directory<T> *_dir,
     if (target_num <= neighbor_num) {
       target->Insert(key, value, meta_hash, false);
       target->release_lock();
-#ifdef PMEM
-      Allocator::Persist(&target->bitmap, sizeof(target->bitmap));
-#endif
       neighbor->release_lock();
     } else {
       neighbor->Insert(key, value, meta_hash, true);
       neighbor->release_lock();
-#ifdef PMEM
-      Allocator::Persist(&neighbor->bitmap, sizeof(neighbor->bitmap));
-#endif
       target->release_lock();
     }
 
@@ -1958,7 +1894,6 @@ class Linear : public Hash<T> {
   void Recovery();
   void ShutDown() {
     clean = true;
-    Allocator::Persist(&clean, sizeof(clean));
   }
   bool TryMerge(uint64_t, Table<T> *);
   void recoverSegment(Table<T> **seg_ptr, size_t, size_t, size_t);
@@ -2096,9 +2031,6 @@ class Linear : public Hash<T> {
         Allocator::ZAllocate((void **)&dir._[dir_idx], kCacheLineSize,
                              sizeof(Table<T>) * segmentSize);
 #endif
-#ifdef PMEM
-        Allocator::Persist(&dir._[dir_idx], sizeof(Table<T> *));
-#endif
       } else {
         goto RE_EXPAND;
       }
@@ -2115,9 +2047,6 @@ class Linear : public Hash<T> {
       goto RE_EXPAND;
     }
 
-#ifdef PMEM
-    Allocator::Persist(&dir.N_next, sizeof(uint64_t));
-#endif
     if ((uint32_t)new_N_next == 0) {
       printf("expand to level %lu\n", new_N_next >> 32);
     }
@@ -2291,9 +2220,7 @@ RETRY:
     }
 
     target->state = 0;
-    Allocator::Persist(&target->state, sizeof(target->state));
     org_table->state = 0;
-    Allocator::Persist(&org_table->state, sizeof(org_table->state));
 
     for (int i = 0; i < kNumBucket; ++i) {
       auto curr_bucket = org_table->bucket + i;
@@ -2771,9 +2698,6 @@ RETRY:
       auto num = SUB(&target->number, 1);
 #endif
       target_bucket->release_lock();
-#ifdef PMEM
-      Allocator::Persist(&target_bucket->bitmap, sizeof(target_bucket->bitmap));
-#endif
       neighbor_bucket->release_lock();
       return true;
     }
@@ -2786,10 +2710,6 @@ RETRY:
       auto num = SUB(&target->number, 1);
 #endif
       neighbor_bucket->release_lock();
-#ifdef PMEM
-      Allocator::Persist(&neighbor_bucket->bitmap,
-                         sizeof(neighbor_bucket->bitmap));
-#endif
       target_bucket->release_lock();
       return true;
     }
@@ -2840,10 +2760,6 @@ RETRY:
             auto num = SUB(&target->number, 1);
 #endif
             stash->release_lock();
-#ifdef PMEM
-            Allocator::Persist(&curr_bucket->bitmap,
-                               sizeof(curr_bucket->bitmap));
-#endif
             target_bucket->unset_indicator(meta_hash, neighbor_bucket, key,
                                            index);
             target_bucket->release_lock();
@@ -2861,10 +2777,6 @@ RETRY:
             auto num = SUB(&target->number, 1);
 #endif
             stash->release_lock();
-#ifdef PMEM
-            Allocator::Persist(&next_bucket->bitmap,
-                               sizeof(next_bucket->bitmap));
-#endif
             target_bucket->unset_indicator(meta_hash, neighbor_bucket, key, 3);
             target_bucket->release_lock();
             neighbor_bucket->release_lock();
