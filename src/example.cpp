@@ -40,7 +40,7 @@ int main() {
     auto epoch_guard = Allocator::AquireEpochGuard();
     for (uint64_t j = 0; j < 1024; ++j) {
       auto ret = hash_table->Insert(i * 1024 + j, DEFAULT, true);
-      if(ret == -1){
+      if(ret == -1){ /* -1 means this key already exist in the index => insertion failure*/
         alread_exist++;
       }
     }
@@ -48,6 +48,7 @@ int main() {
 
   std::cout << "already exist for first insert = " << alread_exist << std::endl;
 
+  // Insert, testing for duplicate insert
   alread_exist = 0;
   for (uint64_t i = 0; i < 1024; ++i) {
     // Enroll into the epoch, if using one thread, epoch mechanism is actually
@@ -62,6 +63,7 @@ int main() {
   }
 
   std::cout << "already exist for second insert = " << alread_exist << std::endl;
+
   // Search
   uint64_t not_found = 0;
   for (uint64_t i = 0; i < 1024; ++i) {
