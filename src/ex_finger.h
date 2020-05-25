@@ -571,7 +571,7 @@ struct Directory {
 /* the segment class*/
 template <class T>
 struct Table {
-  static void New(Table<T> *tbl, size_t depth, Table<T>* pp) {
+  static void New(Table<T> **tbl, size_t depth, Table<T>* pp) {
     Allocator::ZAllocate((void **)tbl, kCacheLineSize, sizeof(Table<T>));
     (*tbl)->local_depth = depth;
     (*tbl)->state = -3;
