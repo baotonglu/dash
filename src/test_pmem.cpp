@@ -15,8 +15,6 @@
 #include "../util/System.hpp"
 #include "../util/key_generator.hpp"
 #include "../util/uniform.hpp"
-#include "./CCEH/CCEH_baseline.h"
-#include "./Level/level_baseline.h"
 #include "Hash.h"
 #include "allocator.h"
 #include "ex_finger.h"
@@ -131,35 +129,8 @@ Hash<T> *InitializeIndex(int seg_num) {
     } else {
       new (eh) linear::Linear<T>();
     }
-  } else if (index_type == "cceh") {
-    std::cout << "Initialize CCEH" << std::endl;
-    std::string index_pool_name = pool_name + "pmem_cceh.data";
-    if (FileExists(index_pool_name.c_str())) file_exist = true;
-    Allocator::Initialize(index_pool_name.c_str(), pool_size);
-    eh = reinterpret_cast<Hash<T> *>(Allocator::GetRoot(sizeof(cceh::CCEH<T>)));
-    if (!file_exist) {
-      new (eh) cceh::CCEH<T>(seg_num, Allocator::Get()->pm_pool_);
-    } else {
-      new (eh) cceh::CCEH<T>();
-    }
-  } else if (index_type == "level") {
-    std::cout << "Initialize Level Hashing" << std::endl;
-    std::string index_pool_name = pool_name + "pmem_level.data";
-    if (FileExists(index_pool_name.c_str())) file_exist = true;
-    Allocator::Initialize(index_pool_name.c_str(), pool_size);
-    eh = reinterpret_cast<Hash<T> *>(
-        Allocator::GetRoot(sizeof(level::LevelHashing<T>)));
-    if (!file_exist) {
-      new (eh) level::LevelHashing<T>();
-      int level_size = 13;
-      level::initialize_level(Allocator::Get()->pm_pool_,
-                              reinterpret_cast<level::LevelHashing<T> *>(eh),
-                              &level_size);
-    } else {
-      new (eh) level::LevelHashing<T>();
-    }
   }
-
+  
   return eh;
 }
 
