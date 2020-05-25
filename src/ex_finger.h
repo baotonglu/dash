@@ -714,7 +714,6 @@ struct Table {
   void Insert4merge(T key, Value_t value, size_t key_hash, uint8_t meta_hash,
                     bool flag = false);
   Table<T> *Split(size_t);
-  void HelpSplit(Table<T> *);
   void Merge(Table<T> *, bool flag = false);
   int Delete(T key, size_t key_hash, uint8_t meta_hash, Directory<T> **_dir);
 
@@ -777,62 +776,6 @@ struct Table {
       }
     }
     return -1;
-  }
-
-  void recoverMetadata() {
-    Bucket<T> *curr_bucket, *neighbor_bucket;
-    /*reset the lock and overflow meta-data*/
-    uint64_t knumber = 0;
-    for (int i = 0; i < kNumBucket; ++i) {
-      curr_bucket = bucket + i;
-      curr_bucket->resetLock();
-      curr_bucket->resetOverflowFP();
-      neighbor_bucket = bucket + ((i + 1) & bucketMask);
-      for (int j = 0; j < kNumPairPerBucket; ++j) {
-        int mask = curr_bucket->get_current_mask();
-        if (CHECK_BIT(mask, j) && (neighbor_bucket->check_and_get(
-                                       curr_bucket->finger_array[j],
-                                       curr_bucket->_[j].key, true) != NONE)) {
-          curr_bucket->unset_hash(j);
-        }
-      }
-
-#ifdef COUNTING
-      knumber += __builtin_popcount(GET_BITMAP(curr_bucket->bitmap));
-#endif
-    }
-
-    /*scan the stash buckets and re-insert the overflow FP to initial buckets*/
-    for (int i = 0; i < stashBucket; ++i) {
-      curr_bucket = bucket + kNumBucket + i;
-      curr_bucket->resetLock();
-#ifdef COUNTING
-      knumber += __builtin_popcount(GET_BITMAP(curr_bucket->bitmap));
-#endif
-      uint64_t key_hash;
-      auto mask = GET_BITMAP(curr_bucket->bitmap);
-      for (int j = 0; j < kNumPairPerBucket; ++j) {
-        if (CHECK_BIT(mask, j)) {
-          if constexpr (std::is_pointer_v<T>) {
-            auto curr_key = curr_bucket->_[j].key;
-            key_hash = h(curr_key->key, curr_key->length);
-          } else {
-            key_hash = h(&(curr_bucket->_[j].key), sizeof(Key_t));
-          }
-          /*compute the initial bucket*/
-          auto bucket_ix = BUCKET_INDEX(key_hash);
-          auto meta_hash = ((uint8_t)(key_hash & kMask));  // the last 8 bits
-          auto org_bucket = bucket + bucket_ix;
-          auto neighbor_bucket = bucket + ((bucket_ix + 1) & bucketMask);
-          org_bucket->set_indicator(meta_hash, neighbor_bucket, i);
-        }
-      }
-    }
-#ifdef COUNTING
-    number = knumber;
-#endif
-    /* No need to flush these meta-data because persistent or not does not
-     * influence the correctness*/
   }
 
   Bucket<T> bucket[kNumBucket + stashBucket];
@@ -1172,86 +1115,6 @@ void Table<T>::Insert4merge(T key, Value_t value, size_t key_hash,
 }
 
 template <class T>
-void Table<T>::HelpSplit(Table<T> *next_table) {
-  size_t new_pattern = (pattern << 1) + 1;
-  size_t old_pattern = pattern << 1;
-
-  size_t key_hash;
-  uint32_t invalid_array[kNumBucket + stashBucket];
-  for (int i = 0; i < kNumBucket; ++i) {
-    auto *curr_bucket = bucket + i;
-    auto mask = GET_BITMAP(curr_bucket->bitmap);
-    uint32_t invalid_mask = 0;
-    for (int j = 0; j < kNumPairPerBucket; ++j) {
-      if (CHECK_BIT(mask, j)) {
-        if constexpr (std::is_pointer_v<T>) {
-          auto curr_key = curr_bucket->_[j].key;
-          key_hash = h(curr_key->key, curr_key->length);
-        } else {
-          key_hash = h(&(curr_bucket->_[j].key), sizeof(Key_t));
-        }
-
-        if ((key_hash >> (64 - local_depth - 1)) == new_pattern) {
-          invalid_mask = invalid_mask | (1 << j);
-          next_table->Insert4splitWithCheck(curr_bucket->_[j].key,
-                                            curr_bucket->_[j].value, key_hash,
-                                            curr_bucket->finger_array[j]);
-#ifdef COUNTING
-          number--;
-#endif
-        }
-      }
-    }
-    invalid_array[i] = invalid_mask;
-  }
-
-  for (int i = 0; i < stashBucket; ++i) {
-    auto *curr_bucket = bucket + kNumBucket + i;
-    auto mask = GET_BITMAP(curr_bucket->bitmap);
-    uint32_t invalid_mask = 0;
-    for (int j = 0; j < kNumPairPerBucket; ++j) {
-      if (CHECK_BIT(mask, j)) {
-        if constexpr (std::is_pointer_v<T>) {
-          auto curr_key = curr_bucket->_[j].key;
-          key_hash = h(curr_key->key, curr_key->length);
-        } else {
-          key_hash = h(&(curr_bucket->_[j].key), sizeof(Key_t));
-        }
-        if ((key_hash >> (64 - local_depth - 1)) == new_pattern) {
-          invalid_mask = invalid_mask | (1 << j);
-          next_table->Insert4splitWithCheck(curr_bucket->_[j].key,
-                                            curr_bucket->_[j].value, key_hash,
-                                            curr_bucket->finger_array[j]);
-          auto bucket_ix = BUCKET_INDEX(key_hash);
-          auto org_bucket = bucket + bucket_ix;
-          auto neighbor_bucket = bucket + ((bucket_ix + 1) & bucketMask);
-          org_bucket->unset_indicator(curr_bucket->finger_array[j],
-                                      neighbor_bucket, curr_bucket->_[j].key,
-                                      i);
-#ifdef COUNTING
-          number--;
-#endif
-        }
-      }
-    }
-    invalid_array[kNumBucket + i] = invalid_mask;
-  }
-  next_table->pattern = new_pattern;
-  pattern = old_pattern;
-
-#ifdef PMEM
-  size_t sumBucket = kNumBucket + stashBucket;
-  for (int i = 0; i < sumBucket; ++i) {
-    auto curr_bucket = bucket + i;
-    curr_bucket->bitmap = curr_bucket->bitmap & (~(invalid_array[i] << 18)) &
-                          (~(invalid_array[i] << 4));
-    uint32_t count = __builtin_popcount(invalid_array[i]);
-    curr_bucket->bitmap = curr_bucket->bitmap - count;
-  }
-#endif
-}
-
-template <class T>
 Table<T> *Table<T>::Split(size_t _key_hash) {
   size_t new_pattern = (pattern << 1) + 1;
   size_t old_pattern = pattern << 1;
@@ -1493,8 +1356,6 @@ class Finger_EH : public Hash<T> {
 #endif
   }
 
-  void recoverTable(Table<T> **target_table, size_t, size_t, Directory<T> *);
-  void Recovery();
 
   inline bool Acquire(void) {
     int unlocked = 0;
@@ -1747,86 +1608,6 @@ void Finger_EH<T>::Directory_Merge_Update(Directory<T> *_sa, uint64_t key_hash,
 }
 
 template <class T>
-void Finger_EH<T>::recoverTable(Table<T> **target_table, size_t key_hash,
-                                size_t x, Directory<T> *old_sa) {
-  /*Set the lockBit to ahieve the mutal exclusion of the recover process*/
-  auto dir_entry = old_sa->_;
-  uint64_t snapshot = (uint64_t)*target_table;
-  Table<T> *target = (Table<T> *)(snapshot & tailMask);
-  if (pmemobj_mutex_trylock(pool_addr, &target->lock_bit) != 0) {
-    return;
-  }
-
-  target->recoverMetadata();
-  if (target->state != 0) {
-    target->pattern = key_hash >> (8 * sizeof(key_hash) - target->local_depth);
-    Table<T> *next_table = (Table<T> *)pmemobj_direct(target->next);
-    if (target->state == -2) {
-      if (next_table->state == -3) {
-        /*Help finish the split operation*/
-        next_table->recoverMetadata();
-        target->HelpSplit(next_table);
-        Lock_Directory();
-        auto x = (key_hash >> (8 * sizeof(key_hash) - dir->global_depth));
-        if (target->local_depth < dir->global_depth) {
-          Directory_Update(dir, x, next_table, target);
-        } else {
-          Directory_Doubling(x, next_table, target);
-        }
-        Unlock_Directory();
-        /*release the lock for the target bucket and the new bucket*/
-        next_table->state = 0;
-      }
-    } else if (target->state == -1) {
-      if (next_table->pattern == ((target->pattern << 1) + 1)) {
-        target->Merge(next_table, true);
-        target->next = next_table->next;
-      }
-    }
-    target->state = 0;
-  }
-
-  /*Compute for all entries and clear the dirty bit*/
-  int chunk_size = pow(2, old_sa->global_depth - target->local_depth);
-  x = x - (x % chunk_size);
-  for (int i = x; i < (x + chunk_size); ++i) {
-    dir_entry[i] = reinterpret_cast<Table<T> *>(
-        (reinterpret_cast<uint64_t>(dir_entry[i]) & tailMask) | crash_version);
-  }
-  *target_table = reinterpret_cast<Table<T> *>(
-      reinterpret_cast<uint64_t>(target) | crash_version);
-}
-
-template <class T>
-void Finger_EH<T>::Recovery() {
-  /*scan the directory, set the clear bit, and also set the dirty bit in the
-   * segment to indicate that this segment is clean*/
-  if (clean) {
-    clean = false;
-    return;
-  }
-  Allocator::EpochRecovery();
-  lock = 0;
-  /*first check the back_dir log*/
-  if (!OID_IS_NULL(back_dir)) {
-    pmemobj_free(&back_dir);
-  }
-
-  dir->counter = 0;
-  auto dir_entry = dir->_;
-  int length = pow(2, dir->global_depth);
-  crash_version = ((crash_version >> 56) + 1) << 56;
-  if (crash_version == 0) {
-    uint64_t set_one = 1UL << 56;
-    for (int i = 0; i < length; ++i) {
-      uint64_t snapshot = (uint64_t)dir_entry[i];
-      dir_entry[i] =
-          reinterpret_cast<Table<T> *>((snapshot & tailMask) | set_one);
-    }
-  }
-}
-
-template <class T>
 void Finger_EH<T>::Insert(T key, Value_t value, bool is_in_epoch) {
   if (!is_in_epoch) {
     auto epoch_guard = Allocator::AquireEpochGuard();
@@ -1852,12 +1633,6 @@ RETRY:
   auto dir_entry = old_sa->_;
   Table<T> *target = reinterpret_cast<Table<T> *>(
       reinterpret_cast<uint64_t>(dir_entry[x]) & tailMask);
-
-  if ((reinterpret_cast<uint64_t>(dir_entry[x]) & headerMask) !=
-      crash_version) {
-    recoverTable(&dir_entry[x], key_hash, x, old_sa);
-    goto RETRY;
-  }
 
   auto ret = target->Insert(key, value, key_hash, meta_hash, &dir);
   if (ret == -1) {
@@ -1944,11 +1719,6 @@ RETRY:
   auto old_entry = dir_entry[x];
   Table<T> *target = reinterpret_cast<Table<T> *>(
       reinterpret_cast<uint64_t>(old_entry) & tailMask);
-
-  if ((reinterpret_cast<uint64_t>(old_entry) & headerMask) != crash_version) {
-    recoverTable(&dir_entry[x], key_hash, x, old_sa);
-    goto RETRY;
-  }
 
   Bucket<T> *target_bucket = target->bucket + y;
   Bucket<T> *neighbor_bucket = target->bucket + ((y + 1) & bucketMask);
@@ -2074,11 +1844,6 @@ RETRY:
   Table<T> *target = reinterpret_cast<Table<T> *>(
       reinterpret_cast<uint64_t>(old_entry) & tailMask);
 
-  if ((reinterpret_cast<uint64_t>(old_entry) & headerMask) != crash_version) {
-    recoverTable(&dir_entry[x], key_hash, x, old_sa);
-    goto RETRY;
-  }
-
   Bucket<T> *target_bucket = target->bucket + y;
   Bucket<T> *neighbor_bucket = target->bucket + ((y + 1) & bucketMask);
 
@@ -2197,16 +1962,6 @@ void Finger_EH<T>::TryMerge(size_t key_hash) {
     auto left_seg = old_dir->_[left];
     auto right_seg = old_dir->_[right];
 
-    if ((reinterpret_cast<uint64_t>(left_seg) & headerMask) != crash_version) {
-      recoverTable(&old_dir->_[left], key_hash, left, old_dir);
-      continue;
-    }
-
-    if ((reinterpret_cast<uint64_t>(right_seg) & headerMask) != crash_version) {
-      recoverTable(&old_dir->_[right], key_hash, right, old_dir);
-      continue;
-    }
-
     size_t _pattern0 =
         ((key_hash >> (8 * sizeof(key_hash) - target->local_depth + 1)) << 1);
     size_t _pattern1 =
@@ -2314,12 +2069,6 @@ RETRY:
   auto dir_entry = old_sa->_;
   Table<T> *target_table = reinterpret_cast<Table<T> *>(
       reinterpret_cast<uint64_t>(dir_entry[x]) & tailMask);
-
-  if ((reinterpret_cast<uint64_t>(dir_entry[x]) & headerMask) !=
-      crash_version) {
-    recoverTable(&dir_entry[x], key_hash, x, old_sa);
-    goto RETRY;
-  }
 
   /*we need to first do the locking and then do the verify*/
   auto y = BUCKET_INDEX(key_hash);
