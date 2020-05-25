@@ -659,7 +659,6 @@ struct Table {
       table_ptr->local_depth = value_ptr->first;
       table_ptr->next = value_ptr->second;
       table_ptr->state = -3; /*NEW*/
-      memset(&table_ptr->lock_bit, 0, sizeof(PMEMmutex) * 2);
 
       int sumBucket = kNumBucket + stashBucket;
       for (int i = 0; i < sumBucket; ++i) {
@@ -786,8 +785,6 @@ struct Table {
   int state; /*-1 means this bucket is merging, -2 means this bucket is
                 splitting (SPLITTING), 0 meanning normal bucket, -3 means new
                 bucket (NEW)*/
-  PMEMmutex
-      lock_bit; /* for the synchronization of the lazy recovery in one segment*/
 };
 
 /* it needs to verify whether this bucket has been deleted...*/
