@@ -1187,7 +1187,6 @@ void Table<T>::Merge(Table<T> *neighbor, bool unique_check_flag) {
 template <class T>
 class Finger_EH : public Hash<T> {
  public:
-  Finger_EH(void);
   Finger_EH(size_t);
   ~Finger_EH(void);
   inline void Insert(T key, Value_t value);
@@ -1288,11 +1287,6 @@ Finger_EH<T>::Finger_EH(size_t initCap) {
     dir->_[i]->state = 0;
   }
   dir->depth_count = initCap;
-}
-
-template <class T>
-Finger_EH<T>::Finger_EH() {
-  std::cout << "Reinitialize up" << std::endl;
 }
 
 template <class T>
