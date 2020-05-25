@@ -563,7 +563,7 @@ struct Directory {
   }
 
   static void New(Directory **dir, size_t capacity, size_t _version){
-    Allocator::ZAllocate((void **)dir, kCacheLineSize, sizeof(Directory<T>));
+    Allocator::ZAllocate((void **)dir, kCacheLineSize, sizeof(Directory<T>) + sizeof(table_p) * capacity);
     new (*dir) Directory(capacity, _version);
   }
 };
@@ -1287,7 +1287,9 @@ Finger_EH<T>::Finger_EH(size_t initCap, PMEMobjpool *_pool) {
   clean = false;
 
   /*FIXME: make the process of initialization crash consistent*/
+  std::cout << "allocate first segment" << std::endl;
   Table<T>::New(&dir->_[initCap - 1], dir->global_depth, NULL);
+  std::cout << "finish allocate first segment" << std::endl;
   dir->_[initCap - 1]->pattern = initCap - 1;
   dir->_[initCap - 1]->state = 0;
   /* Initilize the Directory*/

@@ -3,7 +3,7 @@
 # number of threads to run
 thread_num=(0 1 2 4 8 16 24 48)
 # benckmark workload, number of opeartions to run
-workload=(0 190000000)
+workload=(0 100000000)
 # warm-up workload, number of key-value to insert for warm-up
 base=(0 10000000)
 # type of keys
@@ -18,9 +18,9 @@ epoch=(0 1 1 1 0)
 # j spec1fy the number of threads, 1 means one threads, 2 means two threads, 3 means four threads...
 for k in 1
 do
-	for i in 1 2
+	for i in 1
 	do
-		for j in 6
+		for j in 1
 		do
 			echo "Begin: ${base[1]} ${workload[${i}]} ${thread_num[${j}]}"
 			numaarg=""

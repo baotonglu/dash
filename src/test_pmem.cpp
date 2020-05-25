@@ -98,6 +98,7 @@ Hash<T> *InitializeIndex(int seg_num) {
   Hash<T> *eh;
   bool file_exist = false;
   gettimeofday(&tv1, NULL);
+  std::cout << "start the initialization" << std::endl;
   if (index_type == "dash-ex") {
     std::cout << "Initialize Dash-EH" << std::endl;
     std::string index_pool_name = pool_name + "pmem_ex.data";
@@ -131,6 +132,8 @@ Hash<T> *InitializeIndex(int seg_num) {
     }
   }
   
+  std::cout << "end up the initialization" << std::endl;
+
   return eh;
 }
 
