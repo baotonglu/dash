@@ -1863,9 +1863,8 @@ class Linear : public Hash<T> {
 #ifdef DOUBLE_EXPANSION
         uint32_t seg_size = SEG_SIZE(static_cast<uint32_t>(pow(2, old_N)) +
                                      old_next + numBuckets - 1);
-        Allocator::ZAllocate(&back_seg, kCacheLineSize,
+        Allocator::ZAllocate((void **)&dir._[dir_idx], kCacheLineSize,
                              sizeof(Table<T>) * seg_size);
-        dir._[dir_idx] = back_seg;
 #else
         Allocator::ZAllocate((void **)&dir._[dir_idx], kCacheLineSize,
                              sizeof(Table<T>) * segmentSize);
@@ -1892,7 +1891,6 @@ class Linear : public Hash<T> {
   }
 
   PMEMobjpool *pool_addr;
-  Table<T> *back_seg;
   Directory<T> dir;
   int lock;
   bool clean;
