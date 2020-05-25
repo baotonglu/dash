@@ -75,11 +75,6 @@ struct Allocator {
   static void ResetItem(GarbageList::Item* mem) {
     instance_->garbage_list_.ResetItem(mem);
   }
-
-  static void EpochRecovery() {
-    instance_->garbage_list_.Recovery(&instance_->epoch_manager_,
-                                      instance_->pm_pool_);
-  }
 };
 
 Allocator* Allocator::instance_ = nullptr;
