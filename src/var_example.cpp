@@ -88,17 +88,24 @@ int main() {
   std::cout << "already exist for second insert = " << alread_exist << std::endl;
 
   // Search
+  Value_t value;
   uint64_t not_found = 0;
+  uint64_t not_match_value = 0;
   for (uint64_t i = 0; i < 1024; ++i) {
     auto epoch_guard = Allocator::AquireEpochGuard();
     for (uint64_t j = 0; j < 1024; ++j) {
     string_key* var_key = reinterpret_cast<string_key*>(workload + string_key_size * (i * 1024 + j));
-      if (hash_table->Get(var_key, true) == NONE) {
+      if (hash_table->Get(var_key, &value, true) == NONE) {
         not_found++;
+      }
+
+      if (value != DEFAULT){
+        not_match_value++;
       }
     }
   }
   std::cout << "The number of keys not found: " << not_found << std::endl;
+  std::cout << "The number of value not match: " << not_match_value << std::endl;
 
   // Delete
   for (uint64_t i = 0; i < 1024; ++i) {
