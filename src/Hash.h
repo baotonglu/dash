@@ -19,8 +19,8 @@ class Hash {
  public:
   Hash(void) = default;
   ~Hash(void) = default;
-  virtual void Insert(T, Value_t) = 0;
-  virtual void Insert(T, Value_t, bool) = 0;
+  virtual int Insert(T, Value_t) = 0;
+  virtual int Insert(T, Value_t, bool) = 0;
  
   virtual void bootRestore(){
 

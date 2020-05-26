@@ -332,8 +332,8 @@ class CCEH : public Hash<T> {
   CCEH(void);
   CCEH(int, PMEMobjpool *_pool);
   ~CCEH(void);
-  void Insert(T key, Value_t value);
-  void Insert(T key, Value_t value, bool);
+  int Insert(T key, Value_t value);
+  int Insert(T key, Value_t value, bool);
   bool Delete(T);
   bool Delete(T, bool);
   Value_t Get(T);
@@ -383,12 +383,12 @@ int Segment<T>::Insert(PMEMobjpool *pool_addr, T key, Value_t value, size_t loc,
           (var_compare(key->key, _[slot].key->key, key->length,
                        _[slot].key->length))) {
         release_lock(pool_addr);
-        return 0;
+        return -3;
       }
     } else {
       if (_[slot].key == key) {
         release_lock(pool_addr);
-        return 0;
+        return -3;
       }
     }
   }
@@ -660,7 +660,7 @@ void CCEH<T>::Directory_Update(int x, Segment<T> *s0, PMEMoid *s1) {
 }
 
 template <class T>
-void CCEH<T>::Insert(T key, Value_t value, bool is_in_epoch) {
+int CCEH<T>::Insert(T key, Value_t value, bool is_in_epoch) {
   if (!is_in_epoch) {
     auto epoch_guard = Allocator::AquireEpochGuard();
     return Insert(key, value);
@@ -669,7 +669,7 @@ void CCEH<T>::Insert(T key, Value_t value, bool is_in_epoch) {
 }
 
 template <class T>
-void CCEH<T>::Insert(T key, Value_t value) {
+int CCEH<T>::Insert(T key, Value_t value) {
 STARTOVER:
   uint64_t key_hash;
   if constexpr (std::is_pointer_v<T>) {
@@ -689,6 +689,8 @@ RETRY:
   }
 
   auto ret = target->Insert(pool_addr, key, value, y, key_hash);
+
+  if(ret == -3) return -1;
 
   if (ret == 1) {
     auto s = target->Split(pool_addr, key_hash, log);
@@ -731,6 +733,8 @@ RETRY:
   } else if (ret == 2) {
     goto STARTOVER;
   }
+
+  return 0;
 }
 
 template <class T>

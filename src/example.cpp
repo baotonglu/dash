@@ -50,14 +50,32 @@ int main() {
   // delete operations
 
   // Insert
+  int already_exists = 0;
   for (uint64_t i = 0; i < 1024; ++i) {
     // Enroll into the epoch, if using one thread, epoch mechanism is actually
     // not needed
     auto epoch_guard = Allocator::AquireEpochGuard();
     for (uint64_t j = 0; j < 1024; ++j) {
-      hash_table->Insert(i * 1024 + j, DEFAULT, true);
+      auto ret = hash_table->Insert(i * 1024 + j, DEFAULT, true);
+      if (ret == -1) already_exists++;
     }
   }
+
+  std::cout << "Duplicate insert for first pass " << already_exists << std::endl;
+
+  // Duplicate insert
+  already_exists = 0;
+  for (uint64_t i = 0; i < 1024; ++i) {
+    // Enroll into the epoch, if using one thread, epoch mechanism is actually
+    // not needed
+    auto epoch_guard = Allocator::AquireEpochGuard();
+    for (uint64_t j = 0; j < 1024; ++j) {
+      auto ret = hash_table->Insert(i * 1024 + j, DEFAULT, true);
+      if (ret == -1) already_exists++;
+    }
+  }
+
+  std::cout << "Duplicate insert for second pass " << already_exists << std::endl;
 
   // Search
   uint64_t not_found = 0;

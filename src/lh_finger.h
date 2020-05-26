@@ -1721,7 +1721,7 @@ int Table<T>::Insert(T key, Value_t value, size_t key_hash, Directory<T> *_dir,
     if (ret == -1) {
       neighbor->release_lock();
       target->release_lock();
-      return 0;
+      return -3; /* duplicate insert*/
     }
 
     int target_num = GET_COUNT(target->bitmap);
@@ -1948,9 +1948,9 @@ class Linear : public Hash<T> {
   Linear(void);
   Linear(PMEMobjpool *_pool);
   ~Linear(void);
-  void Insert(T key, Value_t value);
+  int Insert(T key, Value_t value);
   bool Delete(T);
-  void Insert(T key, Value_t value, bool);
+  int Insert(T key, Value_t value, bool);
   bool Delete(T, bool);
   inline Value_t Get(T);
   Value_t Get(T key, bool is_in_epoch);
@@ -2309,7 +2309,7 @@ RETRY:
 }
 
 template <class T>
-void Linear<T>::Insert(T key, Value_t value, bool is_in_epoch) {
+int Linear<T>::Insert(T key, Value_t value, bool is_in_epoch) {
   if (!is_in_epoch) {
     auto epoch_guard = Allocator::AquireEpochGuard();
     return Insert(key, value);
@@ -2318,7 +2318,7 @@ void Linear<T>::Insert(T key, Value_t value, bool is_in_epoch) {
 }
 
 template <class T>
-void Linear<T>::Insert(T key, Value_t value) {
+int Linear<T>::Insert(T key, Value_t value) {
   uint64_t key_hash;
   if constexpr (std::is_pointer_v<T>) {
     key_hash = h(key->key, key->length);
@@ -2350,7 +2350,11 @@ RETRY:
     goto RETRY;
   } else if (ret == -1) {
     Expand(2);
+  } else if (ret == -3){
+    return -1;
   }
+
+  return 0;
 }
 
 template <class T>

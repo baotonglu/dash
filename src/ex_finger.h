@@ -907,7 +907,7 @@ RETRY:
   if (ret == -1) {
     neighbor->release_lock();
     target->release_lock();
-    return 0;
+    return -3; /* duplicate insert*/
   }
 
   if (((GET_COUNT(target->bitmap)) == kNumPairPerBucket) &&
@@ -1485,8 +1485,8 @@ class Finger_EH : public Hash<T> {
   Finger_EH(void);
   Finger_EH(size_t, PMEMobjpool *_pool);
   ~Finger_EH(void);
-  inline void Insert(T key, Value_t value);
-  void Insert(T key, Value_t value, bool);
+  inline int Insert(T key, Value_t value);
+  int Insert(T key, Value_t value, bool);
   inline bool Delete(T);
   bool Delete(T, bool);
   inline Value_t Get(T);
@@ -1887,7 +1887,7 @@ void Finger_EH<T>::Recovery() {
 }
 
 template <class T>
-void Finger_EH<T>::Insert(T key, Value_t value, bool is_in_epoch) {
+int Finger_EH<T>::Insert(T key, Value_t value, bool is_in_epoch) {
   if (!is_in_epoch) {
     auto epoch_guard = Allocator::AquireEpochGuard();
     return Insert(key, value);
@@ -1897,7 +1897,7 @@ void Finger_EH<T>::Insert(T key, Value_t value, bool is_in_epoch) {
 }
 
 template <class T>
-void Finger_EH<T>::Insert(T key, Value_t value) {
+int Finger_EH<T>::Insert(T key, Value_t value) {
   uint64_t key_hash;
   if constexpr (std::is_pointer_v<T>) {
     key_hash = h(key->key, key->length);
@@ -1920,6 +1920,11 @@ RETRY:
   }
 
   auto ret = target->Insert(key, value, key_hash, meta_hash, &dir);
+
+  if(ret == -3){ /*duplicate insert, insertion failure*/
+    return -1;
+  }
+
   if (ret == -1) {
     if (!target->bucket->try_get_lock()) {
       goto RETRY;
@@ -1983,6 +1988,8 @@ RETRY:
   } else if (ret == -2) {
     goto RETRY;
   }
+
+  return 0;
 }
 
 template <class T>

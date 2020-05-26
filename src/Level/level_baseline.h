@@ -125,8 +125,8 @@ class LevelHashing : public Hash<T> {
     }
   }
 
-  void Insert(T, Value_t);
-  void Insert(T key, Value_t value, bool is_in_epoch) {
+  int Insert(T, Value_t);
+  int Insert(T key, Value_t value, bool is_in_epoch) {
     return Insert(key, value);
   }
   bool Delete(T);
@@ -312,7 +312,7 @@ RETRY:
 UNIQUE:
   if (inserted) {
     pmemobj_rwlock_unlock(pop, &mutex[lock_idx]);
-    return;
+    return -1; // unique check failure
   }
 
   pmemobj_rwlock_unlock(pop, &mutex[lock_idx]);
@@ -343,7 +343,7 @@ UNIQUE:
         level_item_num[i]++;
 #endif
         pmemobj_rwlock_unlock(pop, &mutex[f_idx / locksize]);
-        return;
+        return 0;
       }
 
       pmemobj_rwlock_unlock(pop, &mutex[f_idx / locksize]);
@@ -369,7 +369,7 @@ UNIQUE:
         level_item_num[i]++;
 #endif
         pmemobj_rwlock_unlock(pop, &mutex[s_idx / locksize]);
-        return;
+        return 0;
       }
       pmemobj_rwlock_unlock(pop, &mutex[s_idx / locksize]);
     }
@@ -386,11 +386,11 @@ UNIQUE:
     for (i = 0; i < 2; i++) {
       if (!try_movement(pop, f_idx, i, key, value)) {
         resizing_lock.store(0);
-        return;
+        return 0;
       }
       if (!try_movement(pop, s_idx, i, key, value)) {
         resizing_lock.store(0);
-        return;
+        return 0;
       }
       f_idx = F_IDX(f_hash, addr_capacity / 2);
       s_idx = S_IDX(s_hash, addr_capacity / 2);
@@ -413,7 +413,7 @@ UNIQUE:
 #endif
           resizing_lock.store(0);
           pmemobj_rwlock_unlock(pop, &mutex[f_idx / locksize]);
-          return;
+          return 0;
         }
         pmemobj_rwlock_unlock(pop, &mutex[f_idx / locksize]);
       }
@@ -433,7 +433,7 @@ UNIQUE:
 #endif
           resizing_lock.store(0);
           pmemobj_rwlock_unlock(pop, &mutex[s_idx / locksize]);
-          return;
+          return 0;
         }
         pmemobj_rwlock_unlock(pop, &mutex[s_idx / locksize]);
       }
