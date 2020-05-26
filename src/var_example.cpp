@@ -95,7 +95,7 @@ int main() {
     auto epoch_guard = Allocator::AquireEpochGuard();
     for (uint64_t j = 0; j < 1024; ++j) {
     string_key* var_key = reinterpret_cast<string_key*>(workload + string_key_size * (i * 1024 + j));
-      if (hash_table->Get(var_key, &value, true) == NONE) {
+      if (hash_table->Get(var_key, &value, true) == false) {
         not_found++;
       }
 
