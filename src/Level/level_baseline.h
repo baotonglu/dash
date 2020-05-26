@@ -255,7 +255,7 @@ void remapping(LevelHashing<T> *level) {
 }
 
 template <class T>
-void LevelHashing<T>::Insert(T key, Value_t value) {
+int LevelHashing<T>::Insert(T key, Value_t value) {
 RETRY:
   while (resizing_lock.load() == 1) {
     asm("nop");
