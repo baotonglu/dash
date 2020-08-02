@@ -1,0 +1,10 @@
+Begin: 100000000 50000000 9
+--cpunodebind=0 --membind=0
+Distribution = uniform
+EPOCH registration in application level
+Variable-length key = 16
+Initialize Dash-EH
+creating a new pool
+pool opened at: 0x5f0000000000
+Generate workload
+Genereate workload for variable length key 

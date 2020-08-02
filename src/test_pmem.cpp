@@ -1123,6 +1123,9 @@ void Run() {
     }
 
     index->getNumber();
+    for (int i = 0; i < thread_num; ++i) {
+      rarray[i].workload = not_used_workload;
+    }
 
     if (open_epoch == true) {
       GeneralBench<T>(rarray, index, thread_num, operation_num, "Pos_search",

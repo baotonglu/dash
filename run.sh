@@ -16,13 +16,13 @@ epoch=(0 1 1 1 0)
 # k specify the testing index, 1 = dash-ex, 2 = dash-lh, 3 = cceh, 4 = level
 # i specify the key type, 1 means fixed-length key, 2 means variable-length key
 # j spec1fy the number of threads, 1 means one threads, 2 means two threads, 3 means four threads...
-for k in 2
+for k in 1
 do
-	for i in 1 2
+	for i in 1
 	do
 		for j in 1
 		do
-			echo "Begin: ${base[1]} ${workload[${i}]} ${thread_num[${j}]}"
+			echo "Begin: ${base[1]} ${workload[1]} ${thread_num[${j}]}"
 			numaarg=""
 			if [ ${thread_num[$j]} -le 24 ]
 			then
