@@ -567,7 +567,6 @@ struct Directory {
   uint32_t global_depth;
   uint32_t version;
   uint32_t depth_count;
-  uint32_t counter;
   table_p _[0];
 
   Directory(size_t capacity, size_t _version) {
@@ -581,7 +580,6 @@ struct Directory {
     auto callback = [](PMEMobjpool *pool, void *ptr, void *arg) {
       auto value_ptr = reinterpret_cast<std::tuple<size_t, size_t> *>(arg);
       auto dir_ptr = reinterpret_cast<Directory *>(ptr);
-      dir_ptr->counter = 0;
       dir_ptr->version = std::get<1>(*value_ptr);
       dir_ptr->global_depth =
           static_cast<size_t>(log2(std::get<0>(*value_ptr)));
@@ -1498,8 +1496,6 @@ class Finger_EH : public Hash<T> {
   void Directory_Update(Directory<T> *_sa, int x, Table<T> *new_b,
                         Table<T> *old_b);
   void Halve_Directory();
-  void Lock_Directory();
-  void Unlock_Directory();
   int FindAnyway(T key);
   void ShutDown() {
     clean = true;
@@ -1545,22 +1541,53 @@ class Finger_EH : public Hash<T> {
   void recoverTable(Table<T> **target_table, size_t, size_t, Directory<T> *);
   void Recovery();
 
-  inline bool Acquire(void) {
-    int unlocked = 0;
-    return CAS(&lock, &unlocked, 1);
-  }
-
-  inline bool Release(void) {
-    int locked = 1;
-    return CAS(&lock, &locked, 0);
-  }
-
   inline int Test_Directory_Lock_Set(void) {
-    return __atomic_load_n(&lock, __ATOMIC_ACQUIRE);
+    uint32_t v = __atomic_load_n(&lock, __ATOMIC_ACQUIRE);
+    return v & lockSet;
+  }
+
+  inline bool try_get_directory_read_lock(){
+    uint32_t v = __atomic_load_n(&lock, __ATOMIC_ACQUIRE);
+    uint32_t old_value = v & lockMask;
+    auto new_value = ((v & lockMask) + 1) & lockMask;
+    return CAS(&lock, &old_value, new_value);
+  }
+
+  inline void release_directory_read_lock(){
+    SUB(&lock, 1);
+  }
+
+  void Lock_Directory(){
+    uint32_t v = __atomic_load_n(&lock, __ATOMIC_ACQUIRE);
+    uint32_t old_value = v & lockMask;
+    uint32_t new_value = old_value | lockSet;
+
+    while (!CAS(&lock, &old_value, new_value)) {
+      old_value = old_value & lockMask;
+      new_value = old_value | lockSet;
+    }
+
+    //wait until the readers all exit the critical section
+    v = __atomic_load_n(&lock, __ATOMIC_ACQUIRE);
+    while(v & lockMask){
+      v = __atomic_load_n(&lock, __ATOMIC_ACQUIRE);
+    }
+    // old version which has no starvation mechanism
+    //uint32_t old_value = 0;
+    //auto new_value = lockSet;
+    //while (!CAS(&lock, &old_value, new_value)) {
+    //  old_value = 0;
+    //  new_value = lockSet;
+    //}
+  }
+
+  // just set the lock as 0
+  void Unlock_Directory(){
+    __atomic_store_n(&lock, 0, __ATOMIC_RELEASE);    
   }
 
   Directory<T> *dir;
-  int lock;
+  uint32_t lock; // the MSB is the lock bit; remaining bits are used as the counter
   uint64_t
       crash_version; /*when the crash version equals to 0Xff => set the crash
                         version as 0, set the version of all entries as 1*/
@@ -1606,20 +1633,6 @@ Finger_EH<T>::Finger_EH() {
 template <class T>
 Finger_EH<T>::~Finger_EH(void) {
   // TO-DO
-}
-
-template <class T>
-void Finger_EH<T>::Lock_Directory() {
-  while (!Acquire()) {
-    asm("nop");
-  }
-}
-
-template <class T>
-void Finger_EH<T>::Unlock_Directory() {
-  while (!Release()) {
-    asm("nop");
-  }
 }
 
 template <class T>
@@ -1871,7 +1884,6 @@ void Finger_EH<T>::Recovery() {
     pmemobj_free(&back_dir);
   }
 
-  dir->counter = 0;
   auto dir_entry = dir->_;
   int length = pow(2, dir->global_depth);
   crash_version = ((crash_version >> 56) + 1) << 56;
@@ -1949,24 +1961,17 @@ RETRY:
     dir_entry = old_sa->_;
     x = (key_hash >> (8 * sizeof(key_hash) - old_sa->global_depth));
     if (target->local_depth < old_sa->global_depth) {
-      if (Test_Directory_Lock_Set()) {
+      if(!try_get_directory_read_lock()){
         goto REINSERT;
       }
-      ADD(&old_sa->counter, 1);
       Directory_Update(old_sa, x, new_b, target);
-      SUB(&old_sa->counter, 1);
-      /*after the update, need to recheck*/
-      if (Test_Directory_Lock_Set() || old_sa->version != dir->version) {
-        goto REINSERT;
-      }
+      release_directory_read_lock();
     } else {
       Lock_Directory();
       if (old_sa->version != dir->version) {
         Unlock_Directory();
         goto REINSERT;
       }
-      while (old_sa->counter != 0)
-        ;
       Directory_Doubling(x, new_b, target);
       Unlock_Directory();
     }
