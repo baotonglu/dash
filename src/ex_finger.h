@@ -1572,13 +1572,6 @@ class Finger_EH : public Hash<T> {
     while(v & lockMask){
       v = __atomic_load_n(&lock, __ATOMIC_ACQUIRE);
     }
-    // old version which has no starvation mechanism
-    //uint32_t old_value = 0;
-    //auto new_value = lockSet;
-    //while (!CAS(&lock, &old_value, new_value)) {
-    //  old_value = 0;
-    //  new_value = lockSet;
-    //}
   }
 
   // just set the lock as 0
@@ -1964,6 +1957,13 @@ RETRY:
       if(!try_get_directory_read_lock()){
         goto REINSERT;
       }
+
+      if (old_sa->version != dir->version) {
+        // The directory has changed, thus need retry this update
+        release_directory_read_lock();
+        goto REINSERT;
+      }
+
       Directory_Update(old_sa, x, new_b, target);
       release_directory_read_lock();
     } else {
