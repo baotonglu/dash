@@ -1484,7 +1484,7 @@ class Finger_EH : public Hash<T> {
   Finger_EH(size_t, PMEMobjpool *_pool);
   ~Finger_EH(void);
   inline int Insert(T key, Value_t value);
-  int Insert(T key, Value_t value, bool);
+  int Insert(T key, Value_t value, bool); // Bool is used to indicate whether to enroll into the epcoh or not
   inline bool Delete(T);
   bool Delete(T, bool);
   inline Value_t Get(T);
@@ -1891,6 +1891,7 @@ void Finger_EH<T>::Recovery() {
   }
 }
 
+// is_in_epoch is used to enroll into the epoch or not
 template <class T>
 int Finger_EH<T>::Insert(T key, Value_t value, bool is_in_epoch) {
   if (!is_in_epoch) {
