@@ -70,3 +70,6 @@ if (USE_PMEM MATCHES "ON")
   add_dependencies(example PMDK)
 else ()
 endif ()
+
+#build shared library
+add_library(dash_pibench_wrapper SHARED wrapper/dash.cpp)
