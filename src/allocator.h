@@ -48,7 +48,7 @@ struct Allocator {
     }
     LOG("opening an existing pool, and trying to map to same address");
     /* Need to open an existing persistent pool */
-    pm_pool_ = pmemobj_open_addr(pool_name, layout_name);
+    pm_pool_ = pmemobj_open(pool_name, layout_name);
     if (pm_pool_ == nullptr) {
       LOG_FATAL("failed to open the pool");
     }
