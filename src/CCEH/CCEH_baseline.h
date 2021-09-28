@@ -336,8 +336,8 @@ class CCEH : public Hash<T> {
   int Insert(T key, Value_t value, bool);
   bool Delete(T);
   bool Delete(T, bool);
-  Value_t Get(T);
-  Value_t Get(T, bool is_in_epoch);
+  bool Get(T, Value_t*);
+  bool Get(T key, Value_t*, bool is_in_epoch);
   Value_t FindAnyway(T);
   double Utilization(void);
   size_t Capacity(void);
@@ -800,18 +800,18 @@ RETRY:
 }
 
 template <class T>
-Value_t CCEH<T>::Get(T key, bool is_in_epoch) {
+bool CCEH<T>::Get(T key, Value_t *value, bool is_in_epoch) {
   if (is_in_epoch) {
 #ifdef EPOCH
     auto epoch_guard = Allocator::AquireEpochGuard();
 #endif
-    return Get(key);
+    return Get(key, value);
   }
-  return Get(key);
+  return Get(key, value);
 }
 
 template <class T>
-Value_t CCEH<T>::Get(T key) {
+bool CCEH<T>::Get(T key, Value_t *value_) {
   uint64_t key_hash;
   if constexpr (std::is_pointer_v<T>) {
     key_hash = h(key->key, key->length);
@@ -845,18 +845,20 @@ RETRY:
                        dir_->_[slot].key->length))) {
         auto value = dir_->_[slot].value;
         dir_->release_rd_lock(pool_addr);
-        return value;
+        *value_ = *value;
+        return true;
       }
     } else {
       if (dir_->_[slot].key == key) {
         auto value = dir_->_[slot].value;
         dir_->release_rd_lock(pool_addr);
-        return value;
+        *value_ = *value;
+        return true;
       }
     }
   }
 
   dir_->release_rd_lock(pool_addr);
-  return NONE;
+  return false;
 }
 }  // namespace CCEH
