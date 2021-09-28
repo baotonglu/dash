@@ -845,14 +845,14 @@ RETRY:
                        dir_->_[slot].key->length))) {
         auto value = dir_->_[slot].value;
         dir_->release_rd_lock(pool_addr);
-        *value_ = *value;
+        *value_ = value;
         return true;
       }
     } else {
       if (dir_->_[slot].key == key) {
         auto value = dir_->_[slot].value;
         dir_->release_rd_lock(pool_addr);
-        *value_ = *value;
+        *value_ = value;
         return true;
       }
     }

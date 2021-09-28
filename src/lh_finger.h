@@ -2547,7 +2547,7 @@ RETRY:
 }
 
 template <class T>
-Value_t Linear<T>::Get(T key) {
+bool Linear<T>::Get(T key, Value_t* value) {
   uint64_t key_hash;
   if constexpr (std::is_pointer_v<T>) {
     key_hash = h(key->key, key->length);
