@@ -131,8 +131,10 @@ class LevelHashing : public Hash<T> {
   }
   bool Delete(T);
   bool Delete(T key, bool is_in_epoch) { return Delete(key); }
-  Value_t Get(T);
-  Value_t Get(T key, bool flag) { return Get(key); }
+  bool Get(T, Value_t*);
+  bool Get(T key, Value_t* value, bool is_in_epoch) {
+    return Get(key, value);
+  }
   void Recovery() {
     if (resizing) {
       if (!OID_IS_NULL(_old_mutex) && !OID_EQUALS(_old_mutex, _mutex)) {
@@ -696,7 +698,7 @@ int LevelHashing<T>::b2t_movement(PMEMobjpool *pop, uint64_t idx) {
 }
 
 template <class T>
-Value_t LevelHashing<T>::Get(T key) {
+bool LevelHashing<T>::Get(T key, Value_t *value) {
 RETRY:
   while (resizing == true) {
     asm("nop");
@@ -726,13 +728,15 @@ RETRY:
               var_compare(buckets[i][f_idx].slot[j].key->key, key->key,
                           buckets[i][f_idx].slot[j].key->length, key->length)) {
             pmemobj_rwlock_unlock(pop, &mutex[f_idx / locksize]);
-            return buckets[i][f_idx].slot[j].value;
+            *value = buckets[i][f_idx].slot[j].value;
+            return true;
           }
         } else {
           if (buckets[i][f_idx].token[j] == 1 &&
               buckets[i][f_idx].slot[j].key == key) {
             pmemobj_rwlock_unlock(pop, &mutex[f_idx / locksize]);
-            return buckets[i][f_idx].slot[j].value;
+            *value = buckets[i][f_idx].slot[j].value;
+            return true;
           }
         }
       }
@@ -756,13 +760,15 @@ RETRY:
               var_compare(buckets[i][s_idx].slot[j].key->key, key->key,
                           buckets[i][s_idx].slot[j].key->length, key->length)) {
             pmemobj_rwlock_unlock(pop, &mutex[s_idx / locksize]);
-            return buckets[i][s_idx].slot[j].value;
+            *value = buckets[i][s_idx].slot[j].value;
+            return true;
           }
         } else {
           if (buckets[i][s_idx].token[j] == 1 &&
               buckets[i][s_idx].slot[j].key == key) {
             pmemobj_rwlock_unlock(pop, &mutex[s_idx / locksize]);
-            return buckets[i][s_idx].slot[j].value;
+            *value = buckets[i][s_idx].slot[j].value;
+            return true;
           }
         }
       }
@@ -771,7 +777,7 @@ RETRY:
     f_idx = F_IDX(f_hash, addr_capacity / 2);
     s_idx = S_IDX(s_hash, addr_capacity / 2);
   }
-  return NONE;
+  return false;
 }
 
 template <class T>

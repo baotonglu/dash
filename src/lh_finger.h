@@ -144,7 +144,7 @@ struct overflowBucket {
     return __builtin_ctz(mask);
   }
 
-  Value_t check_and_get(uint8_t meta_hash, T key) {
+  bool check_and_get(uint8_t meta_hash, T key, Value_t *value) {
     int mask = 0;
     SSE_CMP8(finger_array, meta_hash);
     mask = mask & GET_BITMAP(bitmap);
@@ -155,38 +155,45 @@ struct overflowBucket {
           if (CHECK_BIT(mask, i) &&
               (var_compare(_[i].key->key, key->key, _[i].key->length,
                            key->length))) {
-            return _[i].value;
+            *value = _[i].value;
+            return true;
           }
 
           if (CHECK_BIT(mask, i + 1) &&
               (var_compare(_[i + 1].key->key, key->key, _[i + 1].key->length,
                            key->length))) {
-            return _[i + 1].value;
+            *value = _[i + 1].value;
+            return true;
           }
 
           if (CHECK_BIT(mask, i + 2) &&
               (var_compare(_[i + 2].key->key, key->key, _[i + 2].key->length,
                            key->length))) {
-            return _[i + 2].value;
+            *value = _[i + 2].value;
+            return true;
           }
 
           if (CHECK_BIT(mask, i + 3) &&
               (var_compare(_[i + 3].key->key, key->key, _[i + 3].key->length,
                            key->length))) {
-            return _[i + 3].value;
+            *value = _[i + 3].value;
+            return true;
           }
         }
 
         if (CHECK_BIT(mask, 12) &&
             (var_compare(_[12].key->key, key->key, _[12].key->length,
                          key->length))) {
-          return _[12].value;
+          *value = _[12].value;
+          return true;
         }
 
         if (CHECK_BIT(mask, 13) &&
             (var_compare(_[13].key->key, key->key, _[13].key->length,
                          key->length))) {
-          return _[13].value;
+          
+          *value = _[13].value;
+          return true;
         }
       }
     } else {
@@ -194,32 +201,38 @@ struct overflowBucket {
       if (mask != 0) {
         for (int i = 0; i < 12; i += 4) {
           if (CHECK_BIT(mask, i) && (_[i].key == key)) {
-            return _[i].value;
+            *value = _[i].value;
+            return true;
           }
 
           if (CHECK_BIT(mask, i + 1) && (_[i + 1].key == key)) {
-            return _[i + 1].value;
+            *value = _[i + 1].value;
+            return true;
           }
 
           if (CHECK_BIT(mask, i + 2) && (_[i + 2].key == key)) {
-            return _[i + 2].value;
+            *value = _[i + 2].value;
+            return true;
           }
 
           if (CHECK_BIT(mask, i + 3) && (_[i + 3].key == key)) {
-            return _[i + 3].value;
+            *value = _[i + 3].value;
+            return true;
           }
         }
 
         if (CHECK_BIT(mask, 12) && (_[12].key == key)) {
-          return _[12].value;
+          *value = _[12].value;
+          return true;
         }
 
         if (CHECK_BIT(mask, 13) && (_[13].key == key)) {
-          return _[13].value;
+          *value = _[13].value;
+          return true;
         }
       }
     }
-    return NONE;
+    return false;
   }
 
   inline void set_hash(int index, uint8_t meta_hash) {
@@ -488,8 +501,9 @@ struct Bucket {
 
   int unique_check(uint8_t meta_hash, T key, Bucket<T> *neighbor,
                    overflowBucket<T> *stash) {
-    if ((check_and_get(meta_hash, key, false) != NONE) ||
-        (neighbor->check_and_get(meta_hash, key, true) != NONE)) {
+    Value_t value;
+    if ((check_and_get(meta_hash, key, false, &value) == true) ||
+        (neighbor->check_and_get(meta_hash, key, true, &value) == true)) {
       return -1;
     }
 
@@ -525,8 +539,8 @@ struct Bucket {
       if (test_stash) {
         for (int i = 0; i < stashBucket; ++i) {
           overflowBucket<T> *curr_bucket = stash + i;
-          auto ret = curr_bucket->check_and_get(meta_hash, key);
-          if (ret != NONE) {
+          auto ret = curr_bucket->check_and_get(meta_hash, key, &value);
+          if (ret == true) {
             return -1;
           }
         }
@@ -534,8 +548,8 @@ struct Bucket {
         overflowBucket<T> *prev_bucket = stash;
         overflowBucket<T> *next_bucket = stash->next;
         while (next_bucket != NULL) {
-          auto ret = next_bucket->check_and_get(meta_hash, key);
-          if (ret != NONE) {
+          auto ret = next_bucket->check_and_get(meta_hash, key, &value);
+          if (ret == true) {
             return -1;
           }
           prev_bucket = next_bucket;
@@ -551,7 +565,7 @@ struct Bucket {
     return mask;
   }
 
-  Value_t check_and_get(uint8_t meta_hash, T key, bool probe) {
+  bool check_and_get(uint8_t meta_hash, T key, bool probe, Value_t *value) {
     int mask = 0;
     SSE_CMP8(finger_array, meta_hash);
     if (!probe) {
@@ -566,38 +580,44 @@ struct Bucket {
           if (CHECK_BIT(mask, i) &&
               (var_compare(_[i].key->key, key->key, _[i].key->length,
                            key->length))) {
-            return _[i].value;
+            *value = _[i].value;
+            return true;
           }
 
           if (CHECK_BIT(mask, i + 1) &&
               (var_compare(_[i + 1].key->key, key->key, _[i + 1].key->length,
                            key->length))) {
-            return _[i + 1].value;
+            *value = _[i + 1].value;
+            return true;
           }
 
           if (CHECK_BIT(mask, i + 2) &&
               (var_compare(_[i + 2].key->key, key->key, _[i + 2].key->length,
                            key->length))) {
-            return _[i + 2].value;
+            *value = _[i + 2].value;
+            return true;
           }
 
           if (CHECK_BIT(mask, i + 3) &&
               (var_compare(_[i + 3].key->key, key->key, _[i + 3].key->length,
                            key->length))) {
-            return _[i + 3].value;
+            *value = _[i + 3].value;
+            return true;
           }
         }
 
         if (CHECK_BIT(mask, 12) &&
             (var_compare(_[12].key->key, key->key, _[12].key->length,
                          key->length))) {
-          return _[12].value;
+          *value = _[12].value;
+          return true;
         }
 
         if (CHECK_BIT(mask, 13) &&
             (var_compare(_[13].key->key, key->key, _[13].key->length,
                          key->length))) {
-          return _[13].value;
+          *value = _[13].value;
+          return true;
         }
       }
     } else {
@@ -605,32 +625,38 @@ struct Bucket {
       if (mask != 0) {
         for (int i = 0; i < 12; i += 4) {
           if (CHECK_BIT(mask, i) && (_[i].key == key)) {
-            return _[i].value;
+            *value =_[i].value;
+            return true;
           }
 
           if (CHECK_BIT(mask, i + 1) && (_[i + 1].key == key)) {
-            return _[i + 1].value;
+            *value = _[i + 1].value;
+            return true;
           }
 
           if (CHECK_BIT(mask, i + 2) && (_[i + 2].key == key)) {
-            return _[i + 2].value;
+            *value = _[i + 2].value;
+            return true;
           }
 
           if (CHECK_BIT(mask, i + 3) && (_[i + 3].key == key)) {
-            return _[i + 3].value;
+            *value = _[i + 3].value;
+            return true;
           }
         }
 
         if (CHECK_BIT(mask, 12) && (_[12].key == key)) {
-          return _[12].value;
+          *value = _[12].value;
+          return true;
         }
 
         if (CHECK_BIT(mask, 13) && (_[13].key == key)) {
-          return _[13].value;
+          *value = _[13].value;
+          return true;
         }
       }
     }
-    return NONE;
+    return false;
   }
 
   inline void set_hash(int index, uint8_t meta_hash, bool probe) {
@@ -1193,6 +1219,7 @@ struct Table {
   void recoverMetadata() {
     Bucket<T> *curr_bucket, *neighbor_bucket;
     uint64_t knumber = 0;
+    Value_t value;
 
     for (int i = 0; i < kNumBucket; ++i) {
       curr_bucket = bucket + i;
@@ -1203,7 +1230,7 @@ struct Table {
         int mask = curr_bucket->get_current_mask();
         if (CHECK_BIT(mask, j) && (neighbor_bucket->check_and_get(
                                        curr_bucket->finger_array[j],
-                                       curr_bucket->_[j].key, true) != NONE)) {
+                                       curr_bucket->_[j].key, true, &value) == true)) {
           curr_bucket->unset_hash(j);
         }
       }
@@ -1952,8 +1979,8 @@ class Linear : public Hash<T> {
   bool Delete(T);
   int Insert(T key, Value_t value, bool);
   bool Delete(T, bool);
-  inline Value_t Get(T);
-  Value_t Get(T key, bool is_in_epoch);
+  inline bool Get(T, Value_t*);
+  bool Get(T key, Value_t*, bool is_in_epoch);
   void FindAnyway(T key);
   void Recovery();
   void ShutDown() {
@@ -2358,10 +2385,10 @@ RETRY:
 }
 
 template <class T>
-Value_t Linear<T>::Get(T key, bool is_in_epoch) {
+bool Linear<T>::Get(T key, Value_t* value, bool is_in_epoch) {
   if (!is_in_epoch) {
     auto epoch_guard = Allocator::AquireEpochGuard();
-    return Get(key);
+    return Get(key, value);
   }
 
   uint64_t key_hash;
@@ -2410,23 +2437,23 @@ RETRY:
       goto RETRY;
     }
 
-    auto ret = target_bucket->check_and_get(meta_hash, key, false);
+    auto ret = target_bucket->check_and_get(meta_hash, key, false, value);
     if (target_bucket->test_lock_version_change(old_version)) {
       goto RETRY;
     }
 
-    if (ret != NONE) {
-      return ret;
+    if (ret == true) {
+      return true;
     }
 
     /*no need for verification procedure, we use the version number of
      * target_bucket to test whether the bucket has ben spliteted*/
-    ret = neighbor_bucket->check_and_get(meta_hash, key, true);
+    ret = neighbor_bucket->check_and_get(meta_hash, key, true, value);
     if (neighbor_bucket->test_lock_version_change(old_neighbor_version)) {
       goto RETRY;
     }
-    if (ret != NONE) {
-      return ret;
+    if (ret == true) {
+      return true;
     }
 
     if (target_bucket->test_stash_check()) {
@@ -2464,24 +2491,24 @@ RETRY:
         for (int i = 0; i < stashBucket; ++i) {
           overflowBucket<T> *curr_bucket =
               target->stash + ((i + (y & stashMask)) & stashMask);
-          auto ret = curr_bucket->check_and_get(meta_hash, key);
-          if (ret != NONE) {
+          auto ret = curr_bucket->check_and_get(meta_hash, key, value);
+          if (ret == true) {
             if (target_bucket->test_lock_version_change(old_version)) {
               goto RETRY;
             }
-            return ret;
+            return true;
           }
         }
 
         overflowBucket<T> *prev_bucket = target->stash;
         overflowBucket<T> *next_bucket = target->stash->next;
         while (next_bucket != NULL) {
-          auto ret = next_bucket->check_and_get(meta_hash, key);
-          if (ret != NONE) {
+          auto ret = next_bucket->check_and_get(meta_hash, key, value);
+          if (ret == true) {
             if (target_bucket->test_lock_version_change(old_version)) {
               goto RETRY;
             }
-            return ret;
+            return true;
           }
           prev_bucket = next_bucket;
           next_bucket = next_bucket->next;
@@ -2516,11 +2543,11 @@ RETRY:
     }
     goto RETRY;
   }
-  return NONE;
+  return false;
 }
 
 template <class T>
-Value_t Linear<T>::Get(T key) {
+bool Linear<T>::Get(T key, Value_t* value) {
   uint64_t key_hash;
   if constexpr (std::is_pointer_v<T>) {
     key_hash = h(key->key, key->length);
@@ -2567,31 +2594,28 @@ RETRY:
       goto RETRY;
     }
 
-    auto ret = target_bucket->check_and_get(meta_hash, key, false);
+    auto ret = target_bucket->check_and_get(meta_hash, key, false, value);
     if (target_bucket->test_lock_version_change(old_version)) {
       goto RETRY;
     }
 
-    if (ret != NONE) {
-      return ret;
+    if (ret == true) {
+      return true;
     }
 
     /*no need for verification procedure, we use the version number of
      * target_bucket to test whether the bucket has ben spliteted*/
-    ret = neighbor_bucket->check_and_get(meta_hash, key, true);
+    ret = neighbor_bucket->check_and_get(meta_hash, key, true, value);
     if (neighbor_bucket->test_lock_version_change(old_neighbor_version)) {
       goto RETRY;
     }
-    if (ret != NONE) {
-      return ret;
+    if (ret == true) {
+      return true;
     }
 
     if (target_bucket->test_stash_check()) {
       auto test_stash = false;
       if (target_bucket->test_overflow()) {
-        // this only occur when the bucket has more key-values than 10 that are
-        // overfloed int he shared bucket area, therefore it needs to search in
-        // the extra bucket
         test_stash = true;
       } else {
         // search in the original bucket
@@ -2624,24 +2648,24 @@ RETRY:
         for (int i = 0; i < stashBucket; ++i) {
           overflowBucket<T> *curr_bucket =
               target->stash + ((i + (y & stashMask)) & stashMask);
-          auto ret = curr_bucket->check_and_get(meta_hash, key);
-          if (ret != NONE) {
+          auto ret = curr_bucket->check_and_get(meta_hash, key, value);
+          if (ret == true) {
             if (target_bucket->test_lock_version_change(old_version)) {
               goto RETRY;
             }
-            return ret;
+            return true;
           }
         }
 
         overflowBucket<T> *prev_bucket = target->stash;
         overflowBucket<T> *next_bucket = target->stash->next;
         while (next_bucket != NULL) {
-          auto ret = next_bucket->check_and_get(meta_hash, key);
-          if (ret != NONE) {
+          auto ret = next_bucket->check_and_get(meta_hash, key, value);
+          if (ret == true) {
             if (target_bucket->test_lock_version_change(old_version)) {
               goto RETRY;
             }
-            return ret;
+            return true;
           }
           prev_bucket = next_bucket;
           next_bucket = next_bucket->next;
@@ -2676,7 +2700,7 @@ RETRY:
     }
     goto RETRY;
   }
-  return NONE;
+  return false;
 }
 
 template <class T>

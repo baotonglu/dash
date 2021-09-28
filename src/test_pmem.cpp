@@ -352,6 +352,7 @@ void concurr_search_sample(struct range *_range, Hash<T> *index) {
   char *workload = reinterpret_cast<char *>(_range->workload);
   T key;
   uint64_t not_found = 0;
+  Value_t value;
 
   if constexpr (!std::is_pointer_v<T>) {
     T *key_array = reinterpret_cast<T *>(workload);
@@ -363,7 +364,7 @@ void concurr_search_sample(struct range *_range, Hash<T> *index) {
       auto epoch_guard = Allocator::AquireEpochGuard();
       uint64_t _end = begin + (i + 1) * EPOCH_DURATION;
       for (uint64_t j = begin + i * EPOCH_DURATION; j < _end; ++j) {
-        index->Get(key_array[j], true);
+        index->Get(key_array[j], &value, true);
         operation_record[curr_index].number++;
       }
       ++i;
@@ -372,7 +373,7 @@ void concurr_search_sample(struct range *_range, Hash<T> *index) {
     {
       auto epoch_guard = Allocator::AquireEpochGuard();
       for (i = begin + EPOCH_DURATION * round; i < end; ++i) {
-        index->Get(key_array[i], true);
+        index->Get(key_array[i], &value, true);
         operation_record[curr_index].number++;
       }
     }
@@ -388,7 +389,7 @@ void concurr_search_sample(struct range *_range, Hash<T> *index) {
       uint64_t _end = begin + (i + 1) * EPOCH_DURATION;
       for (uint64_t j = begin + i * EPOCH_DURATION; j < _end; ++j) {
         var_key = reinterpret_cast<T>(workload + string_key_size * j);
-        index->Get(var_key, true);
+        index->Get(var_key, &value, true);
         operation_record[curr_index].number++;
       }
       ++i;
@@ -398,7 +399,7 @@ void concurr_search_sample(struct range *_range, Hash<T> *index) {
       auto epoch_guard = Allocator::AquireEpochGuard();
       for (i = begin + EPOCH_DURATION * round; i < end; ++i) {
         var_key = reinterpret_cast<T>(workload + string_key_size * i);
-        index->Get(var_key, true);
+        index->Get(var_key, &value, true);
         operation_record[curr_index].number++;
       }
     }
@@ -480,6 +481,7 @@ void concurr_search(struct range *_range, Hash<T> *index) {
   char *workload = reinterpret_cast<char *>(_range->workload);
   T key;
   uint64_t not_found = 0;
+  Value_t value;
 
   if constexpr (!std::is_pointer_v<T>) {
     T *key_array = reinterpret_cast<T *>(workload);
@@ -491,7 +493,7 @@ void concurr_search(struct range *_range, Hash<T> *index) {
       auto epoch_guard = Allocator::AquireEpochGuard();
       uint64_t _end = begin + (i + 1) * EPOCH_DURATION;
       for (uint64_t j = begin + i * EPOCH_DURATION; j < _end; ++j) {
-        if (index->Get(key_array[j], true) == NONE) not_found++;
+        if (index->Get(key_array[j], &value, true) == false) not_found++;
       }
       ++i;
     }
@@ -499,7 +501,7 @@ void concurr_search(struct range *_range, Hash<T> *index) {
     {
       auto epoch_guard = Allocator::AquireEpochGuard();
       for (i = begin + EPOCH_DURATION * round; i < end; ++i) {
-        if (index->Get(key_array[i], true) == NONE) not_found++;
+        if (index->Get(key_array[i], &value, true) == false) not_found++;
       }
     }
   } else {
@@ -514,7 +516,7 @@ void concurr_search(struct range *_range, Hash<T> *index) {
       uint64_t _end = begin + (i + 1) * EPOCH_DURATION;
       for (uint64_t j = begin + i * EPOCH_DURATION; j < _end; ++j) {
         var_key = reinterpret_cast<T>(workload + string_key_size * j);
-        if (index->Get(var_key, true) == NONE) not_found++;
+        if (index->Get(var_key, &value, true) == false) not_found++;
       }
       ++i;
     }
@@ -523,7 +525,7 @@ void concurr_search(struct range *_range, Hash<T> *index) {
       auto epoch_guard = Allocator::AquireEpochGuard();
       for (i = begin + EPOCH_DURATION * round; i < end; ++i) {
         var_key = reinterpret_cast<T>(workload + string_key_size * i);
-        if (index->Get(var_key, true) == NONE) not_found++;
+        if (index->Get(var_key, &value, true) == false) not_found++;
       }
     }
   }
@@ -539,13 +541,14 @@ void concurr_search_without_epoch(struct range *_range, Hash<T> *index) {
   char *workload = reinterpret_cast<char *>(_range->workload);
   T key;
   uint64_t not_found = 0;
+  Value_t value;
 
   spin_wait();
 
   if constexpr (!std::is_pointer_v<T>) {
     T *key_array = reinterpret_cast<T *>(workload);
     for (uint64_t i = begin; i < end; ++i) {
-      if (index->Get(key_array[i]) == NONE) {
+      if (index->Get(key_array[i], &value) == false) {
         not_found++;
       }
     }
@@ -554,7 +557,7 @@ void concurr_search_without_epoch(struct range *_range, Hash<T> *index) {
     uint64_t string_key_size = sizeof(string_key) + _range->length;
     for (uint64_t i = begin; i < end; ++i) {
       var_key = reinterpret_cast<T>(workload + string_key_size * i);
-      if (index->Get(var_key) == NONE) {
+      if (index->Get(var_key, &value) == false) {
         not_found++;
       }
     }
@@ -671,6 +674,7 @@ void mixed_without_epoch(struct range *_range, Hash<T> *index) {
   uint32_t insert_sign = (uint32_t)(insert_ratio * 100);
   uint32_t read_sign = (uint32_t)(read_ratio * 100) + insert_sign;
   uint32_t delete_sign = (uint32_t)(delete_ratio * 100) + read_sign;
+  Value_t value;
 
   spin_wait();
 
@@ -685,7 +689,7 @@ void mixed_without_epoch(struct range *_range, Hash<T> *index) {
     if (random < insert_sign) { /*insert*/
       index->Insert(key, DEFAULT);
     } else if (random < read_sign) { /*get*/
-      if (index->Get(key) == NONE) {
+      if (index->Get(key, &value) == false) {
         not_found++;
       }
     } else { /*delete*/
@@ -717,6 +721,7 @@ void mixed(struct range *_range, Hash<T> *index) {
 
   uint64_t round = (end - begin) / EPOCH_DURATION;
   uint64_t i = 0;
+  Value_t value;
   spin_wait();
 
   while (i < round) {
@@ -733,7 +738,7 @@ void mixed(struct range *_range, Hash<T> *index) {
       if (random < insert_sign) { /*insert*/
         index->Insert(key, DEFAULT, true);
       } else if (random < read_sign) { /*get*/
-        if (index->Get(key, true) == NONE) {
+        if (index->Get(key, &value, true) == false) {
           not_found++;
         }
       } else { /*delete*/
@@ -756,7 +761,7 @@ void mixed(struct range *_range, Hash<T> *index) {
       if (random < insert_sign) { /*insert*/
         index->Insert(key, DEFAULT, true);
       } else if (random < read_sign) { /*get*/
-        if (index->Get(key, true) == NONE) {
+        if (index->Get(key, &value, true) == false) {
           not_found++;
         }
       } else { /*delete*/

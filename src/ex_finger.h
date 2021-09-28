@@ -1,4 +1,3 @@
-
 // Copyright (c) Simon Fraser University & The Chinese University of Hong Kong. All rights reserved.
 // Licensed under the MIT license.
 //
@@ -7,6 +6,7 @@
 // Baotong Lu <btlu@cse.cuhk.edu.hk>
 // Xiangpeng Hao <xiangpeng_hao@sfu.ca>
 // Tianzheng Wang <tzwang@sfu.ca>
+
 
 #pragma once
 
@@ -179,8 +179,9 @@ struct Bucket {
 
   int unique_check(uint8_t meta_hash, T key, Bucket<T> *neighbor,
                    Bucket<T> *stash) {
-    if ((check_and_get(meta_hash, key, false) != NONE) ||
-        (neighbor->check_and_get(meta_hash, key, true) != NONE)) {
+    Value_t value;
+    if ((check_and_get(meta_hash, key, false, &value) == true) ||
+        (neighbor->check_and_get(meta_hash, key, true, &value) == true)) {
       return -1;
     }
 
@@ -216,7 +217,7 @@ struct Bucket {
       if (test_stash == true) {
         for (int i = 0; i < stashBucket; ++i) {
           Bucket *curr_bucket = stash + i;
-          if (curr_bucket->check_and_get(meta_hash, key, false) != NONE) {
+          if (curr_bucket->check_and_get(meta_hash, key, false, &value) == true) {
             return -1;
           }
         }
@@ -230,7 +231,7 @@ struct Bucket {
     return mask;
   }
 
-  Value_t check_and_get(uint8_t meta_hash, T key, bool probe) {
+  bool check_and_get(uint8_t meta_hash, T key, bool probe, Value_t* value) {
     int mask = 0;
     SSE_CMP8(finger_array, meta_hash);
     if (!probe) {
@@ -240,7 +241,7 @@ struct Bucket {
     }
 
     if (mask == 0) {
-      return NONE;
+      return false;
     }
 
     if constexpr (std::is_pointer_v<T>) {
@@ -252,7 +253,8 @@ struct Bucket {
                          _key->key,
                          (reinterpret_cast<string_key *>(_[i].key))->length,
                          _key->length))) {
-          return _[i].value;
+          *value = _[i].value;
+          return true;
         }
       }
     } else {
@@ -260,31 +262,37 @@ struct Bucket {
       /*loop unrolling*/
       for (int i = 0; i < 12; i += 4) {
         if (CHECK_BIT(mask, i) && (_[i].key == key)) {
-          return _[i].value;
+          *value = _[i].value;
+          return true;
         }
 
         if (CHECK_BIT(mask, i + 1) && (_[i + 1].key == key)) {
-          return _[i + 1].value;
+          *value = _[i + 1].value;
+          return true;
         }
 
         if (CHECK_BIT(mask, i + 2) && (_[i + 2].key == key)) {
-          return _[i + 2].value;
+          *value = _[i + 2].value;
+          return true;
         }
 
         if (CHECK_BIT(mask, i + 3) && (_[i + 3].key == key)) {
-          return _[i + 3].value;
+          *value = _[i + 3].value;
+          return true;
         }
       }
 
       if (CHECK_BIT(mask, 12) && (_[12].key == key)) {
-        return _[12].value;
+        *value = _[12].value;
+        return true;
       }
 
       if (CHECK_BIT(mask, 13) && (_[13].key == key)) {
-        return _[13].value;
+        *value = _[13].value;
+        return true;
       }
     }
-    return NONE;
+    return false;
   }
 
   inline void set_hash(int index, uint8_t meta_hash, bool probe) {
@@ -810,6 +818,7 @@ struct Table {
     Bucket<T> *curr_bucket, *neighbor_bucket;
     /*reset the lock and overflow meta-data*/
     uint64_t knumber = 0;
+    Value_t value;
     for (int i = 0; i < kNumBucket; ++i) {
       curr_bucket = bucket + i;
       curr_bucket->resetLock();
@@ -819,7 +828,7 @@ struct Table {
         int mask = curr_bucket->get_current_mask();
         if (CHECK_BIT(mask, j) && (neighbor_bucket->check_and_get(
                                        curr_bucket->finger_array[j],
-                                       curr_bucket->_[j].key, true) != NONE)) {
+                                       curr_bucket->_[j].key, true, &value) == true)) {
           curr_bucket->unset_hash(j);
         }
       }
@@ -1487,8 +1496,8 @@ class Finger_EH : public Hash<T> {
   int Insert(T key, Value_t value, bool); // Bool is used to indicate whether to enroll into the epcoh or not
   inline bool Delete(T);
   bool Delete(T, bool);
-  inline Value_t Get(T);
-  Value_t Get(T key, bool is_in_epoch);
+  inline bool Get(T, Value_t*);
+  bool Get(T key, Value_t*, bool is_in_epoch);
   void TryMerge(uint64_t);
   void Directory_Doubling(int x, Table<T> *new_b, Table<T> *old_b);
   void Directory_Merge_Update(Directory<T> *_sa, uint64_t key_hash,
@@ -1999,10 +2008,10 @@ RETRY:
 }
 
 template <class T>
-Value_t Finger_EH<T>::Get(T key, bool is_in_epoch) {
+bool Finger_EH<T>::Get(T key, Value_t* value, bool is_in_epoch) {
   if (!is_in_epoch) {
     auto epoch_guard = Allocator::AquireEpochGuard();
-    return Get(key);
+    return Get(key, value);
   }
   uint64_t key_hash;
   if constexpr (std::is_pointer_v<T>) {
@@ -2044,22 +2053,22 @@ RETRY:
     goto RETRY;
   }
 
-  auto ret = target_bucket->check_and_get(meta_hash, key, false);
+  auto ret = target_bucket->check_and_get(meta_hash, key, false, value);
   if (target_bucket->test_lock_version_change(old_version)) {
     goto RETRY;
   }
-  if (ret != NONE) {
-    return ret;
+  if (ret == true) {
+    return true;
   }
 
   /*no need for verification procedure, we use the version number of
    * target_bucket to test whether the bucket has ben spliteted*/
-  ret = neighbor_bucket->check_and_get(meta_hash, key, true);
+  ret = neighbor_bucket->check_and_get(meta_hash, key, true, value);
   if (neighbor_bucket->test_lock_version_change(old_neighbor_version)) {
     goto RETRY;
   }
-  if (ret != NONE) {
-    return ret;
+  if (ret == true) {
+    return true;
   }
 
   if (target_bucket->test_stash_check()) {
@@ -2080,12 +2089,12 @@ RETRY:
             Bucket<T> *stash =
                 target->bucket + kNumBucket +
                 ((target_bucket->overflowIndex >> (i * 2)) & stashMask);
-            auto ret = stash->check_and_get(meta_hash, key, false);
-            if (ret != NONE) {
+            auto ret = stash->check_and_get(meta_hash, key, false, value);
+            if (ret == true) {
               if (target_bucket->test_lock_version_change(old_version)) {
                 goto RETRY;
               }
-              return ret;
+              return true;
             }
           }
         }
@@ -2100,12 +2109,12 @@ RETRY:
             Bucket<T> *stash =
                 target->bucket + kNumBucket +
                 ((neighbor_bucket->overflowIndex >> (i * 2)) & stashMask);
-            auto ret = stash->check_and_get(meta_hash, key, false);
-            if (ret != NONE) {
+            auto ret = stash->check_and_get(meta_hash, key, false, value);
+            if (ret == true) {
               if (target_bucket->test_lock_version_change(old_version)) {
                 goto RETRY;
               }
-              return ret;
+              return true;
             }
           }
         }
@@ -2117,22 +2126,22 @@ RETRY:
       for (int i = 0; i < stashBucket; ++i) {
         Bucket<T> *stash =
             target->bucket + kNumBucket + ((i + (y & stashMask)) & stashMask);
-        auto ret = stash->check_and_get(meta_hash, key, false);
-        if (ret != NONE) {
+        auto ret = stash->check_and_get(meta_hash, key, false, value);
+        if (ret == true) {
           if (target_bucket->test_lock_version_change(old_version)) {
             goto RETRY;
           }
-          return ret;
+          return true;
         }
       }
     }
   }
 FINAL:
-  return NONE;
+  return false;
 }
 
 template <class T>
-Value_t Finger_EH<T>::Get(T key) {
+bool Finger_EH<T>::Get(T key, Value_t *value) {
   uint64_t key_hash;
   if constexpr (std::is_pointer_v<T>) {
     key_hash = h(key->key, key->length);
@@ -2173,20 +2182,22 @@ RETRY:
     goto RETRY;
   }
 
-  auto ret = target_bucket->check_and_get(meta_hash, key, false);
+  auto ret = target_bucket->check_and_get(meta_hash, key, false, value);
   if (target_bucket->test_lock_version_change(old_version)) {
     goto RETRY;
   }
-  if (ret != NONE) {
-    return ret;
+  if (ret == true) {
+    return true;
   }
 
-  ret = neighbor_bucket->check_and_get(meta_hash, key, true);
+  /*no need for verification procedure, we use the version number of
+   * target_bucket to test whether the bucket has ben spliteted*/
+  ret = neighbor_bucket->check_and_get(meta_hash, key, true, value);
   if (neighbor_bucket->test_lock_version_change(old_neighbor_version)) {
     goto RETRY;
   }
-  if (ret != NONE) {
-    return ret;
+  if (ret == true) {
+    return true;
   }
 
   if (target_bucket->test_stash_check()) {
@@ -2207,12 +2218,12 @@ RETRY:
             Bucket<T> *stash =
                 target->bucket + kNumBucket +
                 ((target_bucket->overflowIndex >> (i * 2)) & stashMask);
-            auto ret = stash->check_and_get(meta_hash, key, false);
-            if (ret != NONE) {
+            auto ret = stash->check_and_get(meta_hash, key, false, value);
+            if (ret == true) {
               if (target_bucket->test_lock_version_change(old_version)) {
                 goto RETRY;
               }
-              return ret;
+              return true;
             }
           }
         }
@@ -2227,12 +2238,12 @@ RETRY:
             Bucket<T> *stash =
                 target->bucket + kNumBucket +
                 ((neighbor_bucket->overflowIndex >> (i * 2)) & stashMask);
-            auto ret = stash->check_and_get(meta_hash, key, false);
-            if (ret != NONE) {
+            auto ret = stash->check_and_get(meta_hash, key, false, value);
+            if (ret == true) {
               if (target_bucket->test_lock_version_change(old_version)) {
                 goto RETRY;
               }
-              return ret;
+              return true;
             }
           }
         }
@@ -2244,18 +2255,18 @@ RETRY:
       for (int i = 0; i < stashBucket; ++i) {
         Bucket<T> *stash =
             target->bucket + kNumBucket + ((i + (y & stashMask)) & stashMask);
-        auto ret = stash->check_and_get(meta_hash, key, false);
-        if (ret != NONE) {
+        auto ret = stash->check_and_get(meta_hash, key, false, value);
+        if (ret == true) {
           if (target_bucket->test_lock_version_change(old_version)) {
             goto RETRY;
           }
-          return ret;
+          return true;
         }
       }
     }
   }
 FINAL:
-  return NONE;
+  return false;
 }
 
 template <class T>
@@ -2549,6 +2560,7 @@ int Finger_EH<T>::FindAnyway(T key) {
   Directory<T> *seg = dir;
   Table<T> **dir_entry = seg->_;
   Table<T> *ss;
+  Value_t value;
   auto global_depth = seg->global_depth;
   size_t depth_diff;
   int capacity = pow(2, global_depth);
@@ -2557,8 +2569,8 @@ int Finger_EH<T>::FindAnyway(T key) {
     Bucket<T> *curr_bucket;
     for (int j = 0; j < kNumBucket; ++j) {
       curr_bucket = ss->bucket + j;
-      auto ret = curr_bucket->check_and_get(meta_hash, key, false);
-      if (ret != NONE) {
+      auto ret = curr_bucket->check_and_get(meta_hash, key, false, &value);
+      if (ret == true) {
         printf("successfully find in the normal bucket with false\n");
         printf(
             "the segment is %d, the bucket is %d, the local depth = %lld, the "
@@ -2566,8 +2578,8 @@ int Finger_EH<T>::FindAnyway(T key) {
             i, j, ss->local_depth, ss->pattern);
         return 0;
       }
-      ret = curr_bucket->check_and_get(meta_hash, key, true);
-      if (ret != NONE) {
+      ret = curr_bucket->check_and_get(meta_hash, key, true, &value);
+      if (ret == true) {
         printf("successfully find in the normal bucket with true\n");
         printf(
             "the segment is %d, the bucket is %d, the local depth is %lld, the "
@@ -2579,8 +2591,8 @@ int Finger_EH<T>::FindAnyway(T key) {
 
     for (int i = 0; i < stashBucket; ++i) {
       curr_bucket = ss->bucket + kNumBucket + i;
-      auto ret = curr_bucket->check_and_get(meta_hash, key, false);
-      if (ret != NONE) {
+      auto ret = curr_bucket->check_and_get(meta_hash, key, false, &value);
+      if (ret == true) {
         printf("successfully find in the stash bucket\n");
         auto bucket_ix = BUCKET_INDEX(key_hash);
         auto org_bucket = ss->bucket + bucket_ix;

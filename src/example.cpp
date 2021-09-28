@@ -79,10 +79,11 @@ int main() {
 
   // Search
   uint64_t not_found = 0;
+  Value_t value;
   for (uint64_t i = 0; i < 1024; ++i) {
     auto epoch_guard = Allocator::AquireEpochGuard();
     for (uint64_t j = 0; j < 1024; ++j) {
-      if (hash_table->Get(i * 1024 + j, true) == NONE) {
+      if (hash_table->Get(i * 1024 + j, &value, true) == false) {
         not_found++;
       }
     }
